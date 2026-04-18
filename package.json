@@ -1,5 +1,5 @@
 {
-  "name": "agent-rebuild",
+  "name": "agent-rebuild", 
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -9,8 +9,9 @@
   },
   "scripts": {
     "dev": "tsx apps/gateway/src/main.ts",
-    "reindex": "tsx scripts/reindex.ts"
-   },
+    "reindex": "tsx scripts/reindex.ts",
+    "build": "tsc"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

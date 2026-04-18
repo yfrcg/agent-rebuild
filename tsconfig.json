@@ -1,14 +1,14 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "CommonJS",
-    "moduleResolution": "node10",
-    "types": ["node"],
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "outDir": "dist"
+    "target": "ES2020",  //指定编译后输出的JavaScript版本为ES2020
+    "module": "CommonJS",//指定生成代码的模块系统为CommonJS
+    "moduleResolution": "bundler",//告诉TS使用现代打包工具的逻辑去寻找和解析引入的模块
+    "strict": true,//开启所有严格的类型检查模式
+    "types": ["node"],//引入Node.js的内置环境类型声明
+    "esModuleInterop": true,//开启后，可以用ES模块的语法来引入传统的CommonJS第三方库
+    "skipLibCheck": true,//跳过检查所有的.d.ts类型声明文件（通常是node_modules里面别人写的第三方库）
+    "resolveJsonModule": true,//允许你在TS代码里面使用import导入.json文件
+    "outDir": "dist"//所有的TS代码编译乘.js后，会被统一放在dist文件夹内，不会与我的.ts源码混杂在一起
   },
-  "include": ["apps", "packages", "scripts"]
+  "include": ["apps", "packages", "scripts"]//告诉编译器只要处理这三个文件夹里面的代码
 }
