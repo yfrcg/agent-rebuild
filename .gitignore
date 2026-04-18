@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+
+workspace/index/
+workspace/sessions/
+workspace/logs/
