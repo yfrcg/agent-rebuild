@@ -1,222 +1,162 @@
 # Agent-rebuild
 
-一个正在复现 **OpenClaw 风格记忆系统** 的工程项目。  
-当前已经完成第一版 **Memory Core MVP**，实现了基于 workspace 文件的显式记忆、会话 transcript、SQLite 索引检索，以及基础的 flush / recover 生命周期。
+复现 **OpenClaw 风格记忆系统** 的工程，基于 Node.js + TypeScript + SQLite。
 
 ---
 
 ## 项目目标
 
-这个项目的目标不是只做一个聊天机器人，而是逐步复现一套类似 OpenClaw 的完整架构。  
-当前阶段优先完成的是：
-
-- workspace 显式记忆系统
-- transcript 持久化
-- 记忆检索
-- compaction 前后的基础恢复逻辑
-
-后续会继续扩展到：
-
-- 更强的记忆检索（embedding / hybrid search）
-- 更智能的 compaction 摘要
-- gateway / WebSocket 协议层
-- 多会话 / 多 agent 扩展
-- 前端入口
+逐步复现一套类似 OpenClaw 的完整架构：三级记忆体系、session 管理、 compaction 压缩、向量检索、混合搜索。
 
 ---
 
-## 当前已完成能力
+## 当前架构
 
-当前版本已经完成并验证了以下链路：
+### 三级记忆体系
 
-1. 启动时自动读取 workspace 中的核心记忆文件
-2. 支持将信息写入 daily memory
-3. 支持从 SQLite 索引中检索记忆
-4. 支持精确读取指定记忆文件
-5. 支持 pre-compaction flush
-6. 支持 post-compaction recovery
-7. 项目可正常 TypeScript 编译
-8. 命令行入口可正常运行
+```
+瞬时记忆 (sessions/*.jsonl)
+    ↓ pre-compaction flush
+长期事实 (MEMORY.md)
+    ↓ 老化归档
+日常流水 (memory/YYYY-MM-DD.md)
+    ↓ 切片向量化
+向量库 (mem_embeddings) + FTS (mem_fts)
+    ↓ hybrid search / memoryGet
+检索召回 → RRF 融合排序
+```
 
-当前已经跑通的完整流程是：
+### 目录结构
 
-```text
-启动读取 → 写记忆 → 查记忆 → 读文件 → flush → recover
-项目结构
+```
 Agent-rebuild/
-├─ apps/
-│  └─ gateway/
-│     └─ src/
-│        └─ main.ts
-│
+├─ apps/gateway/src/main.ts          # 命令行入口
 ├─ packages/
-│  ├─ core/
-│  │  └─ src/
-│  │     ├─ bootstrap.ts
-│  │     ├─ config.ts
-│  │     └─ types.ts
-│  │
-│  ├─ memory/
-│  │  └─ src/
-│  │     ├─ classifyMemory.ts
-│  │     ├─ memoryGet.ts
-│  │     ├─ memoryIndex.ts
-│  │     ├─ memorySearch.ts
-│  │     └─ memoryWriter.ts
-│  │
-│  ├─ session/
-│  │  └─ src/
-│  │     ├─ compaction.ts
-│  │     └─ transcript.ts
-│  │
-│  └─ storage/
-│     └─ src/
-│        ├─ better-sqlite3.d.ts
-│        └─ db.ts
-│
+│  ├─ core/src/
+│  │  ├─ bootstrap.ts   # 开机上下文加载（结构化 XML 标签）
+│  │  ├─ config.ts      # 时区安全日期格式化（Intl.DateTimeFormat）
+│  │  └─ types.ts       # TranscriptEntry 等基础类型
+│  ├─ memory/src/
+│  │  ├─ memoryIndex.ts       # splitIntoChunks + upsertFileIndex
+│  │  ├─ memoryWriter.ts     # writeLongTermMemory / writeDailyMemory（安全 bullet 防误判）
+│  │  ├─ hybridSearch.ts     # RRF 融合（fts + vector）
+│  │  ├─ vectorSearch.ts     # Iterator + Top-K（有界内存）
+│  │  ├─ embeddingStore.ts   # iterateAllEmbeddingRecords 生成器
+│  │  ├─ memoryGet.ts        # 带 token 估算的截断读取（2000 tok 上限）
+│  │  ├─ fileManager.ts      # upsertFileRecord + deleteFileChunks（三表级联）
+│  │  ├─ compactMemory.ts    # 7天前 daily memory → MEMORY.md 归档
+│  │  ├─ embedder.ts         # DashScope 1024维向量 API
+│  │  ├─ vectorUtils.ts      # cosineSimilarity 余弦相似度
+│  │  ├─ classifyMemory.ts   # 长期/每日记忆分类
+│  │  ├─ backfillEmbeddings.ts  # 补全 pending embeddings（Promise.allSettled）
+│  │  └─ types.ts            # MemoryChunk / MemorySearchResult
+│  ├─ session/src/
+│  │  ├─ transcript.ts      # JSONL 读写（含损坏行容错）
+│  │  ├─ compact.ts         # 会话压缩（超长截断 + 有价值内容写 memory）
+│  │  └─ compaction.ts      # preCompactionFlush / postCompactionRecovery
+│  └─ storage/src/
+│     ├─ db.ts              # better-sqlite3 单例连接
+│     └─ better-sqlite3.d.ts
 ├─ scripts/
-│  └─ reindex.ts
-│
-├─ workspace/
-│  ├─ AGENTS.md
-│  ├─ SOUL.md
-│  ├─ USER.md
-│  ├─ TOOLS.md
-│  ├─ MEMORY.md
-│  ├─ WORKFLOW_AUTO.md
-│  ├─ DREAMS.md
-│  ├─ memory/
-│  ├─ sessions/
-│  ├─ index/
-│  └─ logs/
-│
-├─ dist/
-├─ package.json
-├─ tsconfig.json
-└─ README.md
-记忆系统设计
-1. workspace 文件记忆
+│  ├─ reindex.ts            # 全量清空 + 重建索引
+│  ├─ backfill-embeddings.ts  # 批量补全向量
+│  └─ scheduler.ts          # 后台调度（dirty FTS / pending embedding / memory 归档）
+└─ workspace/               # AI 的工作区（只读防护）
+   ├─ AGENTS.md / SOUL.md / USER.md / TOOLS.md / MEMORY.md / DREAMS.md
+   ├─ memory/YYYY-MM-DD.md  # 每日记忆
+   ├─ sessions/*.jsonl      # transcript
+   └─ index/memory.sqlite   # SQLite 数据库
+```
 
-记忆系统的真实来源不是模型上下文本身，而是 workspace/ 下的 Markdown 文件。
+---
 
-核心文件包括：
+## 核心特性
 
-AGENTS.md：系统规则
-SOUL.md：回答风格
-USER.md：用户偏好
-TOOLS.md：工具约定
-MEMORY.md：长期记忆
-memory/YYYY-MM-DD.md：每日记忆
-WORKFLOW_AUTO.md：恢复流程说明
-DREAMS.md：待提升信息
-2. transcript 持久化
+### 内存爆炸防护（Iterator + Top-K）
 
-每轮输入会先写入：
+向量搜索使用 `iterateAllEmbeddingRecords()` 生成器 + 动态 Top-K 队列：
+- 内存占用恒定 O(limit × dim) ≈ 40KB，不受总记录数影响
+- 无论 5万条还是 100万条，内存峰值不变
+- 对比旧方案（全量 `stmt.all()` + 全量 `.sort()`）：从 ~1GB 降到 ~40KB
 
-workspace/sessions/<sessionId>.jsonl
+### 时区安全
 
-用于后续 flush / recover 和上下文重建。
+`getTodayDateString()` 使用 `Intl.DateTimeFormat(timeZone: TZ)` 强制格式化，不依赖服务器本地时区：
+- 默认 `Asia/Shanghai`，可通过 `TZ` 环境变量覆盖
+- UTC 服务器上运行结果与新加坡本地时间一致
 
-3. 索引与检索
+### 安全写入（防误判）
 
-当前版本使用：
+`memoryWriter.ts` 用行级精确比对替代子串 includes：
+- `"Apple"` 不会匹配到 `"Apple Pie"`
+- AI 多行输入会被压缩成单行 bullet，防止 Markdown 结构破坏
 
-better-sqlite3
-SQLite FTS5
-LIKE 降级检索
+### 结构化 Bootstrap
 
-索引文件存放在：
+开机上下文用 `<file name="xxx">...</file>` XML 标签包裹，方便 LLM 解析；MEMORY.md 超过 6000 字符时自动截断（保留最近 bullet），防止 System Prompt 膨胀。
 
-workspace/index/memory.sqlite
-4. flush / recover
+### JSONL 容错
 
-当前版本已支持：
+`readTranscript()` 对损坏行（进程崩溃导致的半条残码）加 try-catch 跳过，不影响整会话恢复。
 
-preCompactionFlush()：把最近 transcript 中的重要信息写回 memory
-postCompactionRecovery()：重新加载 bootstrap 和记忆文件
-环境要求
+---
 
-建议环境：
+## 环境要求
 
-Node.js 18+
-npm 9+
-Linux / macOS / Windows 均可
-TypeScript 6.x
-安装依赖
+- Node.js 18+
+- npm 9+
+
+## 安装
+
+```bash
 npm install
+```
 
-如果国内安装较慢，可切换镜像源后再安装。
+## 启动命令
 
-启动方式
-1. 重建索引
-npm run reindex
-2. 启动命令行入口
-npm run dev
-3. 编译项目
-npm run build
-当前支持的命令
+```bash
+npm run reindex              # 全量重建索引（清空所有表后重新导入）
+npm run backfill:embeddings  # 补全所有 pending 状态的向量
+npm run scheduler            # 启动后台调度循环
+npm run dev                  # 命令行交互入口
+npm run build                # TypeScript 编译
+```
 
-启动后，命令行支持以下输入：
+## 命令行支持
 
-记住：<内容>
-查记忆 <关键词>
-读文件 <相对路径>
-flush
-recover
-help
-exit
-示例
-写入记忆
-记住：今天正在测试第一版记忆重建系统
-检索记忆
-查记忆 测试
-读取记忆文件
-读文件 memory/2026-04-18.md
-执行 flush
-flush
-执行 recover
-recover
-当前状态
+```
+记住：<内容>    # 写入记忆（长期 → MEMORY.md，每日 → memory/YYYY-MM-DD.md）
+查记忆 <关键词>  # hybrid search 混合检索
+读文件 <路径>   # 带 token 估算的文件读取
+flush           # pre-compaction：把有价值 transcript 写回 memory
+recover         # post-compaction：重新加载 bootstrap
+help / exit
+```
 
-当前版本是：
+## 数据库表结构
 
-Memory Core MVP
+| 表名 | 用途 |
+|------|------|
+| `mem_files` | 文件级状态（hash / fts_status / embedding_status） |
+| `mem_docs` | chunk 文本（chunkId / filePath / section / content） |
+| `mem_fts` | FTS5 全文索引 |
+| `mem_embeddings` | 向量（1024维 DashScope） |
 
-它已经证明以下设计是可运行的：
+---
 
-workspace 显式记忆
-daily / long-term memory 写入
-transcript 持久化
-SQLite 索引检索
-flush / recover 生命周期
+## 当前版本
 
-但它还不是最终版，暂时还没有：
+**Memory Core v2** — 完整实现：
+- 三级记忆写入/检索
+- 向量搜索（生成器 + Top-K）
+- 混合检索（RRF 融合）
+- 会话压缩（flush / recover）
+- 老化归档（compactMemory）
+- 后台调度（scheduler）
+- 全量 TypeScript 类型安全
 
-embedding 检索
-LLM 驱动的高级 memory extraction
-真正的 WebSocket gateway
-多 agent 协作
-前端界面
-完整自动化测试
-下一步计划
+下一步计划：多会话管理、WebSocket Gateway、多 Agent 协作。
 
-接下来的开发重点建议按这个顺序推进：
+---
 
-固化当前版本，作为第一版基线
-增强 memorySearch，支持 embedding / hybrid search
-增强 preCompactionFlush，引入 LLM 提取逻辑
-继续扩展 gateway 生命周期
-再向完整 OpenClaw 风格架构推进
-开发说明
-
-当前项目使用的是：
-
-根目录统一 package.json
-根目录统一 tsconfig.json
-packages/* 作为逻辑分层，而不是独立发布模块
-
-也就是说，目前这是一个 单仓库、统一编译、统一运行 的工程，不是 monorepo publish 结构。
-
-许可证
-
-当前项目暂未添加许可证，后续再根据需要补充。
+许可证：MIT
