@@ -1,16 +1,20 @@
-//原始记忆切片
+//原始记忆切片（内存中运行时使用，不含数据库字段）
 export type MemoryChunk = {
-  chunkId: string;
-  filePath: string;
-  section: string;
-  content: string;
+  chunkId: string;//全局唯一 ID，格式为 "filePath#chunkIndex"
+  file_id: string;//关联到 mem_files.file_id，用于定位来源文件
+  filePath: string;//来源文件的绝对路径
+  section: string;//所属小节（如 "长期事实"、"Notes"）
+  content: string;//切片原文
+  date?: string;//记忆日期，用于时间衰减排序（如 "2026-04-20"，从文件名或 frontmatter 提取）
 };
-//可计算记忆：“有些记忆还没来得及生成向量”的中间状态
+
+//可计算记忆："有些记忆还没来得及生成向量"的中间状态
 export type MemoryEmbeddingRecord = MemoryChunk & {
-  embedding?: number[];
+  embedding?: number[];//1024 维向量，生成后写入 mem_embeddings
 };
+
 //最终形态：检索结果反馈
 export type MemorySearchResult = MemoryChunk & {
-  score?: number;
-  source?: "fts" | "vector" | "hybrid";
+  score?: number;//RRF 融合后的综合排序分数
+  source?: "fts" | "vector" | "hybrid";//来源标记：fts=全文检索，vector=向量检索，hybrid=两者都有
 };

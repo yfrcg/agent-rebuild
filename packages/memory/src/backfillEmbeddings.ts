@@ -1,33 +1,92 @@
-import { getAllEmbeddingRecords, saveEmbedding } from "./embeddingStore";
+import { getDb } from "../../storage/src/db";
 import { embedText } from "./embedder";
+import { saveEmbeddingsBatch } from "./embeddingStore";
+import { getPendingEmbeddingFiles, markEmbeddingReady, markEmbeddingError } from "./fileManager";
 
-/*
-在实际的 AI Agent 运行中，这个 backfill（回填）函数通常用于以下几种场景：
+// 每个批次并发处理的 chunk 数量，可根据 API 速率限制调整（DashScope 如果有限流建议设为 2-3）
+const BATCH_SIZE = 5;
 
-系统冷启动/数据迁移：假设你原本只用普通文本记录 AI 的日志（比如直接写 Markdown），现在你想给 AI 升级加上向量检索功能。
-你可以把所有的历史 Markdown 文件切块存入，然后运行这个函数，它就会自动把所有历史文本一次性翻译成向量。
-
-API 故障恢复：如果 AI 在日常运行中，网络突然中断或 API 达到限流（Rate Limit），导致一段记忆只存了文本没来得及生成向量。
-这个脚本可以作为后台的“定时清理任务”，把那些遗漏的记忆重新补上向量。
-*/
 export async function backfillEmbeddings() {
-  const records = getAllEmbeddingRecords();//从数据库或本地存储中，获取所有的记忆记录
+  const db = getDb();
+  const pendingFiles = getPendingEmbeddingFiles(db);
 
-  let updated = 0;//计数器：记录本次操作一共成功转化了多少条新记忆
+  if (pendingFiles.length === 0) {
+    return { total: 0, updated: 0, pendingFiles: 0, message: "nothing to backfill" };
+  }
 
-  //每次调用embedText都是消耗Token和时间的，拦截掉冗余操作节省时间和Token
-  for (const record of records) {
-    if (record.embedding && record.embedding.length > 0) {
+  let totalUpdated = 0;
+
+  for (const file of pendingFiles) {
+    // 只查这个文件缺失向量的 chunks，用 SQL 条件在数据库层过滤（避免全表扫描）
+    const missing = db.prepare(`
+      SELECT chunkId, content FROM mem_embeddings
+      WHERE file_id = ? AND (embedding IS NULL OR embedding = '')
+    `).all(file.file_id) as Array<{ chunkId: string; content: string }>;
+
+    // 该文件所有 chunks 已有向量，直接标记 ready
+    if (missing.length === 0) {
+      markEmbeddingReady(db, file.file_id);
       continue;
     }
 
-    const embedding = await embedText(record.content);//将这条纯文本内容发给Embedding模型，等待返回一个向量数组
-    saveEmbedding(record.chunkId, embedding);//将原始记忆块ID和向量数组绑定，存回数据库中
-    updated += 1;//计数加一
+    let fileUpdated = 0;
+    let hasError = false;
+
+    // 按批次并发处理 missing chunks
+    for (let i = 0; i < missing.length; i += BATCH_SIZE) {
+      const batch = missing.slice(i, i + BATCH_SIZE);
+
+      // 这一批次内逐个调用，任意一个失败不会导致整个批次被丢弃（保留已成功的）
+      const results = await Promise.allSettled(
+        batch.map(async (record) => {
+          const embedding = await embedText(record.content);
+          return { chunkId: record.chunkId, embedding };
+        })
+      );
+
+      // 批次内逐个检查结果，成功则收集，失败则记录
+      const successfulBatch: Array<{ chunkId: string; embedding: number[] }> = [];
+      let batchHasFailure = false;
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        if (result.status === "fulfilled") {
+          successfulBatch.push(result.value);
+          fileUpdated += 1;
+        } else {
+          // 批次内单个失败：记录错误但不中断整批
+          console.error(`Embedding failed for chunk ${batch[j].chunkId}:`, result.reason);
+          batchHasFailure = true;
+        }
+      }
+
+      // 批次全部成功后，一次性批量写入数据库（减少 I/O 次数）
+      if (successfulBatch.length > 0) {
+        saveEmbeddingsBatch(successfulBatch);
+      }
+
+      // 批次内任意一个 chunk 失败，标记该文件为 error，停止后续批次处理
+      if (batchHasFailure) {
+        markEmbeddingError(db, file.file_id);
+        hasError = true;
+        break;
+      }
+    }
+
+    // 把已成功处理的 chunks 累加到 total（无论是否有错误，已成功的不应丢失）
+    totalUpdated += fileUpdated;
+
+    // 只有在没发生错误且全部完成的情况下，才标记该文件为 ready
+    if (!hasError && fileUpdated === missing.length) {
+      markEmbeddingReady(db, file.file_id);
+    }
   }
 
+  const pendingAfter = getPendingEmbeddingFiles(db);
+
   return {
-    total: records.length,
-    updated,
+    total: totalUpdated,
+    updated: totalUpdated,
+    pendingFiles: pendingAfter.length,
+    message: pendingAfter.length === 0 ? "all embeddings ready" : "some files still pending",
   };
 }

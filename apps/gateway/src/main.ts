@@ -9,7 +9,8 @@ import { classifyMemory } from "../../../packages/memory/src/classifyMemory";
 import { writeDailyMemory, writeLongTermMemory } from "../../../packages/memory/src/memoryWriter";
 import { memoryGet } from "../../../packages/memory/src/memoryGet";
 import { hybridSearch } from "../../../packages/memory/src/hybridSearch";
-import { rebuildMemoryIndex } from "../../../packages/memory/src/memoryIndex";
+import { upsertFileIndex } from "../../../packages/memory/src/memoryIndex";
+import { resolveWorkspacePath } from "../../../packages/core/src/config";
 
 const sessionId = `session-${Date.now()}`;
 
@@ -67,19 +68,22 @@ async function main() {
 
     if (raw === "exit") {
       console.log("Bye.");
+      appendTranscript(sessionId, makeEntry("assistant", "Bye."));
       rl.close();
       break;
     }
 
     if (raw === "help") {
       printHelp();
+      appendTranscript(sessionId, makeEntry("assistant", "Displayed help menu."));
       continue;
     }
 
     if (raw === "flush") {
       const res = preCompactionFlush(sessionId);
-      rebuildMemoryIndex();
+      upsertFileIndex(resolveWorkspacePath("MEMORY.md"));
       console.log("[pre-compaction flush]", res);
+      appendTranscript(sessionId, makeEntry("tool", `[pre-compaction flush] ${res.message}`));
       continue;
     }
 
@@ -89,6 +93,7 @@ async function main() {
       for (const file of ctx.bootstrapFiles) {
         console.log(`- ${file.name}: ${file.missing ? "missing" : "ok"}`);
       }
+      appendTranscript(sessionId, makeEntry("tool", "[post-compaction recovery] restored from flush."));
       continue;
     }
 
@@ -98,13 +103,15 @@ async function main() {
 
       if (kind === "long-term") {
         writeLongTermMemory(text);
+        upsertFileIndex(resolveWorkspacePath("MEMORY.md"));
         console.log("[saved] MEMORY.md");
+        appendTranscript(sessionId, makeEntry("assistant", "[saved] MEMORY.md"));
       } else {
         writeDailyMemory(text);
+        upsertFileIndex(resolveWorkspacePath("memory", "2026-04-20.md"));
         console.log("[saved] daily memory");
+        appendTranscript(sessionId, makeEntry("assistant", "[saved] daily memory"));
       }
-
-      rebuildMemoryIndex();
       continue;
     }
 
@@ -114,6 +121,7 @@ async function main() {
 
       if (hits.length === 0) {
         console.log("[search] no hits");
+        appendTranscript(sessionId, makeEntry("assistant", "[search] no hits"));
         continue;
       }
 
@@ -124,6 +132,9 @@ async function main() {
         console.log(`section: ${hit.section}`);
         console.log(hit.content.slice(0, 200));
       });
+
+      const summary = hits.map((h, i) => `#${i + 1}: ${h.content.slice(0, 80)}`).join("\n");
+      appendTranscript(sessionId, makeEntry("assistant", `[search results]\n${summary}`));
       continue;
     }
 
@@ -133,15 +144,18 @@ async function main() {
         const result = memoryGet(file);
         console.log("\n[file content]");
         console.log(result.text);
+        appendTranscript(sessionId, makeEntry("assistant", `[file content]\n${result.text}`));
       } catch (err) {
         console.error(String(err));
+        appendTranscript(sessionId, makeEntry("assistant", `[error] ${String(err)}`));
       }
       continue;
     }
 
     writeDailyMemory(`Conversation note: ${raw}`);
-    rebuildMemoryIndex();
+    upsertFileIndex(resolveWorkspacePath("memory", "2026-04-20.md"));
     console.log("[noted] written to daily memory");
+    appendTranscript(sessionId, makeEntry("assistant", "[noted] written to daily memory"));
   }
 }
 

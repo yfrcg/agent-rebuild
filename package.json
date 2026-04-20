@@ -11,7 +11,8 @@
     "dev": "tsx apps/gateway/src/main.ts",
     "reindex": "tsx scripts/reindex.ts",
     "build": "tsc",
-    "backfill:embeddings": "tsx scripts/backfill-embeddings.ts"
+    "backfill:embeddings": "tsx scripts/backfill-embeddings.ts",
+    "scheduler": "tsx scripts/scheduler.ts"
   },
   "keywords": [],
   "author": "",
