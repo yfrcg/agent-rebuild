@@ -1,5 +1,5 @@
 import * as fs from "fs";//用于操作文件
-import { resolveWorkspacePath } from "../../core/src/config";//引入的自定义函数，将哟个相对路径转换为项目中的绝对路径
+import { resolveWorkspacePath } from "../../core/src/config";//引入的自定义函数，将一个相对路径转换为项目中的绝对路径
 //读取file的真实路径，？代表可选
 export function memoryGet(file: string, startLine?: number, endLine?: number) { 
   const filePath = resolveWorkspacePath(file);

@@ -51,7 +51,7 @@ export function loadBootstrapContext(): BootstrapContext {
 
   USER.md：用户画像档案。描述当前在跟 AI 交互的人是谁。
 
-  TOOLS.md：工具说明书。告诉 AI 它可以使用哪些能力（比如我们之前看的 memorySearch 和 writeDailyMemory）。
+  TOOLS.md：工具说明书。告诉 AI 它可以使用哪些能力（比如我们之前看的 hybridSearch 和 writeDailyMemory）。
 
   WORKFLOW_AUTO.md：自动化工作流定义。告诉 AI 在特定情况下应该按照什么标准流程办事。
 

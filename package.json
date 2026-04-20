@@ -1,5 +1,5 @@
 {
-  "name": "agent-rebuild", 
+  "name": "agent-rebuild",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "tsx apps/gateway/src/main.ts",
     "reindex": "tsx scripts/reindex.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "backfill:embeddings": "tsx scripts/backfill-embeddings.ts"
   },
   "keywords": [],
   "author": "",
@@ -22,6 +23,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
+    "dotenv": "^17.4.2",
     "glob": "^13.0.6"
   }
 }

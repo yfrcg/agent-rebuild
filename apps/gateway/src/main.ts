@@ -8,7 +8,7 @@ import { preCompactionFlush, postCompactionRecovery } from "../../../packages/se
 import { classifyMemory } from "../../../packages/memory/src/classifyMemory";
 import { writeDailyMemory, writeLongTermMemory } from "../../../packages/memory/src/memoryWriter";
 import { memoryGet } from "../../../packages/memory/src/memoryGet";
-import { memorySearch } from "../../../packages/memory/src/memorySearch";
+import { hybridSearch } from "../../../packages/memory/src/hybridSearch";
 import { rebuildMemoryIndex } from "../../../packages/memory/src/memoryIndex";
 
 const sessionId = `session-${Date.now()}`;
@@ -45,7 +45,6 @@ function printHelp() {
 }
 
 async function main() {
-  rebuildMemoryIndex();
   printBootstrap();
   printHelp();
 
@@ -111,7 +110,7 @@ async function main() {
 
     if (raw.startsWith("查记忆 ")) {
       const query = raw.replace(/^查记忆 /, "").trim();
-      const hits = memorySearch(query, 5);
+      const hits = await hybridSearch(query, 5);
 
       if (hits.length === 0) {
         console.log("[search] no hits");

@@ -11,6 +11,15 @@ export function classifyMemory(text: string): MemoryKind {
     "偏好",
     "习惯",
     "固定决策",
+    "我的名字",
+    "我是",
+    "每次都",
+    "从来都",
+    "请务必",
+    "绝对不要",
+    "一定不能",
+    "不要改变",
+    "不要改",
   ];
   //.some遍历上面的数组，只要有任何一个词在 text 中被找到了，.some() 就会立刻返回 true
   const shouldPromote = longTermHints.some((hint) => text.includes(hint));
