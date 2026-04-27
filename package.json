@@ -12,7 +12,15 @@
     "reindex": "tsx scripts/reindex.ts",
     "build": "tsc",
     "backfill:embeddings": "tsx scripts/backfill-embeddings.ts",
-    "scheduler": "tsx scripts/scheduler.ts"
+    "scheduler": "tsx scripts/scheduler.ts",
+    "gateway": "tsx apps/gateway/src/main.ts",
+    "gateway:smoke": "tsx scripts/smoke-gateway.ts",
+    "typecheck": "tsc --noEmit",
+    "gateway:smoke:memory-failure": "tsx scripts/smoke-gateway-memory-failure.ts",
+    "gateway:smoke:model-failure": "tsx scripts/smoke-gateway-model-failure.ts",
+    "gateway:smoke:all": "tsx scripts/smoke-gateway-all.ts",
+    "gateway:detect": "tsx scripts/system-detect.ts",
+    "gateway:check": "npm run typecheck && npm run build && npm run gateway:smoke:all && npm run gateway:detect"
   },
   "keywords": [],
   "author": "",
