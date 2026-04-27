@@ -1,0 +1,82 @@
+{
+  "generatedAt": "2026-04-27T13:14:22.594Z",
+  "projectRoot": "D:\\WorkStation\\Trae\\agent-rebuild",
+  "summary": {
+    "totalChecks": 5,
+    "passedChecks": 5,
+    "failedChecks": 0,
+    "passRate": "100.0%"
+  },
+  "performance": {
+    "requestCount": 60,
+    "concurrency": 12,
+    "avgDurationMs": 14.77,
+    "p95DurationMs": 19,
+    "wallClockMs": 76,
+    "achievedTps": 789.47,
+    "errorRate": 0
+  },
+  "checks": [
+    {
+      "name": "gateway-unit",
+      "passed": true,
+      "details": {
+        "coveredFlows": [
+          "success",
+          "memory-fallback",
+          "model-fallback"
+        ],
+        "auditEventCount": 15
+      }
+    },
+    {
+      "name": "gateway-resilience",
+      "passed": true,
+      "details": {
+        "coveredFlows": [
+          "rate-limit",
+          "circuit-breaker",
+          "metrics"
+        ],
+        "finalCircuitState": "open",
+        "totalAuditEvents": 26
+      }
+    },
+    {
+      "name": "api-adapters",
+      "passed": true,
+      "details": {
+        "coveredAdapters": [
+          "DeepSeekProvider",
+          "embedText"
+        ],
+        "coveredScenarios": [
+          "success",
+          "http-error",
+          "timeout",
+          "invalid-payload",
+          "missing-config"
+        ]
+      }
+    },
+    {
+      "name": "memory-reliability",
+      "passed": true,
+      "details": {
+        "uniqueToken": "MEM-1777295662477",
+        "initialChunks": 1,
+        "updatedChunks": 1,
+        "concurrentQueries": 20
+      }
+    },
+    {
+      "name": "full-chain-smoke",
+      "passed": true,
+      "details": {
+        "requestText": "请根据 system-detect-1777295662361 给出摘要",
+        "auditEventCount": 5,
+        "durationMs": 6
+      }
+    }
+  ]
+}

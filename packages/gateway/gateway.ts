@@ -83,6 +83,18 @@ export class Gateway {
     let circuitInfo: CircuitState | undefined;
 
     try {
+      await this.recordAudit({
+        type: "gateway.request.received",
+        timestamp: new Date().toISOString(),
+        requestId,
+        modelProvider: this.modelProvider.name,
+        inputLength: input.length,
+        responseLength: 0,
+        memoryCount: 0,
+        durationMs: 0,
+        success: true,
+      });
+
       rateLimitInfo = await this.checkRateLimit();
 
       if (!rateLimitInfo.allowed) {
@@ -94,7 +106,7 @@ export class Gateway {
         await this.recordMetrics({
           durationMs,
           success: false,
-          errorMessage: rateLimitInfo.reason ?? "rate limited",
+          errorMessage: rateLimitInfo.reason ?? "Rate limit exceeded",
         });
 
         await this.recordAudit({
@@ -107,7 +119,21 @@ export class Gateway {
           memoryCount: 0,
           durationMs,
           success: false,
-          errorMessage: rateLimitInfo.reason ?? "rate limited",
+          errorMessage: rateLimitInfo.reason ?? "Rate limit exceeded",
+          rateLimited: true,
+        });
+
+        await this.recordAudit({
+          type: "gateway.rate_limited",
+          timestamp: new Date().toISOString(),
+          requestId,
+          modelProvider: this.modelProvider.name,
+          inputLength: input.length,
+          responseLength: responseText.length,
+          memoryCount: 0,
+          durationMs,
+          success: false,
+          errorMessage: rateLimitInfo.reason ?? "Rate limit exceeded",
           rateLimited: true,
         });
 
@@ -118,7 +144,7 @@ export class Gateway {
           memoryCount: 0,
           durationMs,
           hasError: true,
-          errorMessage: rateLimitInfo.reason ?? "rate limited",
+          errorMessage: rateLimitInfo.reason ?? "Rate limit exceeded",
           rateLimit: rateLimitInfo,
         });
       }
@@ -134,7 +160,7 @@ export class Gateway {
         await this.recordMetrics({
           durationMs,
           success: false,
-          errorMessage: circuitInfo.reason ?? "circuit breaker open",
+          errorMessage: circuitInfo.reason ?? "Circuit breaker is open",
         });
 
         await this.recordAudit({
@@ -147,7 +173,21 @@ export class Gateway {
           memoryCount: 0,
           durationMs,
           success: false,
-          errorMessage: circuitInfo.reason ?? "circuit breaker open",
+          errorMessage: circuitInfo.reason ?? "Circuit breaker is open",
+          circuitOpen: true,
+        });
+
+        await this.recordAudit({
+          type: "gateway.circuit.open",
+          timestamp: new Date().toISOString(),
+          requestId,
+          modelProvider: this.modelProvider.name,
+          inputLength: input.length,
+          responseLength: responseText.length,
+          memoryCount: 0,
+          durationMs,
+          success: false,
+          errorMessage: circuitInfo.reason ?? "Circuit breaker is open",
           circuitOpen: true,
         });
 
@@ -158,7 +198,7 @@ export class Gateway {
           memoryCount: 0,
           durationMs,
           hasError: true,
-          errorMessage: circuitInfo.reason ?? "circuit breaker open",
+          errorMessage: circuitInfo.reason ?? "Circuit breaker is open",
           rateLimit: rateLimitInfo,
           circuit: circuitInfo,
         });
@@ -172,7 +212,32 @@ export class Gateway {
         memoryResults = [];
       }
 
+      await this.recordAudit({
+        type: "memory.search.completed",
+        timestamp: new Date().toISOString(),
+        requestId,
+        modelProvider: this.modelProvider.name,
+        inputLength: input.length,
+        responseLength: 0,
+        memoryCount: memoryResults.length,
+        durationMs: Date.now() - startedAt,
+        success: !hasError,
+        errorMessage,
+      });
+
       const messages = this.contextBuilder.buildMessages(input, memoryResults);
+
+      await this.recordAudit({
+        type: "context.built",
+        timestamp: new Date().toISOString(),
+        requestId,
+        modelProvider: this.modelProvider.name,
+        inputLength: input.length,
+        responseLength: 0,
+        memoryCount: memoryResults.length,
+        durationMs: Date.now() - startedAt,
+        success: true,
+      });
 
       try {
         responseText = await this.callModel(messages);
@@ -184,6 +249,19 @@ export class Gateway {
         this.recordCircuitFailure(errorMessage);
       }
 
+      await this.recordAudit({
+        type: "model.generate.completed",
+        timestamp: new Date().toISOString(),
+        requestId,
+        modelProvider: this.modelProvider.name,
+        inputLength: input.length,
+        responseLength: responseText.length,
+        memoryCount: memoryResults.length,
+        durationMs: Date.now() - startedAt,
+        success: !hasError,
+        errorMessage,
+      });
+
       const durationMs = Date.now() - startedAt;
 
       await this.recordMetrics({
@@ -193,9 +271,7 @@ export class Gateway {
       });
 
       await this.recordAudit({
-        type: hasError
-          ? "gateway.request.completed_with_error"
-          : "gateway.request.completed",
+        type: "gateway.response.completed",
         timestamp: new Date().toISOString(),
         requestId,
         modelProvider: this.modelProvider.name,
@@ -352,7 +428,7 @@ export class Gateway {
       return {
         open,
         state: typeof breaker.getState === "function" ? breaker.getState() : undefined,
-        reason: open ? "circuit breaker open" : undefined,
+        reason: open ? "Circuit breaker is open" : undefined,
       };
     }
 
@@ -361,7 +437,7 @@ export class Gateway {
       return {
         open: !canRequest,
         state: canRequest ? "closed" : "open",
-        reason: canRequest ? undefined : "circuit breaker open",
+        reason: canRequest ? undefined : "Circuit breaker is open",
       };
     }
 
@@ -370,7 +446,7 @@ export class Gateway {
       return {
         open: state === "open",
         state,
-        reason: state === "open" ? "circuit breaker open" : undefined,
+        reason: state === "open" ? "Circuit breaker is open" : undefined,
       };
     }
 
@@ -378,7 +454,7 @@ export class Gateway {
       return {
         open: breaker.state === "open",
         state: breaker.state,
-        reason: breaker.state === "open" ? "circuit breaker open" : undefined,
+        reason: breaker.state === "open" ? "Circuit breaker is open" : undefined,
       };
     }
 
@@ -479,24 +555,42 @@ export class Gateway {
         append?: (event: unknown) => void | Promise<void>;
         write?: (event: unknown) => void | Promise<void>;
       };
+      const normalizedEvent = {
+        id: `${event.requestId}-${Date.now()}`,
+        requestId: event.requestId,
+        type: event.type,
+        message: event.errorMessage ?? event.type,
+        createdAt: event.timestamp,
+        data: {
+          modelProvider: event.modelProvider,
+          inputLength: event.inputLength,
+          responseLength: event.responseLength,
+          memoryCount: event.memoryCount,
+          durationMs: event.durationMs,
+          success: event.success,
+          errorMessage: event.errorMessage,
+          rateLimited: event.rateLimited,
+          circuitOpen: event.circuitOpen,
+        },
+      };
 
       if (typeof logger.log === "function") {
-        await logger.log(event);
+        await logger.log(normalizedEvent);
         return;
       }
 
       if (typeof logger.record === "function") {
-        await logger.record(event);
+        await logger.record(normalizedEvent);
         return;
       }
 
       if (typeof logger.append === "function") {
-        await logger.append(event);
+        await logger.append(normalizedEvent);
         return;
       }
 
       if (typeof logger.write === "function") {
-        await logger.write(event);
+        await logger.write(normalizedEvent);
       }
     } catch {
       // Audit is side-channel only.
@@ -553,14 +647,18 @@ export class Gateway {
       return undefined;
     }
 
+    const rawState = this.getCircuitState().state;
+    const circuitState =
+      rawState === "open" || rawState === "half-open" ? rawState : "closed";
+
     const collector = this.metricsCollector as {
-      snapshot?: () => unknown;
+      snapshot?: (circuitState?: string) => unknown;
       getSnapshot?: () => unknown;
       toJSON?: () => unknown;
     };
 
     if (typeof collector.snapshot === "function") {
-      return collector.snapshot();
+      return collector.snapshot(circuitState);
     }
 
     if (typeof collector.getSnapshot === "function") {

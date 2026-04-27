@@ -1,4 +1,4 @@
-export type GatewayModelName = "mock" | "minimax";
+export type GatewayModelName = "mock" | "deepseek";
 
 export interface GatewayRuntimeConfig {
   model: GatewayModelName;
@@ -31,8 +31,15 @@ export function loadGatewayConfig(
 }
 
 function parseModelName(value: string | undefined): GatewayModelName {
+  if (value === "deepseek") {
+    return "deepseek";
+  }
+
   if (value === "minimax") {
-    return "minimax";
+    console.warn(
+      `[gateway config] GATEWAY_MODEL="minimax" is deprecated, use "deepseek" instead`
+    );
+    return "deepseek";
   }
 
   if (value === "mock" || value === undefined || value.trim() === "") {

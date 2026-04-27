@@ -1,0 +1,15 @@
+{
+  "servers": [
+    {
+      "id": "course_project",
+      "name": "Course Project Intelligence",
+      "enabled": false,
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "app.main", "stdio"],
+      "cwd": "D:/WorkStation/Trae/course-project-intelligence-mcp-server",
+      "env": {},
+      "toolNamePrefix": "mcp.course_project"
+    }
+  ]
+}

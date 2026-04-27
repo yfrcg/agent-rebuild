@@ -11,7 +11,7 @@ import { createGatewayMemorySearch } from "../packages/gateway/memoryAdapter";
 import { GatewayMetricsCollector } from "../packages/gateway/metricsCollector";
 import { GatewayRateLimiter } from "../packages/gateway/rateLimiter";
 import { createGatewayRequest } from "../packages/gateway/requestHandler";
-import { MiniMaxProvider } from "../packages/model/minimaxProvider";
+import { DeepSeekProvider } from "../packages/model/deepseekProvider";
 import { MockModelProvider } from "../packages/model/mockProvider";
 import type { ChatMessage, MemorySearchResult as GatewayMemoryResult } from "../packages/gateway/types";
 import { backfillEmbeddings } from "../packages/memory/src/backfillEmbeddings";
@@ -62,6 +62,7 @@ async function main(): Promise<void> {
   await mkdir(path.dirname(auditLogPath), { recursive: true });
 
   const checks: CheckResult[] = [];
+  let performance: DetectionReport["performance"] | undefined;
 
   try {
     await withEnv(
@@ -81,10 +82,12 @@ async function main(): Promise<void> {
         checks.push(
           await runFullChainChecks(tempMemoryFile, auditLogPath, server.origin)
         );
+
+        performance = await runGatewayLoadCheck(tempMemoryFile, server.origin);
       }
     );
 
-    const performance = await runGatewayLoadCheck(tempMemoryFile, server.origin);
+    assert.ok(performance);
     const passedChecks = checks.filter((check) => check.passed).length;
     const report: DetectionReport = {
       generatedAt: new Date().toISOString(),
@@ -283,31 +286,31 @@ async function runGatewayResilienceChecks(): Promise<CheckResult> {
 }
 
 async function runApiAdapterChecks(serverOrigin: string): Promise<CheckResult> {
-  const minimaxProvider = new MiniMaxProvider({
+  const deepseekProvider = new DeepSeekProvider({
     apiKey: "detect-key",
     baseUrl: `${serverOrigin}/v1`,
     model: "detect-ok",
     timeoutMs: 200,
   });
 
-  const minimaxResponse = await minimaxProvider.generate([
+  const deepseekResponse = await deepseekProvider.generate([
     { role: "user", content: "API success" },
   ]);
-  assert.match(minimaxResponse.text, /mock minimax response/);
+  assert.match(deepseekResponse.text, /mock deepseek response/);
 
   await assert.rejects(
     () =>
-      new MiniMaxProvider({
+      new DeepSeekProvider({
         apiKey: "detect-key",
         baseUrl: `${serverOrigin}/v1`,
         model: "detect-error",
       }).generate([{ role: "user", content: "server error" }]),
-    /MiniMax API request failed/
+    /DeepSeek API request failed/
   );
 
   await assert.rejects(
     () =>
-      new MiniMaxProvider({
+      new DeepSeekProvider({
         apiKey: "detect-key",
         baseUrl: `${serverOrigin}/v1`,
         model: "detect-timeout",
@@ -318,7 +321,7 @@ async function runApiAdapterChecks(serverOrigin: string): Promise<CheckResult> {
 
   await assert.rejects(
     () =>
-      new MiniMaxProvider({
+      new DeepSeekProvider({
         apiKey: "detect-key",
         baseUrl: `${serverOrigin}/v1`,
         model: "detect-empty",
@@ -340,7 +343,7 @@ async function runApiAdapterChecks(serverOrigin: string): Promise<CheckResult> {
     name: "api-adapters",
     passed: true,
     details: {
-      coveredAdapters: ["MiniMaxProvider", "embedText"],
+      coveredAdapters: ["DeepSeekProvider", "embedText"],
       coveredScenarios: [
         "success",
         "http-error",
@@ -354,6 +357,7 @@ async function runApiAdapterChecks(serverOrigin: string): Promise<CheckResult> {
 
 async function runMemoryReliabilityChecks(tempMemoryFile: string): Promise<CheckResult> {
   const db = getDb();
+  cleanupSystemDetectIndexArtifacts(db);
   const uniqueToken = `MEM-${Date.now()}`;
 
   await writeFile(
@@ -396,11 +400,32 @@ async function runMemoryReliabilityChecks(tempMemoryFile: string): Promise<Check
 
   await backfillEmbeddings();
 
-  const searchTasks = Array.from({ length: 20 }, () => hybridSearch(uniqueToken, 3));
+  const searchTasks = Array.from({ length: 20 }, () => hybridSearch(uniqueToken, 50));
   const searchResults = await Promise.all(searchTasks);
 
   assert.equal(searchResults.length, 20);
-  assert.ok(searchResults.every((hits) => hits.some((hit) => hit.content.includes(uniqueToken))));
+  const perQueryMatched = searchResults.map((hits) =>
+    hits.some((hit) => hit.content.includes(uniqueToken))
+  );
+  const allMatched = perQueryMatched.every(Boolean);
+  if (!allMatched) {
+    const failIndices = perQueryMatched
+      .map((matched, index) => (matched ? -1 : index))
+      .filter((index) => index >= 0);
+    const failDetails = failIndices.map((index) => ({
+      queryIndex: index,
+      hits: searchResults[index]?.map((hit) => ({
+        id: hit.chunkId,
+        source: hit.source,
+        snippet: String(hit.content).slice(0, 160),
+      })),
+    }));
+    assert.fail(
+      `[memory-reliability] uniqueToken=${uniqueToken}, failQueries=${failIndices.join(",")}, failSamples=${JSON.stringify(
+        failDetails.slice(0, 2)
+      )}`
+    );
+  }
 
   return {
     name: "memory-reliability",
@@ -414,6 +439,44 @@ async function runMemoryReliabilityChecks(tempMemoryFile: string): Promise<Check
   };
 }
 
+function cleanupSystemDetectIndexArtifacts(db: ReturnType<typeof getDb>): void {
+  const rows = db.prepare(
+    "SELECT file_id FROM mem_files WHERE path LIKE ?"
+  ).all("%system-detect-%.md") as Array<{ file_id: string }>;
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  db.exec("BEGIN TRANSACTION");
+  try {
+    for (const row of rows) {
+      const chunkIds = db.prepare(
+        "SELECT chunkId FROM mem_docs WHERE file_id = ?"
+      ).all(row.file_id) as Array<{ chunkId: string }>;
+
+      if (chunkIds.length > 0) {
+        const ids = chunkIds.map((item) => item.chunkId);
+        const placeholders = ids.map(() => "?").join(",");
+        db.prepare(
+          `DELETE FROM mem_embeddings WHERE chunkId IN (${placeholders})`
+        ).run(...ids);
+        db.prepare(
+          `DELETE FROM mem_fts WHERE chunkId IN (${placeholders})`
+        ).run(...ids);
+      }
+
+      db.prepare("DELETE FROM mem_docs WHERE file_id = ?").run(row.file_id);
+      db.prepare("DELETE FROM mem_files WHERE file_id = ?").run(row.file_id);
+    }
+
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 async function runFullChainChecks(
   tempMemoryFile: string,
   auditLogPath: string,
@@ -424,7 +487,7 @@ async function runFullChainChecks(
 
   const gateway = new Gateway({
     memorySearch: createGatewayMemorySearch(5),
-    modelProvider: new MiniMaxProvider({
+    modelProvider: new DeepSeekProvider({
       apiKey: "detect-key",
       baseUrl: `${serverOrigin}/v1`,
       model: "detect-ok",
@@ -438,7 +501,7 @@ async function runFullChainChecks(
   assert.equal(response.error, undefined);
   assert.ok(response.memoryUsed.length > 0);
   assert.ok(response.memoryUsed.some((item) => String(item.source).includes(marker)));
-  assert.match(response.text, /mock minimax response/);
+  assert.match(response.text, /mock deepseek response/);
 
   const rawAudit = await readFile(auditLogPath, "utf8");
   const events = rawAudit
@@ -483,7 +546,7 @@ async function runGatewayLoadCheck(
   });
   const gateway = new Gateway({
     memorySearch: createGatewayMemorySearch(3),
-    modelProvider: new MiniMaxProvider({
+    modelProvider: new DeepSeekProvider({
       apiKey: "detect-key",
       baseUrl: `${serverOrigin}/v1`,
       model: "detect-ok",
@@ -674,7 +737,7 @@ async function handleMockRequest(
     const model = String(body.model ?? "");
     if (model === "detect-error") {
       res.statusCode = 500;
-      res.end("mock minimax failure");
+      res.end("mock deepseek failure");
       return;
     }
     if (model === "detect-timeout") {
@@ -710,7 +773,7 @@ async function handleMockRequest(
         {
           message: {
             role: "assistant",
-            content: `mock minimax response: ${userMessage?.content ?? "no input"}`,
+            content: `mock deepseek response: ${userMessage?.content ?? "no input"}`,
           },
         },
       ],

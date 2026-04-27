@@ -6,6 +6,10 @@ export type GatewayCommandType =
   | "remember"
   | "search-memory"
   | "read-file"
+  | "session"
+  | "mcp"
+  | "tools"
+  | "tool"
   | "chat";
 
 export interface ParsedGatewayCommand {
@@ -70,6 +74,37 @@ export function parseGatewayCommand(rawInput: string): ParsedGatewayCommand {
       type: "read-file",
       raw,
       payload: raw.replace(/^读文件 /, "").trim(),
+    };
+  }
+
+  if (raw === ":session" || raw.startsWith(":session ")) {
+    return {
+      type: "session",
+      raw,
+      payload: raw.replace(/^:session\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":mcp" || raw.startsWith(":mcp ")) {
+    return {
+      type: "mcp",
+      raw,
+      payload: raw.replace(/^:mcp\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":tools") {
+    return {
+      type: "tools",
+      raw,
+    };
+  }
+
+  if (raw === ":tool" || raw.startsWith(":tool ")) {
+    return {
+      type: "tool",
+      raw,
+      payload: raw.replace(/^:tool\s*/, "").trim(),
     };
   }
 

@@ -1,6 +1,6 @@
 import type { ChatMessage, ModelProvider, ModelResponse } from "./types";
 
-export interface MiniMaxProviderOptions {
+export interface DeepSeekProviderOptions {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
@@ -9,31 +9,25 @@ export interface MiniMaxProviderOptions {
   timeoutMs?: number;
 }
 
-interface MiniMaxChatCompletionResponse {
+interface DeepSeekChatCompletionResponse {
   id?: string;
   choices?: Array<{
     message?: {
       role?: string;
-      content?: string;
+      content?: string | null;
     };
     text?: string;
     finish_reason?: string;
   }>;
-  reply?: string;
-  output_text?: string;
   error?: {
     message?: string;
     type?: string;
     code?: string | number;
   };
-  base_resp?: {
-    status_code?: number;
-    status_msg?: string;
-  };
 }
 
-export class MiniMaxProvider implements ModelProvider {
-  readonly name = "minimax";
+export class DeepSeekProvider implements ModelProvider {
+  readonly name = "deepseek";
 
   private readonly apiKey?: string;
   private readonly baseUrl: string;
@@ -44,24 +38,20 @@ export class MiniMaxProvider implements ModelProvider {
 
   private lastRawResponse: unknown;
 
-  constructor(options: MiniMaxProviderOptions = {}) {
-    this.apiKey = options.apiKey ?? process.env.MINIMAX_API_KEY;
+  constructor(options: DeepSeekProviderOptions = {}) {
+    this.apiKey = options.apiKey ?? process.env.DEEPSEEK_API_KEY;
     this.baseUrl = this.normalizeBaseUrl(
       options.baseUrl ??
-        process.env.MINIMAX_BASE_URL ??
-        "https://api.minimax.chat/v1/chat/completions",
+        process.env.DEEPSEEK_BASE_URL ??
+        "https://api.deepseek.com/v1/chat/completions"
     );
-    this.model =
-      options.model ?? process.env.MINIMAX_MODEL ?? "MiniMax-Text-01";
+    this.model = options.model ?? process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
     this.maxTokens =
-      options.maxTokens ??
-      this.readNumberEnv("MINIMAX_MAX_TOKENS", 1024);
+      options.maxTokens ?? this.readNumberEnv("DEEPSEEK_MAX_TOKENS", 1024);
     this.temperature =
-      options.temperature ??
-      this.readNumberEnv("MINIMAX_TEMPERATURE", 0.7);
+      options.temperature ?? this.readNumberEnv("DEEPSEEK_TEMPERATURE", 0.7);
     this.timeoutMs =
-      options.timeoutMs ??
-      this.readNumberEnv("MINIMAX_TIMEOUT_MS", 30000);
+      options.timeoutMs ?? this.readNumberEnv("DEEPSEEK_TIMEOUT_MS", 30000);
   }
 
   async generate(messages: ChatMessage[]): Promise<ModelResponse> {
@@ -111,18 +101,18 @@ export class MiniMaxProvider implements ModelProvider {
 
       if (!response.ok) {
         throw new Error(
-          this.buildHttpErrorMessage(response.status, response.statusText, rawText),
+          this.buildHttpErrorMessage(response.status, response.statusText, rawText)
         );
       }
 
       const content = this.extractContent(parsed);
-
       if (!content) {
         throw new Error(
           [
-            "MiniMaxProvider 返回了无效响应：没有找到可用的文本内容。",
-            "请检查 MINIMAX_MODEL、MINIMAX_BASE_URL 以及供应商返回格式。",
-          ].join(" "),
+            "DeepSeek response does not contain message content.",
+            "DeepSeekProvider 返回了无效响应：没有找到可用的文本内容。",
+            "请检查 DEEPSEEK_MODEL、DEEPSEEK_BASE_URL 以及供应商返回格式。",
+          ].join(" ")
         );
       }
 
@@ -130,7 +120,7 @@ export class MiniMaxProvider implements ModelProvider {
     } catch (err) {
       if (this.isAbortError(err)) {
         throw new Error(
-          `MiniMaxProvider 请求超时：超过 ${this.timeoutMs}ms 未收到响应。请检查网络、代理或 MINIMAX_BASE_URL。`,
+          `DeepSeek request timed out after ${this.timeoutMs}ms. DeepSeekProvider 请求超时，请检查网络、代理或 DEEPSEEK_BASE_URL。`
         );
       }
 
@@ -148,27 +138,27 @@ export class MiniMaxProvider implements ModelProvider {
     if (!this.apiKey) {
       throw new Error(
         [
-          "MiniMaxProvider 配置缺失：MINIMAX_API_KEY 未设置。",
-          "请在 .env 中配置 MINIMAX_API_KEY，或在创建 MiniMaxProvider 时传入 apiKey。",
-        ].join(" "),
+          "DeepSeekProvider 配置缺失：DEEPSEEK_API_KEY 未设置。",
+          "请在 .env 中配置 DEEPSEEK_API_KEY，或在创建 DeepSeekProvider 时传入 apiKey。",
+        ].join(" ")
       );
     }
 
     if (!this.baseUrl) {
       throw new Error(
         [
-          "MiniMaxProvider 配置缺失：MINIMAX_BASE_URL 为空。",
+          "DeepSeekProvider 配置缺失：DEEPSEEK_BASE_URL 为空。",
           "请检查 .env 或 Gateway runtime config。",
-        ].join(" "),
+        ].join(" ")
       );
     }
 
     if (!this.model) {
       throw new Error(
         [
-          "MiniMaxProvider 配置缺失：MINIMAX_MODEL 为空。",
+          "DeepSeekProvider 配置缺失：DEEPSEEK_MODEL 为空。",
           "请检查 .env 或 Gateway runtime config。",
-        ].join(" "),
+        ].join(" ")
       );
     }
   }
@@ -185,10 +175,7 @@ export class MiniMaxProvider implements ModelProvider {
   }
 
   private resolveEndpoint(baseUrl: string): string {
-    if (
-      baseUrl.endsWith("/chat/completions") ||
-      baseUrl.endsWith("/text/chatcompletion_v2")
-    ) {
+    if (baseUrl.endsWith("/chat/completions")) {
       return baseUrl;
     }
 
@@ -200,43 +187,21 @@ export class MiniMaxProvider implements ModelProvider {
   }
 
   private extractContent(raw: unknown): string {
-    const response = raw as MiniMaxChatCompletionResponse | undefined;
-
-    const baseResp = response?.base_resp;
-    if (
-      baseResp &&
-      typeof baseResp.status_code === "number" &&
-      baseResp.status_code !== 0
-    ) {
-      throw new Error(
-        `MiniMaxProvider API 错误：${baseResp.status_msg ?? "unknown error"}，status_code=${baseResp.status_code}`,
-      );
-    }
+    const response = raw as DeepSeekChatCompletionResponse | undefined;
 
     if (response?.error?.message) {
-      throw new Error(`MiniMaxProvider API 错误：${response.error.message}`);
+      throw new Error(`DeepSeekProvider API 错误：${response.error.message}`);
     }
 
     const choice = response?.choices?.[0];
-
     const messageContent = choice?.message?.content;
+
     if (typeof messageContent === "string" && messageContent.trim()) {
       return messageContent.trim();
     }
 
     if (typeof choice?.text === "string" && choice.text.trim()) {
       return choice.text.trim();
-    }
-
-    if (typeof response?.reply === "string" && response.reply.trim()) {
-      return response.reply.trim();
-    }
-
-    if (
-      typeof response?.output_text === "string" &&
-      response.output_text.trim()
-    ) {
-      return response.output_text.trim();
     }
 
     return "";
@@ -253,14 +218,13 @@ export class MiniMaxProvider implements ModelProvider {
   private buildHttpErrorMessage(
     status: number,
     statusText: string,
-    rawText: string,
+    rawText: string
   ): string {
-    const clippedRaw = rawText.length > 800
-      ? `${rawText.slice(0, 800)}...[truncated]`
-      : rawText;
+    const clippedRaw =
+      rawText.length > 800 ? `${rawText.slice(0, 800)}...[truncated]` : rawText;
 
     return [
-      `MiniMaxProvider HTTP 错误：${status} ${statusText}`.trim(),
+      `DeepSeek API request failed: ${status} ${statusText}`.trim(),
       clippedRaw ? `response=${clippedRaw}` : "",
     ]
       .filter(Boolean)
@@ -287,4 +251,4 @@ export class MiniMaxProvider implements ModelProvider {
   }
 }
 
-export default MiniMaxProvider;
+export default DeepSeekProvider;
