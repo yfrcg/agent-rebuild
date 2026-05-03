@@ -1,5 +1,10 @@
 import type { ChatMessage, ModelProvider, ModelResponse } from "./types";
 
+/**
+ * DeepSeek 提供商的可选构造参数。
+ *
+ * 所有参数都支持显式传入，若未传入则回退到环境变量或默认值。
+ */
 export interface DeepSeekProviderOptions {
   apiKey?: string;
   baseUrl?: string;
@@ -9,6 +14,11 @@ export interface DeepSeekProviderOptions {
   timeoutMs?: number;
 }
 
+/**
+ * DeepSeek Chat Completion 响应的最小结构描述。
+ *
+ * 这里只保留本项目真正会用到的字段，避免类型定义过度膨胀。
+ */
 interface DeepSeekChatCompletionResponse {
   id?: string;
   choices?: Array<{
@@ -26,6 +36,12 @@ interface DeepSeekChatCompletionResponse {
   };
 }
 
+/**
+ * DeepSeek 模型提供商实现。
+ *
+ * 这个类负责把 Gateway 的统一消息协议，转换成 DeepSeek HTTP API 需要的请求格式，
+ * 再把返回结果清洗成 Gateway 能消费的统一文本输出。
+ */
 export class DeepSeekProvider implements ModelProvider {
   readonly name = "deepseek";
 
@@ -38,6 +54,14 @@ export class DeepSeekProvider implements ModelProvider {
 
   private lastRawResponse: unknown;
 
+  /**
+   * 初始化 DeepSeek 提供商配置。
+   *
+   * 优先级遵循：
+   * 1. 构造参数
+   * 2. 环境变量
+   * 3. 内置默认值
+   */
   constructor(options: DeepSeekProviderOptions = {}) {
     this.apiKey = options.apiKey ?? process.env.DEEPSEEK_API_KEY;
     this.baseUrl = this.normalizeBaseUrl(
@@ -54,6 +78,11 @@ export class DeepSeekProvider implements ModelProvider {
       options.timeoutMs ?? this.readNumberEnv("DEEPSEEK_TIMEOUT_MS", 30000);
   }
 
+  /**
+   * 以标准 `ModelResponse` 结构生成模型结果。
+   *
+   * 这是对外最正式的调用入口，会同时返回文本和原始响应。
+   */
   async generate(messages: ChatMessage[]): Promise<ModelResponse> {
     const text = await this.chat(messages);
     return {
@@ -62,14 +91,30 @@ export class DeepSeekProvider implements ModelProvider {
     };
   }
 
+  /**
+   * 兼容某些旧调用方使用的 `complete()` 入口。
+   */
   async complete(messages: ChatMessage[]): Promise<string> {
     return this.chat(messages);
   }
 
+  /**
+   * 兼容某些旧调用方使用的 `invoke()` 入口。
+   */
   async invoke(messages: ChatMessage[]): Promise<string> {
     return this.chat(messages);
   }
 
+  /**
+   * 向 DeepSeek 发送聊天请求，并提取最终文本内容。
+   *
+   * 这里完整处理了：
+   * - 配置校验
+   * - 请求超时
+   * - HTTP 错误
+   * - JSON 解析
+   * - 模型返回结构兼容
+   */
   async chat(messages: ChatMessage[]): Promise<string> {
     this.assertConfig();
 
@@ -96,7 +141,6 @@ export class DeepSeekProvider implements ModelProvider {
 
       const rawText = await response.text();
       const parsed = this.safeParseJson(rawText);
-
       this.lastRawResponse = parsed ?? rawText;
 
       if (!response.ok) {
@@ -120,7 +164,7 @@ export class DeepSeekProvider implements ModelProvider {
     } catch (err) {
       if (this.isAbortError(err)) {
         throw new Error(
-          `DeepSeek request timed out after ${this.timeoutMs}ms. DeepSeekProvider 请求超时，请检查网络、代理或 DEEPSEEK_BASE_URL。`
+          `DeepSeek request timed out after ${this.timeoutMs}ms。DeepSeekProvider 请求超时，请检查网络、代理或 DEEPSEEK_BASE_URL。`
         );
       }
 
@@ -130,10 +174,21 @@ export class DeepSeekProvider implements ModelProvider {
     }
   }
 
+  /**
+   * 获取最近一次调用保留的原始响应。
+   *
+   * 主要用于调试和审计。
+   */
   getLastRawResponse(): unknown {
     return this.lastRawResponse;
   }
 
+  /**
+   * 校验运行所需的关键配置是否齐全。
+   *
+   * 缺少 API Key、Base URL 或模型名时直接抛错，
+   * 让问题尽早暴露，而不是把无效请求真的打到远端。
+   */
   private assertConfig(): void {
     if (!this.apiKey) {
       throw new Error(
@@ -163,6 +218,9 @@ export class DeepSeekProvider implements ModelProvider {
     }
   }
 
+  /**
+   * 规范化消息结构，确保每条消息 content 最终都是字符串。
+   */
   private normalizeMessages(messages: ChatMessage[]): ChatMessage[] {
     return messages.map((message) => ({
       role: message.role,
@@ -170,10 +228,21 @@ export class DeepSeekProvider implements ModelProvider {
     }));
   }
 
+  /**
+   * 统一清理 baseUrl 尾部多余斜杠。
+   */
   private normalizeBaseUrl(baseUrl: string): string {
     return baseUrl.trim().replace(/\/+$/, "");
   }
 
+  /**
+   * 把任意合法 baseUrl 解析成真正可请求的 chat completions 端点。
+   *
+   * 支持三种输入：
+   * - 已经是完整 `/chat/completions`
+   * - 只到 `/v1`
+   * - 只到域名根路径
+   */
   private resolveEndpoint(baseUrl: string): string {
     if (baseUrl.endsWith("/chat/completions")) {
       return baseUrl;
@@ -186,6 +255,12 @@ export class DeepSeekProvider implements ModelProvider {
     return `${baseUrl}/v1/chat/completions`;
   }
 
+  /**
+   * 从 DeepSeek 原始响应中提取真正的文本内容。
+   *
+   * 优先读取标准的 `choices[0].message.content`，
+   * 若供应商返回兼容旧格式的 `text` 字段，也能兜底兼容。
+   */
   private extractContent(raw: unknown): string {
     const response = raw as DeepSeekChatCompletionResponse | undefined;
 
@@ -207,6 +282,12 @@ export class DeepSeekProvider implements ModelProvider {
     return "";
   }
 
+  /**
+   * 安全解析 JSON。
+   *
+   * 当供应商返回的并非合法 JSON 时，不抛错，
+   * 让调用方仍有机会把原始文本纳入错误信息中。
+   */
   private safeParseJson(rawText: string): unknown {
     try {
       return JSON.parse(rawText);
@@ -215,6 +296,11 @@ export class DeepSeekProvider implements ModelProvider {
     }
   }
 
+  /**
+   * 构造 HTTP 请求失败时的详细错误信息。
+   *
+   * 这里会附带截断后的响应体，方便快速定位是鉴权、限流还是参数错误。
+   */
   private buildHttpErrorMessage(
     status: number,
     statusText: string,
@@ -231,6 +317,9 @@ export class DeepSeekProvider implements ModelProvider {
       .join(" ");
   }
 
+  /**
+   * 判断一个异常是否属于超时中止。
+   */
   private isAbortError(err: unknown): boolean {
     return (
       err instanceof Error &&
@@ -238,6 +327,9 @@ export class DeepSeekProvider implements ModelProvider {
     );
   }
 
+  /**
+   * 从环境变量读取数值配置，非法时回退默认值。
+   */
   private readNumberEnv(name: string, fallback: number): number {
     const raw = process.env[name];
 
@@ -246,7 +338,6 @@ export class DeepSeekProvider implements ModelProvider {
     }
 
     const value = Number(raw);
-
     return Number.isFinite(value) ? value : fallback;
   }
 }

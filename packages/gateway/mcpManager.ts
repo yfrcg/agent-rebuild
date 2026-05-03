@@ -1,5 +1,6 @@
 import { createGatewayToolsFromMcpClient } from "./mcpToolAdapter";
 import { GatewayMcpClient } from "./mcpClient";
+import type { GatewaySandbox } from "./sandbox";
 import type {
   GatewayMcpServerConfig,
   GatewayMcpServerStatus,
@@ -7,13 +8,30 @@ import type {
 } from "./mcpTypes";
 import type { ToolRegistry } from "./toolRegistry";
 
+/**
+ * MCP 服务总管理器。
+ *
+ * 这个类站在更高一层，负责同时管理多台 MCP 服务：
+ * - 维护每台服务的配置、状态与客户端实例
+ * - 批量连接所有启用的服务
+ * - 把远端工具注册进 Gateway 统一工具表
+ */
 export class GatewayMcpManager {
   private readonly configs: GatewayMcpServerConfig[];
   private readonly clients = new Map<string, GatewayMcpClient>();
   private readonly statuses = new Map<string, GatewayMcpServerStatus>();
   private readonly tools = new Map<string, GatewayMcpToolInfo[]>();
 
-  constructor(configs: GatewayMcpServerConfig[]) {
+  /**
+   * 根据配置初始化所有服务的基础状态。
+   *
+   * 即使此时还没真正连接，也先给每个配置项准备一份默认状态，
+   * 这样状态查询接口在任何时刻都有稳定输出。
+   */
+  constructor(
+    configs: GatewayMcpServerConfig[],
+    private readonly sandbox?: GatewaySandbox
+  ) {
     this.configs = configs;
 
     for (const config of this.configs) {
@@ -23,14 +41,32 @@ export class GatewayMcpManager {
         enabled: config.enabled,
         connected: false,
         toolCount: 0,
+        launchMode:
+          config.isolation?.enabled && config.isolation.mode === "restricted"
+            ? "managed-runner"
+            : "direct",
+        isolationMode: !config.isolation?.enabled ? "off" : config.isolation.mode,
+        runtimeRoot: config.isolation?.runtimeRoot,
+        cwd: config.cwd,
+        command: config.command,
+        phase: config.enabled ? "configured" : "disabled",
       });
     }
   }
 
+  /**
+   * 判断当前是否配置了至少一个 MCP 服务。
+   */
   hasConfiguredServers(): boolean {
     return this.configs.length > 0;
   }
 
+  /**
+   * 连接所有启用状态的 MCP 服务。
+   *
+   * 某一台连接失败不会影响其他服务继续连接，
+   * 失败信息会被记录进各自状态中供后续查看。
+   */
   async connectEnabledServers(): Promise<void> {
     for (const config of this.configs) {
       if (!config.enabled) {
@@ -40,6 +76,32 @@ export class GatewayMcpManager {
           enabled: false,
           connected: false,
           toolCount: 0,
+          launchMode:
+            config.isolation?.enabled && config.isolation.mode === "restricted"
+              ? "managed-runner"
+              : "direct",
+          isolationMode: !config.isolation?.enabled ? "off" : config.isolation.mode,
+          runtimeRoot: config.isolation?.runtimeRoot,
+          cwd: config.cwd,
+          command: config.command,
+          phase: "disabled",
+        });
+        continue;
+      }
+
+      const sandboxDecision = this.sandbox?.canConnectMcpServer(config);
+      if (sandboxDecision && !sandboxDecision.allowed) {
+        this.statuses.set(config.id, {
+          ...(this.statuses.get(config.id) ?? {
+            id: config.id,
+            name: config.name,
+            enabled: config.enabled,
+            connected: false,
+            toolCount: 0,
+          }),
+          connected: false,
+          phase: "blocked",
+          error: sandboxDecision.reason,
         });
         continue;
       }
@@ -62,6 +124,13 @@ export class GatewayMcpManager {
     }
   }
 
+  /**
+   * 发现并注册所有已连接 MCP 服务的工具。
+   *
+   * 注册过程分为两步：
+   * 1. 让客户端发现远端工具。
+   * 2. 把这些工具适配成 GatewayTool 后注册到 ToolRegistry。
+   */
   async registerTools(registry: ToolRegistry): Promise<void> {
     for (const [serverId, client] of this.clients.entries()) {
       const currentStatus = client.getStatus();
@@ -107,6 +176,11 @@ export class GatewayMcpManager {
     }
   }
 
+  /**
+   * 列出全部 MCP 服务状态。
+   *
+   * 返回顺序保持与原始配置一致，便于 CLI 输出时和配置文件一一对应。
+   */
   listStatuses(): GatewayMcpServerStatus[] {
     return this.configs.map((config) => {
       const status = this.statuses.get(config.id);
@@ -123,6 +197,9 @@ export class GatewayMcpManager {
     });
   }
 
+  /**
+   * 聚合所有服务已发现的工具列表。
+   */
   listTools(): GatewayMcpToolInfo[] {
     const allTools: GatewayMcpToolInfo[] = [];
     for (const tools of this.tools.values()) {
@@ -131,12 +208,17 @@ export class GatewayMcpManager {
     return allTools;
   }
 
+  /**
+   * 关闭全部 MCP 客户端连接。
+   *
+   * 使用 `Promise.all` 并发关闭，减少退出耗时。
+   */
   async close(): Promise<void> {
     const closeTasks = Array.from(this.clients.values()).map(async (client) => {
       try {
         await client.close();
       } catch {
-        // Ignore close errors to keep shutdown resilient.
+        // 关闭异常只允许被忽略，不能阻断其余客户端回收。
       }
     });
 

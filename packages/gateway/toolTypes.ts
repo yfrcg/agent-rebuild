@@ -1,6 +1,23 @@
-export type GatewayToolName = string;
+import type {
+  SandboxExecRequest,
+  ToolSecurityProfile,
+} from "../sandbox/src/types";
 
+export type GatewayToolName = string;
 export type GatewayToolInput = Record<string, unknown>;
+export type GatewayToolAutomationLevel = "auto" | "confirm" | "manual";
+export type GatewayToolRiskLevel =
+  | "read-only"
+  | "external-read"
+  | "stateful"
+  | "destructive";
+
+export interface GatewayToolPolicy {
+  automationLevel: GatewayToolAutomationLevel;
+  riskLevel: GatewayToolRiskLevel;
+  confirmationMessage?: string;
+  tags?: string[];
+}
 
 export interface GatewayToolOutput {
   ok: boolean;
@@ -14,10 +31,20 @@ export interface GatewayToolContext {
   requestId?: string;
 }
 
+export interface GatewayToolSandboxSpec {
+  resolve(
+    input: GatewayToolInput,
+    context?: GatewayToolContext
+  ): Omit<SandboxExecRequest, "sessionId" | "toolCallId" | "toolName">;
+}
+
 export interface GatewayTool {
   name: GatewayToolName;
   description: string;
   inputSchema?: Record<string, unknown>;
+  policy?: GatewayToolPolicy;
+  security?: ToolSecurityProfile;
+  sandboxSpec?: GatewayToolSandboxSpec;
   invoke(
     input: GatewayToolInput,
     context?: GatewayToolContext
@@ -28,4 +55,5 @@ export interface GatewayToolListItem {
   name: GatewayToolName;
   description: string;
   inputSchema?: Record<string, unknown>;
+  policy?: GatewayToolPolicy;
 }

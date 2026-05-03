@@ -65,20 +65,46 @@
   - 动态发现外部 MCP tools
   - 将 MCP tools 映射并注册到现有 `ToolRegistry`
   - 通过现有 `:tool` 手动调用 MCP tool
+- Gateway v0.6
+  - 受控自动工具调用
+  - 仅自动使用 `memory.search` 与 `mcp.*`
+  - 单轮最多执行有限步数工具，再回到模型作答
+  - 自动工具调用复用现有 `ToolCallExecutor` 与 audit 语义
+- Gateway v0.6.1
+  - 自动工具调用 explainability
+  - decision trace / available tools / finish reason 调试信息
+  - `gateway:eval:auto-tool` 评测脚本
+- Gateway v0.7
+  - 工具策略分层
+  - `auto / confirm / manual` 自动化等级
+  - `read-only / external-read / stateful / destructive` 风险等级
+  - MCP tools 基于名称和描述做安全策略推断
+- Gateway v0.8
+  - 记忆检索 recentness 加权
+  - session compaction 结构化摘要
+  - memory selection explainability
+- Gateway v0.8.1
+  - 兼容多平台目录约定的 `SKILL.md` 发现机制
+  - `:skills / :skills show <name>` 技能查看命令
+  - 初版 sandbox，拦截记忆写入和高风险工具执行
 
 ## 当前边界
 
 当前明确不做：
 
-- 自动工具调用循环
 - 多 Agent
 - WebSocket
 - 前端 UI
 - 插件市场
 - Docker Sandbox
 - 复杂权限 / RBAC
-- 模型自动选择工具
+- 开放式模型自动工具编排
 - Agent planner
+
+说明：
+
+- `v0.6` 已支持“受控自动工具调用”
+- 当前仍不做开放式 agent planner、长期自主循环或多 Agent 编排
 
 `packages/memory` 的架构、SQLite 表结构、索引流程、embedding 流程、hybrid search 设计在 Gateway v0.5 中没有改动。
 
@@ -115,6 +141,7 @@ workspace/
   TOOLS.md
   MEMORY.md
   DREAMS.md
+  skills/
   memory/
   sessions/
 ```
@@ -139,7 +166,10 @@ npm run dev
 npm run gateway
 npm run build
 npm run typecheck
+npm run test
 npm run gateway:check
+npm run gateway:check:live
+npm run gateway:eval:auto-tool
 
 npm run reindex
 npm run backfill:embeddings
@@ -149,7 +179,9 @@ npm run scheduler
 说明：
 
 - `npm run gateway`：启动 Gateway CLI
-- `npm run gateway:check`：执行 `typecheck + build + smoke + system-detect`
+- `npm run gateway:check`：执行离线门禁：`typecheck + build + test + smoke + offline-detect`
+- `npm run gateway:check:live`：在离线门禁基础上追加真实 API 联通验证
+- `npm run gateway:eval:auto-tool`：运行自动工具调用评测脚本
 
 ## Gateway CLI
 
@@ -161,6 +193,7 @@ npm run scheduler
 读文件 <相对路径>
 flush
 recover
+compact
 help
 exit
 ```
@@ -179,9 +212,34 @@ exit
 ### Tool 命令
 
 ```text
+:skills
+:skills show <name>
+:skills use <name>
+:skills current
+:skills clear
 :tools
 :tool <name> <json>
+:confirm <token>
 ```
+
+### 开发 / 离线验证
+
+```text
+GATEWAY_MODEL=mock
+EMBEDDING_PROVIDER=mock
+```
+
+说明：
+
+- `GATEWAY_MODEL=mock`：使用离线 mock 模型提供商
+- `EMBEDDING_PROVIDER=mock`：使用离线 deterministic embedding
+- `GATEWAY_AUTO_TOOL_LOOP_ENABLED=true`：开启受控自动工具调用
+- `GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS=3`：限制单轮自动工具步数
+- `GATEWAY_SANDBOX_MODE=workspace-write|read-only|off`：设置 sandbox 模式
+- `GATEWAY_SANDBOX_ALLOWED_ROOTS=workspace,config`：额外设置 sandbox 允许的路径根
+- `GATEWAY_SESSION_AUTO_COMPACT_ENABLED=true`：开启 transcript 自动压缩
+- `GATEWAY_SESSION_AUTO_COMPACT_MAX_ENTRIES=80`：超过该条数后自动 compact
+- `GATEWAY_EVAL_CASES_PATH=...`：指定自动工具调用评测用例文件
 
 示例：
 
@@ -201,8 +259,84 @@ exit
 
 - `:mcp / :mcp status`：查看 MCP Server 状态
 - `:mcp tools`：查看已发现并映射的 MCP tools
+- `:skills`：列出已发现的兼容 `SKILL.md`
+- `:skills show <name>`：查看某个技能的完整内容
+- `:skills use <name>`：为当前 session 显式启用一个技能
+- `:skills current`：查看当前 session 已启用技能
+- `:skills clear`：清空当前 session 已启用技能
+- `use skill <name>`：自然语言别名，等价于 `:skills use <name>`
 - `:tools`：列出全部已注册工具，包括内置工具和 MCP tools
 - `:tool`：通过现有 Tool Call Protocol 手动调用工具
+- `:confirm <token>`：执行一条已排队的高风险工具调用
+
+### 自动工具调用（v0.6）
+
+- 普通聊天请求会先进入“是否需要工具”的决策阶段
+- 当前自动可用工具仅限：
+  - `memory.search`
+  - `mcp.*`
+- 每次请求最多执行 `GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS` 次工具调用
+- 自动工具调用仍复用现有 `ToolCallExecutor`，因此会保留统一 audit 和 transcript 轨迹
+- 若规划输出非法、工具失败或到达步数上限，Gateway 会退回正常文本回答，不让主流程崩溃
+
+### 工具策略分层（v0.7）
+
+- 每个工具都可携带 policy 元数据：
+  - `automationLevel`
+  - `riskLevel`
+- 当前约定：
+  - `auto`：可被自动工具循环直接调用
+  - `confirm`：需要先征得用户确认
+  - `manual`：只能显式 `:tool`
+- builtin `memory.search` 默认是 `auto + read-only`
+- MCP tools 会根据名称和描述推断策略：
+  - `search/list/get/read/fetch/query/find` 倾向于 `auto`
+  - `open/run/execute/trigger/deploy` 倾向于 `confirm`
+  - `create/update/delete/write/remove/mutate` 倾向于 `manual`
+
+### Memory / Session 质量（v0.8）
+
+- hybrid search 在融合排序后会再加一层 recentness boost，更偏向最近 1 到 30 天的 daily memory
+- session compaction 不再直接把原始 transcript 拼接写回记忆，而是先做启发式结构化摘要
+- debug 信息里会额外暴露：
+  - memory source breakdown
+  - top memory ids
+  - hasRecentMemory
+
+### SKILL 机制（v0.8.1）
+
+- Gateway 会扫描以下兼容目录中的 `SKILL.md`
+  - `workspace/skills/**/SKILL.md`
+  - `skills/**/SKILL.md`
+  - `.codex/skills/**/SKILL.md`
+  - `.trae/skills/**/SKILL.md`
+  - `.claude/skills/**/SKILL.md`
+- 启动时会把技能清单注入 bootstrap context
+- 当用户显式提到技能名，Gateway 会把匹配的 `SKILL.md` 正文按需注入上下文，而不是一次性加载全部技能
+- `SKILL.md` 可选支持简易 frontmatter：
+  - `priority: 80`
+  - `aliases: [foo, bar]`
+  - `conflicts: [other-skill]`
+- 当多个技能同时命中时，会优先选更高 `priority` 的技能，并跳过冲突技能
+
+### 初版 Sandbox（v0.8.1）
+
+- `workspace-write`：
+  - 允许本地 workspace 记忆写入
+  - 允许 `read-only / external-read` 工具
+  - 阻止 `stateful / destructive` 工具
+- `read-only`：
+  - 阻止 `remember / flush / compact`
+  - 阻止 `stateful / destructive` 工具
+- `off`：
+  - 不做 sandbox 拦截
+- 所有非 `off` 模式都会检查工具输入中的路径字段（如 `path/file/cwd/root/workspace`）
+  - 若绝对路径不在允许根目录内，则直接拒绝执行
+  - `confirm` / `manual` / `destructive` 工具在 `:tool` 路径上会生成一次性确认 token，需显式 `:confirm <token>`
+- MCP stdio 子进程支持 best-effort 隔离配置：
+  - 私有 `HOME / USERPROFILE / TMP / TEMP`
+  - 可裁剪继承环境变量
+  - 独立运行时目录 `workspace/sandbox/mcp/<serverId>`
 
 ## MCP Adapter
 
@@ -319,13 +453,17 @@ mcp.course_project.search_course_projects
 
 ## 当前验证状态
 
-当前命令已通过：
+当前验证分层：
 
 ```bash
 npm run typecheck
 npm run build
 npm run gateway:check
+npm run gateway:check:live
 ```
+
+- `npm run gateway:check`：不依赖真实模型/embedding API，适合作为日常开发门禁
+- `npm run gateway:check:live`：增加真实模型与 embedding API 探测，适合作为联调/发布前验证
 
 Gateway v0.5 还做过一轮真实 MCP 联通验证：
 

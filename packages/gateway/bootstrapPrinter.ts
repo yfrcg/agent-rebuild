@@ -1,5 +1,11 @@
 import { loadBootstrapContext } from "../core/src/bootstrap";
 
+/**
+ * 打印当前启动上下文的加载结果。
+ *
+ * 这个函数的作用不是展示文件内容，而是快速告诉操作者：
+ * Gateway 在启动时到底成功加载了哪些 bootstrap 文件。
+ */
 export function printBootstrapStatus(): void {
   const ctx = loadBootstrapContext();
 
@@ -7,5 +13,6 @@ export function printBootstrapStatus(): void {
   for (const file of ctx.bootstrapFiles) {
     console.log(`- ${file.name}: ${file.missing ? "missing" : "ok"}`);
   }
+  console.log(`- skills discovered: ${ctx.discoveredSkillCount}`);
   console.log("");
 }

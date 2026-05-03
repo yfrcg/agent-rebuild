@@ -1,0 +1,19 @@
+{
+  "cases": [
+    {
+      "id": "local-memory-fact",
+      "input": "请先查一下本地关于 alpha project 的信息再回答。",
+      "expected": "memory.search"
+    },
+    {
+      "id": "direct-answer",
+      "input": "请简短解释什么是 TypeScript。",
+      "expected": "none"
+    },
+    {
+      "id": "external-search",
+      "input": "帮我搜一下外部课程项目资料。",
+      "expected": "mcp.eval.search_projects"
+    }
+  ]
+}

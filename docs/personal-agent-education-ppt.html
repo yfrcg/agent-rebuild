@@ -1,0 +1,2638 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Claude Code 与 OpenClaw — 个人智能体技术深度解析</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--a:#3b82f6;--a2:#8b5cf6;--g:#10b981;--o:#f59e0b;--r:#ef4444;--p:#ec4899;--c:#06b6d4;--d:#0f172a;--d2:#1e293b;--d3:#334155;--gr:#94a3b8}
+html,body{width:100%;height:100%;overflow:hidden;font-family:'Segoe UI','PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:var(--d);color:#e2e8f0}
+.deck{position:relative;width:100%;height:100%}
+.slide{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:50px 70px;opacity:0;transform:translateX(60px);transition:opacity .5s,transform .5s;pointer-events:none;overflow-y:auto}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.exit-left{opacity:0;transform:translateX(-60px)}
+.pb{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--a),var(--a2));transition:width .4s;z-index:100}
+.sc{position:fixed;bottom:24px;right:40px;font-size:14px;color:var(--gr);z-index:100;font-variant-numeric:tabular-nums}
+.nh{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);font-size:13px;color:var(--gr);opacity:.6;z-index:100}
+.nb{position:fixed;top:50%;transform:translateY(-50%);width:48px;height:48px;border-radius:50%;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#e2e8f0;font-size:20px;cursor:pointer;z-index:100;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.nb:hover{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.3)}
+.nb.pv{left:20px}.nb.nx{right:20px}.nb:disabled{opacity:.2;cursor:default}
+.sec{position:fixed;top:0;left:0;right:0;height:40px;display:flex;align-items:center;background:rgba(15,23,42,.95);border-bottom:1px solid rgba(255,255,255,.06);z-index:99;padding:0 20px;gap:12px}
+.sec a{font-size:.7em;text-decoration:none;color:var(--gr);padding:4px 12px;border-radius:12px;transition:all .2s;white-space:nowrap}
+.sec a:hover,.sec a.ac{color:#e2e8f0;background:rgba(59,130,246,.2)}
+h1{font-size:2.8em;font-weight:800;line-height:1.15;margin-bottom:14px}
+h2{font-size:1.9em;font-weight:700;margin-bottom:16px;line-height:1.25}
+h3{font-size:1.15em;font-weight:600;margin-bottom:8px}
+p{font-size:1em;line-height:1.65;color:#cbd5e1}
+.sub{font-size:1.1em;color:var(--gr);margin-bottom:24px}
+.gt{background:linear-gradient(135deg,var(--a),var(--a2),var(--p));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.gtext{color:var(--g)}.atext{color:var(--a)}.otext{color:var(--o)}.ptext{color:var(--a2)}.ctext{color:var(--c)}
+.badge{display:inline-block;padding:2px 10px;border-radius:14px;font-size:.72em;font-weight:600}
+.bb{background:rgba(59,130,246,.2);color:var(--a);border:1px solid rgba(59,130,246,.3)}
+.bg{background:rgba(16,185,129,.2);color:var(--g);border:1px solid rgba(16,185,129,.3)}
+.bo{background:rgba(245,158,11,.2);color:var(--o);border:1px solid rgba(245,158,11,.3)}
+.br{background:rgba(239,68,68,.15);color:var(--r);border:1px solid rgba(239,68,68,.25)}
+.bp{background:rgba(139,92,246,.2);color:var(--a2);border:1px solid rgba(139,92,246,.3)}
+.bc{background:rgba(6,182,212,.2);color:var(--c);border:1px solid rgba(6,182,212,.3)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
+.cd{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:20px;transition:all .3s}
+.cd:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.15);transform:translateY(-2px)}
+.cd h3{margin-top:0}
+.ca{border-left:3px solid var(--a)}.cg{border-left:3px solid var(--g)}.co{border-left:3px solid var(--o)}.cp{border-left:3px solid var(--a2)}.cc{border-left:3px solid var(--c)}
+ul{padding-left:18px;list-style:none}
+ul li{position:relative;padding-left:14px;margin-bottom:8px;font-size:.9em;line-height:1.55;color:#cbd5e1}
+ul li::before{content:'';position:absolute;left:0;top:9px;width:5px;height:5px;border-radius:50%;background:var(--a)}
+ul.g li::before{background:var(--g)}ul.o li::before{background:var(--o)}ul.p li::before{background:var(--a2)}ul.c li::before{background:var(--c)}
+code{background:rgba(59,130,246,.15);color:var(--a);padding:1px 6px;border-radius:4px;font-family:'Cascadia Code','Fira Code','Consolas',monospace;font-size:.82em}
+pre{background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:16px;overflow-x:auto;font-size:.82em;line-height:1.55;font-family:'Cascadia Code','Fira Code','Consolas',monospace;color:#e2e8f0;margin-top:10px;position:relative}
+pre .kw{color:var(--a2)}pre .str{color:var(--g)}pre .cm{color:var(--gr);font-style:italic}pre .fn{color:var(--o)}pre .tp{color:var(--p)}
+.tag-row{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.tag{padding:4px 12px;border-radius:7px;font-size:.78em;font-weight:600;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#cbd5e1;cursor:default;transition:all .2s}
+.tag:hover{background:rgba(255,255,255,.12);transform:scale(1.05)}
+.tl{position:relative;padding-left:24px}
+.tl::before{content:'';position:absolute;left:7px;top:4px;bottom:4px;width:2px;background:linear-gradient(to bottom,var(--a),var(--a2),var(--g))}
+.tli{position:relative;margin-bottom:16px}
+.tli::before{content:'';position:absolute;left:-21px;top:5px;width:10px;height:10px;border-radius:50%;border:2px solid var(--a);background:var(--d)}
+.tli.done::before{background:var(--g);border-color:var(--g)}
+.tli.cur::before{background:var(--a);border-color:var(--a);box-shadow:0 0 8px rgba(59,130,246,.5)}
+.af{display:flex;flex-direction:column;gap:6px;align-items:center}
+.abx{width:94%;padding:14px 18px;border-radius:10px;text-align:center;font-weight:600;font-size:.9em;transition:all .3s;cursor:default}
+.abx:hover{transform:scale(1.02)}
+.abx small{display:block;font-weight:400;opacity:.75;margin-top:3px;font-size:.82em}
+.aar{color:var(--gr);font-size:16px;line-height:1}
+.ab1{background:linear-gradient(135deg,rgba(59,130,246,.2),rgba(59,130,246,.08));border:1px solid rgba(59,130,246,.3);color:#93c5fd}
+.ab2{background:linear-gradient(135deg,rgba(16,185,129,.2),rgba(16,185,129,.08));border:1px solid rgba(16,185,129,.3);color:#6ee7b7}
+.ab3{background:linear-gradient(135deg,rgba(245,158,11,.2),rgba(245,158,11,.08));border:1px solid rgba(245,158,11,.3);color:#fcd34d}
+.ab4{background:linear-gradient(135deg,rgba(139,92,246,.2),rgba(139,92,246,.08));border:1px solid rgba(139,92,246,.3);color:#c4b5fd}
+.ab5{background:linear-gradient(135deg,rgba(6,182,212,.2),rgba(6,182,212,.08));border:1px solid rgba(6,182,212,.3);color:#67e8f9}
+.ab6{background:linear-gradient(135deg,rgba(255,255,255,.08),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.15);color:#e2e8f0}
+.expandable{cursor:pointer;user-select:none}
+.expandable .ec{max-height:0;overflow:hidden;transition:max-height .4s,opacity .3s;opacity:0}
+.expandable.open .ec{max-height:800px;opacity:1}
+.expandable .et{display:inline-block;transition:transform .3s;margin-right:5px}
+.expandable.open .et{transform:rotate(90deg)}
+.tabs{display:flex;gap:3px;margin-bottom:14px;flex-wrap:wrap}
+.tb{padding:7px 16px;border:1px solid rgba(255,255,255,.1);background:transparent;color:var(--gr);border-radius:7px 7px 0 0;cursor:pointer;font-size:.82em;font-weight:600;transition:all .2s}
+.tb.active{background:rgba(59,130,246,.15);color:var(--a);border-color:rgba(59,130,246,.3);border-bottom-color:transparent}
+.tp{display:none;border:1px solid rgba(255,255,255,.08);border-radius:0 10px 10px 10px;padding:18px;background:rgba(255,255,255,.02)}
+.tp.active{display:block}
+.stat-row{display:flex;gap:16px;margin:14px 0}
+.stat{text-align:center;flex:1}
+.stat .n{font-size:2em;font-weight:800;line-height:1}
+.stat .l{font-size:.72em;color:var(--gr);margin-top:3px}
+.hb{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:14px 18px;margin:10px 0}
+.tc{overflow-x:auto;margin:14px 0}
+table{width:100%;border-collapse:collapse;font-size:.85em}
+th,td{padding:10px 14px;text-align:left;border-bottom:1px solid rgba(255,255,255,.08)}
+th{background:rgba(255,255,255,.04);font-weight:600;color:var(--a)}
+tr:hover{background:rgba(255,255,255,.02)}
+.ts{justify-content:center;align-items:center;text-align:center;background:radial-gradient(ellipse at 30% 50%,rgba(59,130,246,.12),transparent 60%),radial-gradient(ellipse at 70% 80%,rgba(139,92,246,.1),transparent 50%),var(--d)}
+.ts h1{font-size:3.4em;margin-bottom:10px}
+.es{justify-content:center;align-items:center;text-align:center;background:radial-gradient(ellipse at 50% 50%,rgba(139,92,246,.1),transparent 60%),var(--d)}
+.icon{font-size:1.3em;margin-right:5px}
+.stag{font-size:.68em;text-transform:uppercase;letter-spacing:3px;color:var(--a);margin-bottom:8px;font-weight:700}
+.tc2{display:flex;gap:32px;align-items:flex-start;flex:1}
+.tc2>div{flex:1}
+@keyframes fiu{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+.slide.active .ai{animation:fiu .5s ease forwards;opacity:0}
+.slide.active .ai:nth-child(1){animation-delay:.1s}.slide.active .ai:nth-child(2){animation-delay:.2s}.slide.active .ai:nth-child(3){animation-delay:.3s}
+.slide.active .ai:nth-child(4){animation-delay:.4s}.slide.active .ai:nth-child(5){animation-delay:.5s}.slide.active .ai:nth-child(6){animation-delay:.6s}
+.claude-section{border-top:3px solid var(--a)}
+.openclaw-section{border-top:3px solid var(--c)}
+.section-divider{background:radial-gradient(ellipse at 50% 50%,rgba(6,182,212,.08),transparent 60%),var(--d)}
+@media(max-width:768px){.slide{padding:35px 24px}h1{font-size:1.8em}h2{font-size:1.4em}.ts h1{font-size:2.2em}.g2,.g3{grid-template-columns:1fr}.tc2{flex-direction:column}.nb{width:40px;height:40px;font-size:16px}.nb.pv{left:8px}.nb.nx{right:8px}.sec{overflow-x:auto}}
+.abx.arch-expandable{cursor:pointer;position:relative;padding-right:36px}
+.abx.arch-expandable::after{content:'▸';position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:1em;opacity:.5;transition:transform .35s cubic-bezier(.4,0,.2,1),opacity .3s}
+.abx.arch-expandable.arch-open::after{transform:translateY(-50%) rotate(90deg);opacity:.9}
+.abx.arch-expandable:hover{transform:scale(1.015);filter:brightness(1.12)}
+.arch-detail{max-height:0;overflow:hidden;opacity:0;transition:max-height .5s cubic-bezier(.4,0,.2,1),opacity .35s ease;margin:0 auto;width:90%}
+.arch-unit.arch-expanded .arch-detail{max-height:600px;opacity:1;margin-top:-4px}
+.arch-detail-inner{padding:10px 16px;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.06);border-radius:0 0 10px 10px;border-top:none}
+.arch-detail-inner .ad-item{display:flex;align-items:flex-start;gap:10px;padding:5px 0;font-size:.76em;color:#cbd5e1;opacity:0;transform:translateY(8px);transition:opacity .3s ease,transform .3s ease}
+.arch-unit.arch-expanded .ad-item{opacity:1;transform:translateY(0)}
+.arch-unit.arch-expanded .ad-item:nth-child(1){transition-delay:.06s}
+.arch-unit.arch-expanded .ad-item:nth-child(2){transition-delay:.12s}
+.arch-unit.arch-expanded .ad-item:nth-child(3){transition-delay:.18s}
+.arch-unit.arch-expanded .ad-item:nth-child(4){transition-delay:.24s}
+.arch-unit.arch-expanded .ad-item:nth-child(5){transition-delay:.3s}
+.arch-unit.arch-expanded .ad-item:nth-child(6){transition-delay:.36s}
+.ad-icon{flex-shrink:0;width:20px;height:20px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:.65em;font-weight:700;color:#fff}
+.ad-icon.ba{background:var(--a)}.ad-icon.bg{background:var(--g)}.ad-icon.bo{background:var(--o)}.ad-icon.bp{background:var(--a2)}.ad-icon.bc{background:var(--c)}.ad-icon.br{background:var(--r)}
+.arch-hint{text-align:center;font-size:.62em;color:var(--gr);opacity:.4;margin-top:1px;letter-spacing:.5px;transition:opacity .3s}
+.arch-unit:hover .arch-hint{opacity:.85}
+.taor-stage{position:relative;width:300px;height:300px;margin:0 auto;flex-shrink:0}
+.taor-svg{position:absolute;inset:0;width:100%;height:100%}
+.taor-ring{fill:none;stroke:rgba(255,255,255,.06);stroke-width:2}
+.taor-seg{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:188;stroke-dashoffset:188;transition:stroke-dashoffset .7s cubic-bezier(.4,0,.2,1)}
+.taor-seg.seg-on{stroke-dashoffset:0}
+.taor-seg.s0{stroke:var(--a)}.taor-seg.s1{stroke:var(--g)}.taor-seg.s2{stroke:var(--o)}.taor-seg.s3{stroke:var(--a2)}
+.taor-arrow{fill:none;stroke:rgba(255,255,255,.2);stroke-width:1.5;marker-end:url(#taorArr);opacity:.3;transition:opacity .5s}
+.taor-arrow.arr-on{opacity:1;stroke:rgba(255,255,255,.6)}
+.tn{position:absolute;width:100px;padding:12px 0;border-radius:12px;text-align:center;font-weight:700;font-size:.8em;transition:all .5s cubic-bezier(.4,0,.2,1);border:2px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);cursor:default;z-index:1}
+.tn small{display:block;font-weight:400;font-size:.82em;opacity:.6;margin-top:2px}
+.tn.tn0{top:8px;left:50%;transform:translateX(-50%)}
+.tn.tn1{top:50%;right:8px;transform:translateY(-50%)}
+.tn.tn2{bottom:8px;left:50%;transform:translateX(-50%)}
+.tn.tn3{top:50%;left:8px;transform:translateY(-50%)}
+.tn.lit{z-index:3}
+.tn.tn0.lit{transform:translateX(-50%) scale(1.12);box-shadow:0 0 28px rgba(59,130,246,.45);border-color:var(--a);background:rgba(59,130,246,.12)}
+.tn.tn1.lit{transform:translateY(-50%) scale(1.12);box-shadow:0 0 28px rgba(16,185,129,.45);border-color:var(--g);background:rgba(16,185,129,.12)}
+.tn.tn2.lit{transform:translateX(-50%) scale(1.12);box-shadow:0 0 28px rgba(245,158,11,.45);border-color:var(--o);background:rgba(245,158,11,.12)}
+.tn.tn3.lit{transform:translateY(-50%) scale(1.12);box-shadow:0 0 28px rgba(139,92,246,.45);border-color:var(--a2);background:rgba(139,92,246,.12)}
+.taor-ctr{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;z-index:2}
+.taor-ctr .tcp{font-size:1.05em;font-weight:700;transition:all .4s}
+.taor-ctr .tcd{font-size:.68em;color:var(--gr);margin-top:4px;max-width:110px;line-height:1.4;transition:all .4s}
+.td-panel{padding:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;min-height:200px;transition:all .4s}
+.td-panel .td-title{font-weight:700;font-size:.95em;margin-bottom:8px;transition:all .3s}
+.td-panel ul{font-size:.8em;padding-left:16px}
+.td-panel li{margin-bottom:6px;line-height:1.5}
+.td-pager{display:flex;gap:6px;justify-content:center;margin-top:10px}
+.td-dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.15);cursor:pointer;transition:all .3s}
+.td-dot.on{background:var(--a);transform:scale(1.3)}
+.td-btns{display:flex;gap:8px;margin-top:10px;justify-content:center}
+.td-btn{padding:5px 14px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.72em;cursor:pointer;transition:all .2s}
+.td-btn:hover{background:rgba(255,255,255,.12)}
+.cmp-row{display:grid;grid-template-columns:140px repeat(4,1fr);gap:0;border-bottom:1px solid rgba(255,255,255,.04);transition:background .2s}
+.cmp-row:hover{background:rgba(255,255,255,.03)}
+.cmp-row.hdr{background:rgba(255,255,255,.05);border-bottom:2px solid rgba(255,255,255,.1)}
+.cmp-cell{padding:10px 12px;font-size:.78em;line-height:1.5;display:flex;align-items:flex-start;gap:6px}
+.cmp-cell.dim{font-weight:700;color:#e2e8f0;font-size:.8em;background:rgba(255,255,255,.02)}
+.cmp-cell.winner{background:rgba(59,130,246,.08);position:relative}
+.cmp-cell.winner::after{content:'';position:absolute;inset:0;border:2px solid rgba(59,130,246,.25);border-radius:4px;pointer-events:none}
+.cmp-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:.7em;font-weight:600;white-space:nowrap}
+.cmp-badge.best{background:rgba(59,130,246,.2);color:var(--a)}
+.cmp-badge.good{background:rgba(16,185,129,.15);color:var(--g)}
+.cmp-badge.mid{background:rgba(245,158,11,.12);color:var(--o)}
+.cmp-badge.low{background:rgba(239,68,68,.1);color:var(--r)}
+.cmp-bar-wrap{margin-top:8px}
+.cmp-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.cmp-bar-label{width:100px;font-size:.72em;color:var(--d2);text-align:right;flex-shrink:0}
+.cmp-bar-track{flex:1;height:18px;background:rgba(255,255,255,.04);border-radius:4px;overflow:hidden;position:relative}
+.cmp-bar-fill{height:100%;border-radius:4px;transition:width 1.2s cubic-bezier(.4,0,.2,1);width:0;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:.65em;font-weight:700;color:#fff}
+.cmp-bar-fill.bcc{background:linear-gradient(90deg,rgba(59,130,246,.6),var(--a))}
+.cmp-bar-fill.bcu{background:linear-gradient(90deg,rgba(139,92,246,.5),var(--a2))}
+.cmp-bar-fill.bco{background:linear-gradient(90deg,rgba(16,185,129,.5),var(--g))}
+.cmp-bar-fill.bca{background:linear-gradient(90deg,rgba(245,158,11,.5),var(--o))}
+.cmp-bar-val{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:.65em;color:var(--gr);pointer-events:none}
+.cmp-legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px}
+.cmp-legend-item{display:flex;align-items:center;gap:5px;font-size:.7em;color:var(--d2)}
+.cmp-legend-dot{width:10px;height:10px;border-radius:3px}
+.cmp-highlight{font-size:.82em;padding:10px 14px;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.15);border-radius:8px;margin-top:10px}
+.cmp-highlight strong{color:var(--a)}
+.cc-term{background:#0d1117;border:1px solid rgba(255,255,255,.1);border-radius:12px;overflow:hidden;font-family:'Cascadia Code','Fira Code','Consolas',monospace;font-size:.76em;line-height:1.7}
+.cc-term-bar{display:flex;align-items:center;gap:6px;padding:8px 14px;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.cc-term-dot{width:10px;height:10px;border-radius:50%}
+.cc-term-dot.r{background:#ff5f57}.cc-term-dot.y{background:#febc2e}.cc-term-dot.g{background:#28c840}
+.cc-term-title{flex:1;text-align:center;font-size:.82em;color:rgba(255,255,255,.4)}
+.cc-term-body{padding:14px 16px;min-height:260px}
+.cc-tl{opacity:0;transform:translateY(6px);animation:ccFadeIn .4s ease forwards;display:flex;gap:0;margin-bottom:2px}
+.cc-tl:nth-child(1){animation-delay:.1s}.cc-tl:nth-child(2){animation-delay:.3s}.cc-tl:nth-child(3){animation-delay:.5s}
+.cc-tl:nth-child(4){animation-delay:.8s}.cc-tl:nth-child(5){animation-delay:1.1s}.cc-tl:nth-child(6){animation-delay:1.4s}
+.cc-tl:nth-child(7){animation-delay:1.7s}.cc-tl:nth-child(8){animation-delay:2.0s}.cc-tl:nth-child(9){animation-delay:2.3s}
+.cc-tl:nth-child(10){animation-delay:2.6s}.cc-tl:nth-child(11){animation-delay:2.9s}.cc-tl:nth-child(12){animation-delay:3.2s}
+.cc-tl:nth-child(13){animation-delay:3.5s}.cc-tl:nth-child(14){animation-delay:3.8s}.cc-tl:nth-child(15){animation-delay:4.1s}
+.cc-tl:nth-child(16){animation-delay:4.4s}.cc-tl:nth-child(17){animation-delay:4.7s}
+@keyframes ccFadeIn{to{opacity:1;transform:translateY(0)}}
+.cc-prompt{color:#58a6ff;margin-right:6px;white-space:nowrap;user-select:none}
+.cc-user{color:#7ee787}
+.cc-claude{color:#d2a8ff}
+.cc-sys{color:rgba(255,255,255,.35);font-style:italic}
+.cc-tool{color:#79c0ff}
+.cc-ok{color:#56d364}
+.cc-warn{color:#e3b341}
+.cc-annotation{display:inline-block;background:rgba(88,166,255,.1);border:1px solid rgba(88,166,255,.2);border-radius:4px;padding:0 5px;margin-left:8px;font-size:.85em;color:#58a6ff}
+.cc-anno-row{display:flex;justify-content:space-between;align-items:center}
+.cc-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.cc-info-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px 14px}
+.cc-info-card h4{font-size:.8em;margin:0 0 6px;color:var(--a)}
+.cc-info-card ul{font-size:.75em;margin:0;padding-left:16px;color:rgba(255,255,255,.65)}
+.cc-info-card li{margin:2px 0}
+.ins-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+.ins-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:14px 12px 10px;cursor:pointer;transition:all .3s cubic-bezier(.4,0,.2,1);position:relative;overflow:hidden}
+.ins-card::after{content:'点击展开 ▸';position:absolute;bottom:6px;right:10px;font-size:.65em;color:rgba(255,255,255,.3);transition:color .3s}
+.ins-card:hover{border-color:rgba(255,255,255,.25);transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.3)}
+.ins-card:hover::after{color:rgba(255,255,255,.6)}
+.ins-card .ins-icon{font-size:1.4em;margin-bottom:6px;display:block}
+.ins-card h4{font-size:.82em;margin:0 0 4px;line-height:1.3}
+.ins-card p{font-size:.68em;color:rgba(255,255,255,.5);margin:0;line-height:1.4}
+.ins-card .ins-num{position:absolute;top:8px;right:10px;font-size:.6em;color:rgba(255,255,255,.2);font-weight:700}
+.ins-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .35s ease}
+.ins-overlay.open{opacity:1;pointer-events:auto}
+.ins-overlay .ins-backdrop{position:absolute;inset:0;background:rgba(8,10,14,.92);backdrop-filter:blur(12px)}
+.ins-modal{position:relative;z-index:1;width:min(820px,92vw);max-height:88vh;background:linear-gradient(145deg,rgba(20,24,36,.98),rgba(12,14,22,.98));border:1px solid rgba(255,255,255,.12);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;transform:translateY(20px) scale(.96);transition:transform .35s cubic-bezier(.4,0,.2,1)}
+.ins-overlay.open .ins-modal{transform:translateY(0) scale(1)}
+.ins-modal-head{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0}
+.ins-modal-head .ins-m-icon{font-size:1.6em}
+.ins-modal-head h3{font-size:1em;margin:0;flex:1}
+.ins-modal-head .ins-close{background:none;border:1px solid rgba(255,255,255,.15);color:var(--t);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1em;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.ins-modal-head .ins-close:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.3)}
+.ins-modal-body{padding:20px;overflow-y:auto;flex:1}
+.ins-modal-body .ins-svg-wrap{background:rgba(0,0,0,.3);border-radius:12px;padding:16px;margin-bottom:16px;display:flex;justify-content:center}
+.ins-modal-body .ins-svg-wrap svg{width:100%;max-height:260px}
+.ins-modal-body .ins-detail{font-size:.78em;color:rgba(255,255,255,.75);line-height:1.65}
+.ins-modal-body .ins-detail strong{color:var(--t)}
+.ins-modal-body .ins-detail .ins-highlight{background:rgba(91,141,255,.1);border-left:3px solid var(--a);padding:8px 12px;border-radius:0 8px 8px 0;margin:10px 0;font-size:.92em}
+.ins-modal-body .ins-detail ul{margin:6px 0;padding-left:18px}
+.ins-modal-body .ins-detail li{margin:3px 0}
+.ins-card[data-color="blue"]{border-top:3px solid var(--a)}
+.ins-card[data-color="green"]{border-top:3px solid var(--g)}
+.ins-card[data-color="orange"]{border-top:3px solid var(--o)}
+.ins-card[data-color="cyan"]{border-top:3px solid var(--c)}
+.ins-card[data-color="purple"]{border-top:3px solid var(--p)}
+.ins-card[data-color="red"]{border-top:3px solid var(--r)}
+.ref{font-size:.6em;vertical-align:super;color:var(--a);font-weight:700;cursor:default;margin-left:1px;opacity:.8}
+.ref:hover{opacity:1;text-decoration:underline}
+.ref-row{font-size:.58em;color:rgba(255,255,255,.35);margin-top:4px;font-style:italic}
+.ref-row .ref{font-size:1em}
+.ref-list{text-align:left;max-width:800px;margin:0 auto}
+.ref-list li{font-size:.72em;color:rgba(255,255,255,.65);margin:6px 0;line-height:1.55;padding-left:4px}
+.ref-list li strong{color:var(--a);font-weight:700}
+.ref-list li a{color:var(--c);text-decoration:none;word-break:break-all}
+.ref-list li a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+<div class="pb" id="progress"></div>
+<button class="nb pv" id="btnPrev" onclick="goSlide(current-1)">&#8249;</button>
+<button class="nb nx" id="btnNext" onclick="goSlide(current+1)">&#8250;</button>
+<div class="sc" id="counter"></div>
+<div class="nh">&#8592; &#8594; 方向键 | 点击箭头 | 滑动</div>
+
+<!-- ===== SLIDE 0: 标题页 ===== -->
+<div class="slide ts active">
+<div>
+<div class="stag ai">Research Presentation · April 2026</div>
+<h1 class="gt ai">Claude Code 与 OpenClaw</h1>
+<p class="sub ai" style="font-size:1.25em">个人智能体技术架构深度解析 · 课题组汇报</p>
+<div class="tag-row ai" style="justify-content:center">
+<span class="tag">Claude Code 源码分析</span><span class="tag">OpenClaw 架构全解</span>
+<span class="tag">工具系统设计</span><span class="tag">记忆与上下文管理</span>
+<span class="tag">安全沙箱机制</span><span class="tag">多Agent协作</span>
+</div>
+<p class="ai" style="margin-top:24px;font-size:.88em;color:var(--gr)">
+<span class="badge bb">深度研究</span> 基于Claude Code源码泄露、OpenClaw开源仓库及社区技术文章 &nbsp;·&nbsp; 38页全模块解析
+</p>
+</div>
+</div>
+
+<!-- ===== SLIDE 1: 目录 ===== -->
+<div class="slide">
+<div class="stag">Agenda</div>
+<h2><span class="icon">&#128203;</span>汇报目录</h2>
+<div class="g3">
+<div class="cd ca ai">
+<h3 class="atext">Part I · Claude Code 深度解析</h3>
+<ul style="font-size:.84em">
+<li>研究背景与技术栈总览</li>
+<li>QueryEngine 核心推理循环</li>
+<li>42+ 工具系统与14步治理管道<span class="ref">[4][5]</span></li>
+<li>6种权限模式与沙箱安全</li>
+<li>三层记忆与上下文压缩</li>
+<li>Prompt工程与缓存策略</li>
+<li>多Agent系统与隐藏特性</li>
+</ul>
+</div>
+<div class="cd cc ai">
+<h3 class="ctext">Part II · OpenClaw 深度解析</h3>
+<ul class="c" style="font-size:.84em">
+<li>项目概述与发展历程</li>
+<li>五层架构与Gateway网关</li>
+<li>Channel通道与Workspace工作空间</li>
+<li>Skills技能系统与ClawHub生态</li>
+<li>Memory记忆与Heartbeat心跳</li>
+<li>安全沙箱与多Agent模式</li>
+<li>应用场景与社区生态</li>
+</ul>
+</div>
+<div class="cd cp ai">
+<h3 class="ptext">Part III · 对比分析与展望</h3>
+<ul class="p" style="font-size:.84em">
+<li>技术架构全面对比</li>
+<li>设计哲学差异分析</li>
+<li>关键洞察与启示</li>
+<li>未来发展方向</li>
+<li>总结与致谢</li>
+</ul>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 2: 研究背景 ===== -->
+<div class="slide claude-section">
+<div class="stag">Background</div>
+<h2><span class="icon">&#128218;</span>研究背景：为什么关注个人智能体？</h2>
+<p class="sub" style="margin-bottom:20px">从编程助手到全能数字伙伴的范式转移</p>
+<div class="g2">
+<div>
+<div class="cd ca ai" style="margin-bottom:14px">
+<h3>&#127760; 行业趋势</h3>
+<ul>
+<li>2025-2026年AI Agent从<strong>概念验证</strong>进入<strong>生产落地</strong>阶段</li>
+<li>大模型推理能力突破，支持复杂多步任务</li>
+<li><strong>工具调用</strong>成为标配，Agent具备"手和脚"</li>
+<li>开源生态爆发：Claude Code源码泄露引发社区研究热潮</li>
+<li>OpenClaw两个月内GitHub星标突破24.8万<span class="ref">[2]</span></li>
+</ul>
+</div>
+<div class="cd cg ai">
+<h3>&#127919; 核心问题</h3>
+<ul class="g">
+<li>如何设计<strong>可靠的Agent推理循环</strong>？</li>
+<li>工具调用如何做到<strong>安全可控</strong>？</li>
+<li>长对话场景下<strong>记忆与上下文</strong>如何管理？</li>
+<li>个人智能体如何实现<strong>本地隐私保护</strong>？</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd co ai" style="margin-bottom:14px">
+<h3>&#128295; 两个代表性项目</h3>
+<ul class="o">
+<li><strong>Claude Code</strong> — Anthropic出品，51万行TypeScript<span class="ref">[1]</span>，生产级编程Agent</li>
+<li><strong>OpenClaw</strong> — 开源个人AI智能体，本地优先，多渠道接入</li>
+<li>两者代表了Agent设计的<strong>两种路径</strong>：闭源精品 vs 开源社区</li>
+</ul>
+</div>
+<div class="stat-row ai">
+<div class="stat"><div class="n atext">51.2万<span class="ref">[1]</span></div><div class="l">Claude Code代码行数</div></div>
+<div class="stat"><div class="n ctext">24.8万<span class="ref">[2]</span></div><div class="l">OpenClaw GitHub Stars</div></div>
+</div>
+<div class="stat-row ai">
+<div class="stat"><div class="n gtext">1906<span class="ref">[1]</span></div><div class="l">Claude Code源文件数</div></div>
+<div class="stat"><div class="n otext">16000+<span class="ref">[3]</span></div><div class="l">ClawHub社区技能数</div></div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 3: Claude Code 总体架构 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Architecture</div>
+<h2><span class="icon">&#128187;</span>Claude Code 总体架构</h2>
+<p class="sub" style="margin-bottom:14px">从源码泄露看生产级AI Agent的分层设计 · <span style="font-size:.8em;opacity:.6">点击各层查看内部细节</span></p>
+<div class="af ai">
+<div class="arch-unit">
+<div class="abx ab1 arch-expandable" onclick="toggleArch(this)">&#128100; 用户层 — React + Ink 终端UI<small>CLI / REPL 交互 · 斜杠命令 · 自然语言输入 · 流式输出渲染</small></div>
+<div class="arch-detail"><div class="arch-detail-inner">
+<div class="ad-item"><span class="ad-icon ba">UI</span><span><strong>React + Ink 渲染引擎</strong> — 使用React组件模型构建终端界面，Box/Text组件布局，useInput hook处理键盘</span></div>
+<div class="ad-item"><span class="ad-icon ba">/</span><span><strong>斜杠命令系统</strong> — /help /clear /compact /config /cost /doctor /init /login /memory /model /permissions 等20+命令</span></div>
+<div class="ad-item"><span class="ad-icon ba">IO</span><span><strong>流式输出</strong> — SSE流式渲染Markdown，支持代码高亮、表格、进度条、spinner动画</span></div>
+<div class="ad-item"><span class="ad-icon ba">⌨</span><span><strong>交互组件</strong> — Select选择列表、Confirm确认框、TextInput多行输入、Spinner等待指示器</span></div>
+</div></div>
+<p class="arch-hint">▸ 点击展开用户层内部实现</p>
+</div>
+<div class="aar">&#8595;</div>
+<div class="arch-unit">
+<div class="abx ab2 arch-expandable" onclick="toggleArch(this)">&#128187; 推理层 — QueryEngine 核心循环<small>~1,730行 · 8步异步生成器 · Token预算管理 · 流式API调用</small></div>
+<div class="arch-detail"><div class="arch-detail-inner">
+<div class="ad-item"><span class="ad-icon bg">QE</span><span><strong>QueryEngine 主循环</strong> — async generator实现，yield流式事件，支持中断恢复，~1,730行核心代码</span></div>
+<div class="ad-item"><span class="ad-icon bg">8</span><span><strong>8步处理流程</strong> — 加载上下文 → 组装Prompt → API调用 → 流式接收 → 工具解析 → 执行 → 结果注入 → 循环</span></div>
+<div class="ad-item"><span class="ad-icon bg">$</span><span><strong>Token预算管理</strong> — maxTokens动态计算，输入/输出/预留三段分配，超限触发自动压缩</span></div>
+<div class="ad-item"><span class="ad-icon bg">API</span><span><strong>流式API调用</strong> — Messages API + stream:true，支持extended thinking，cache_control:ephemeral缓存标记</span></div>
+<div class="ad-item"><span class="ad-icon bg">⏱</span><span><strong>Turn循环控制</strong> — maxTurns限制（默认10），反懒惰检测，反递归深度限制（maxAgentDepth=10）</span></div>
+</div></div>
+<p class="arch-hint">▸ 点击展开推理层内部实现</p>
+</div>
+<div class="aar">&#8595;</div>
+<div class="arch-unit">
+<div class="abx ab3 arch-expandable" onclick="toggleArch(this)">&#129504; 工具层 — 42+内置工具<span class="ref">[4]</span><small>Zod Schema校验 · 14步治理管道<span class="ref">[5]</span> · 并行执行 · Fail-closed设计</small></div>
+<div class="arch-detail"><div class="arch-detail-inner">
+<div class="ad-item"><span class="ad-icon bo">42</span><span><strong>42+内置工具</strong><span class="ref">[4]</span> — Read/Write/Edit/Bash/Glob/Grep/LS/WebSearch/WebFetch/NotebookRead/Edit/Agent/TodoWrite/Skill/MCP等</span></div>
+<div class="ad-item"><span class="ad-icon bo">Z</span><span><strong>Zod Schema校验</strong> — 每个工具的参数通过Zod定义严格的type-safe schema，运行时自动验证</span></div>
+<div class="ad-item"><span class="ad-icon bo">14</span><span><strong>14步治理管道</strong><span class="ref">[5]</span> — 解析→验证→安全检查→权限评估→沙箱配置→执行→审计，完整生命周期</span></div>
+<div class="ad-item"><span class="ad-icon bo">⚡</span><span><strong>并行执行</strong> — 支持多个独立工具并行执行，通过Promise.allSettled管理并发</span></div>
+</div></div>
+<p class="arch-hint">▸ 点击展开工具层内部实现</p>
+</div>
+<div class="aar">&#8595;</div>
+<div class="arch-unit">
+<div class="abx ab4 arch-expandable" onclick="toggleArch(this)">&#128295; 权限层 — 安全与沙箱<small>6种权限模式 · 7步评估管道 · macOS Seatbelt · Linux bubblewrap</small></div>
+<div class="arch-detail"><div class="arch-detail-inner">
+<div class="ad-item"><span class="ad-icon bp">6</span><span><strong>6种权限模式</strong> — Default / acceptEdits / Plan / Auto / dontAsk / bypassPermissions，从严格到宽松</span></div>
+<div class="ad-item"><span class="ad-icon bp">7</span><span><strong>7步权限评估</strong> — 检查模式→检查规则→检查白名单→检查工具类型→检查路径→检查用户确认→记录决策</span></div>
+<div class="ad-item"><span class="ad-icon bp">🔒</span><span><strong>macOS Seatbelt</strong> — sandbox-exec限制文件访问、网络、进程创建，配置文件定义allow/deny规则</span></div>
+<div class="ad-item"><span class="ad-icon bp">🔒</span><span><strong>Linux bubblewrap</strong> — bwrap创建隔离namespace，bind-mount白名单目录，禁止网络和设备访问</span></div>
+</div></div>
+<p class="arch-hint">▸ 点击展开权限层内部实现</p>
+</div>
+<div class="aar">&#8595;</div>
+<div class="arch-unit">
+<div class="abx ab5 arch-expandable" onclick="toggleArch(this)">&#128451; 记忆层 — 三层记忆 + 上下文压缩<small>会话/项目/自动记忆 · KAIROS守护进程 · 9段式摘要 · Prompt缓存</small></div>
+<div class="arch-detail"><div class="arch-detail-inner">
+<div class="ad-item"><span class="ad-icon bc">S</span><span><strong>会话记忆</strong> — 当前对话的完整消息历史，支持手动/自动截断，claude -c恢复会话</span></div>
+<div class="ad-item"><span class="ad-icon bc">P</span><span><strong>项目记忆</strong> — CLAUDE.md文件，项目级配置和约定，启动时自动加载到系统提示</span></div>
+<div class="ad-item"><span class="ad-icon bc">A</span><span><strong>自动记忆</strong> — --memory标志写入~/.claude/CLAUDE.md，跨项目的全局记忆</span></div>
+<div class="ad-item"><span class="ad-icon bc">K</span><span><strong>KAIROS守护进程</strong> — 会话结束后的后台"梦境"守护进程，自动整理、合并、反思记忆</span></div>
+<div class="ad-item"><span class="ad-icon bc">3</span><span><strong>3层压缩策略</strong> — Micro(单条消息) / Auto(87%阈值自动) / Full(9段式摘要)，cache-aware保留缓存边界</span></div>
+<div class="ad-item"><span class="ad-icon bc">$</span><span><strong>Prompt缓存</strong> — cache_control:ephemeral标记静态段，命中率优化，节省~80%成本</span></div>
+</div></div>
+<p class="arch-hint">▸ 点击展开记忆层内部实现</p>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 4: Claude Code 使用场景模拟 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Terminal Demo</div>
+<h2><span class="icon">&#128187;</span>Claude Code 使用场景模拟</h2>
+<p class="sub" style="margin-bottom:12px">一次典型的 Claude Code 交互会话 — 展示核心技术栈与工作流</p>
+<div class="cc-term">
+<div class="cc-term-bar">
+<span class="cc-term-dot r"></span><span class="cc-term-dot y"></span><span class="cc-term-dot g"></span>
+<span class="cc-term-title">claude-code — ~/my-project</span>
+</div>
+<div class="cc-term-body">
+<div class="cc-tl"><span class="cc-prompt">❯</span><span class="cc-user">npx @anthropic-ai/claude-code</span><span class="cc-annotation">Node.js 运行时</span></div>
+<div class="cc-tl"><span class="cc-sys">╭─────────────────────────────────────────╮</span></div>
+<div class="cc-tl"><span class="cc-sys">│  Claude Code v1.0  ·  React + Ink UI    │</span><span class="cc-annotation">终端渲染引擎</span></div>
+<div class="cc-tl"><span class="cc-sys">│  Model: claude-sonnet-4-20250514        │</span></div>
+<div class="cc-tl"><span class="cc-sys">╰─────────────────────────────────────────╯</span></div>
+<div class="cc-tl"><span class="cc-prompt">❯</span><span class="cc-user">帮我分析 src/utils/ 目录下的代码，找出潜在的性能问题</span></div>
+<div class="cc-tl"><span class="cc-claude">✦ 我来分析这个目录。先读取文件结构...</span></div>
+<div class="cc-tl"><span class="cc-tool">  ⏺ Read(src/utils/index.ts)</span><span class="cc-annotation">Zod Schema 校验</span></div>
+<div class="cc-tl"><span class="cc-tool">  ⏺ Read(src/utils/parser.ts)</span></div>
+<div class="cc-tl"><span class="cc-tool">  ⏺ Bash(npx tsc --noEmit --strict)</span><span class="cc-annotation">14步治理管道</span></div>
+<div class="cc-tl"><span class="cc-claude">✦ 发现 3 个性能问题：</span></div>
+<div class="cc-tl"><span class="cc-claude">  1. parser.ts:42 — 正则未预编译，每次调用重复创建</span></div>
+<div class="cc-tl"><span class="cc-claude">  2. index.ts:18 — 同步文件读取阻塞事件循环</span></div>
+<div class="cc-tl"><span class="cc-claude">  3. parser.ts:67 — 未使用 memo，重复计算相同输入</span></div>
+<div class="cc-tl"><span class="cc-prompt">❯</span><span class="cc-user">修复这些问题</span></div>
+<div class="cc-tl"><span class="cc-tool">  ⏺ Edit(src/utils/parser.ts)</span><span class="cc-annotation">沙箱隔离执行</span></div>
+<div class="cc-tl"><span class="cc-tool">  ⏺ Edit(src/utils/index.ts)</span></div>
+<div class="cc-tl"><span class="cc-tool">  ⏺ Bash(npm test)</span><span class="cc-ok">  ✓ 47 tests passed</span></div>
+<div class="cc-tl"><span class="cc-claude">✦ 已修复全部 3 个问题，测试通过。</span><span class="cc-annotation">Post-Tool Hook 审计</span></div>
+</div>
+</div>
+<div class="cc-info-grid">
+<div class="cc-info-card">
+<h4>&#128187; 技术栈</h4>
+<ul>
+<li><code>TypeScript</code> 全栈 · <code>Node.js</code> 运行时</li>
+<li><code>React + Ink</code> 终端 UI 渲染</li>
+<li><code>Zod</code> Schema 校验 · <code>esbuild</code> 打包</li>
+<li><code>@anthropic-ai/sdk</code> API 客户端</li>
+</ul>
+</div>
+<div class="cc-info-card">
+<h4>&#128230; 构建产物</h4>
+<ul>
+<li>单文件 <code>cli.js</code> · esbuild tree-shaking</li>
+<li><code>npm install -g @anthropic-ai/claude-code</code></li>
+<li>Shebang: <code>#!/usr/bin/env node</code></li>
+<li>动态 import 按需加载减小体积</li>
+</ul>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 5: TAOR 自治循环 ===== -->
+<div class="slide claude-section" style="padding:30px 28px">
+<div class="stag">Claude Code · TAOR Loop</div>
+<h2><span class="icon">&#128260;</span>TAOR 自治循环</h2>
+<p class="sub" style="margin-bottom:12px">从传统工作流到模型驱动的<strong>思考—行动—观察—重复</strong>执行机制</p>
+<div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
+<div class="taor-stage" id="taorStage">
+<svg class="taor-svg" viewBox="0 0 300 300">
+<defs><marker id="taorArr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="rgba(255,255,255,.5)"/></marker></defs>
+<circle class="taor-ring" cx="150" cy="150" r="120"/>
+<path class="taor-seg s0" d="M150,30 A120,120 0 0,1 270,150"/>
+<path class="taor-seg s1" d="M270,150 A120,120 0 0,1 150,270"/>
+<path class="taor-seg s2" d="M150,270 A120,120 0 0,1 30,150"/>
+<path class="taor-seg s3" d="M30,150 A120,120 0 0,1 150,30"/>
+</svg>
+<div class="tn tn0">&#129504; Think<small>思考</small></div>
+<div class="tn tn1">&#9889; Act<small>行动</small></div>
+<div class="tn tn2">&#128065; Observe<small>观察</small></div>
+<div class="tn tn3">&#128260; Repeat<small>重复</small></div>
+<div class="taor-ctr">
+<div class="tcp" id="tcp" style="color:var(--a)">Think</div>
+<div class="tcd" id="tcd">分析用户意图<br>规划执行策略</div>
+</div>
+</div>
+<div style="flex:1;min-width:260px">
+<div class="td-panel" id="tdPanel">
+<div class="td-title" id="tdTitle" style="color:var(--a)">&#129504; Think — 思考阶段</div>
+<ul id="tdList">
+<li>解析用户自然语言输入，提取<strong>意图和约束</strong></li>
+<li>加载项目上下文（CLAUDE.md、记忆文件）</li>
+<li>分析任务复杂度，决定<strong>单Agent/多Agent</strong>路径</li>
+<li>制定执行计划：工具选择、权限评估、步骤排序</li>
+</ul>
+</div>
+<div class="td-pager" id="tdPager">
+<div class="td-dot on" onclick="taorGo(0)"></div>
+<div class="td-dot" onclick="taorGo(1)"></div>
+<div class="td-dot" onclick="taorGo(2)"></div>
+<div class="td-dot" onclick="taorGo(3)"></div>
+</div>
+<div class="td-btns">
+<div class="td-btn" onclick="taorToggle()" id="taorBtn">&#9208; 暂停</div>
+<div class="td-btn" onclick="taorGo(-1)">&#9198; 上一步</div>
+<div class="td-btn" onclick="taorGo(99)">&#9197; 下一步</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 6: QueryEngine 数据流 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Data Flow</div>
+<h2><span class="icon">&#128260;</span>QueryEngine 完整数据流</h2>
+<p class="sub" style="margin-bottom:14px">从用户输入到最终响应的全链路追踪</p>
+<div class="af ai">
+<div class="abx ab1" style="width:80%;font-size:.85em">&#128100; 用户输入<small>Terminal → CLI解析 → 命令检测(/help, /clear等)</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab2" style="width:80%;font-size:.85em">&#128196; 上下文构建<small>System Prompt + 对话历史 + CLAUDE.md + 工具列表 + Token计算</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab3" style="width:80%;font-size:.85em">&#127760; API调用<small>Anthropic Messages API (Streaming SSE) → content_block_delta事件</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab4" style="width:80%;font-size:.85em">&#129504; 响应分类<small>text block → 直接输出 &nbsp;|&nbsp; tool_use block → 进入工具治理管道</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab5" style="width:80%;font-size:.85em">&#9881; 工具执行 → tool_result回注 → 再次调用模型<small>Agentic Loop：模型可能反复调用工具直到给出最终回复</small></div>
+</div>
+<div class="hb ai" style="margin-top:14px">
+<strong>关键设计：</strong>整个循环采用异步生成器模式，UI层通过 <code>for await (const event of query())</code> 消费事件流，实现"产生-消费"解耦，支持实时流式渲染。
+</div>
+</div>
+
+<!-- ===== SLIDE 7: 工具系统总览 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Tools</div>
+<h2><span class="icon">&#129504;</span>工具系统总览 — 42+内置工具<span class="ref">[4]</span></h2>
+<p class="sub" style="margin-bottom:14px">覆盖文件操作、命令执行、搜索、Web、笔记本等完整能力</p>
+<div class="g2">
+<div>
+<div class="cd ca ai" style="margin-bottom:10px">
+<h3>&#128195; 文件操作 (6个)</h3>
+<ul style="font-size:.82em">
+<li><code>Read</code> — 读取文件，支持offset/limit，最多2000行</li>
+<li><code>Write</code> — 覆盖写入文件</li>
+<li><code>Edit</code> — old_string/new_string精确替换</li>
+<li><code>Glob</code> — glob模式匹配文件名，按修改时间排序</li>
+<li><code>Grep</code> — ripgrep内容搜索，支持正则/多行/上下文</li>
+<li><code>LS</code> — 列出目录内容</li>
+</ul>
+</div>
+<div class="cd cg ai" style="margin-bottom:10px">
+<h3>&#128187; 命令与任务 (3个)</h3>
+<ul class="g" style="font-size:.82em">
+<li><code>Bash</code> — Shell命令执行，支持超时/后台/沙箱</li>
+<li><code>Agent</code> — 启动子代理处理子任务</li>
+<li><code>TodoWrite</code> — 结构化任务列表管理</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd co ai" style="margin-bottom:10px">
+<h3>&#127760; Web与搜索 (2个)</h3>
+<ul class="o" style="font-size:.82em">
+<li><code>WebSearch</code> — 互联网信息搜索</li>
+<li><code>WebFetch</code> — 获取URL内容(Markdown/纯文本)</li>
+</ul>
+</div>
+<div class="cd cp ai" style="margin-bottom:10px">
+<h3>&#128218; 笔记本 (2个)</h3>
+<ul class="p" style="font-size:.82em">
+<li><code>NotebookRead</code> — 读取Jupyter Notebook</li>
+<li><code>NotebookEdit</code> — 编辑Notebook单元格</li>
+</ul>
+</div>
+<div class="cd cc ai">
+<h3>&#128268; 扩展工具 (动态)</h3>
+<ul class="c" style="font-size:.82em">
+<li><code>MCP Tools</code> — 通过MCP协议动态注册外部工具</li>
+<li><code>Skill</code> — 调用预定义Skill技能</li>
+<li><code>AskUser</code> — 向用户提问等待回答</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 8: 工具注册与权限 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Tool Registry</div>
+<h2><span class="icon">&#128203;</span>工具注册机制与权限映射</h2>
+<p class="sub" style="margin-bottom:14px">ToolRegistry：分阶段注册 + 分级权限控制</p>
+<div class="g2">
+<div>
+<div class="cd ca ai" style="margin-bottom:12px">
+<h3>&#128273; 4阶段注册流程</h3>
+<div class="tl">
+<div class="tli"><strong>阶段1：内置工具</strong><br><code>createBuiltinTools()</code> 注册核心工具</div>
+<div class="tli"><strong>阶段2：MCP工具</strong><br>连接MCP servers → 动态注册为 <code>mcp__server__tool</code></div>
+<div class="tli"><strong>阶段3：Skill工具</strong><br>扫描 <code>.claude/skills/</code> 目录注册</div>
+<div class="tli"><strong>阶段4：权限绑定</strong><br><code>--allowedTools</code> / <code>--disallowedTools</code> 调整</div>
+</div>
+</div>
+</div>
+<div>
+<div class="cd cg ai">
+<h3>&#128272; 工具权限映射表</h3>
+<div class="tc">
+<table style="font-size:.78em">
+<tr><th>工具</th><th>默认权限</th><th>说明</th></tr>
+<tr><td><code>Read</code></td><td><span class="badge bg">auto</span></td><td>只读，无副作用</td></tr>
+<tr><td><code>Glob/Grep/LS</code></td><td><span class="badge bg">auto</span></td><td>只读，无副作用</td></tr>
+<tr><td><code>Write</code></td><td><span class="badge bo">ask</span></td><td>写入文件</td></tr>
+<tr><td><code>Edit</code></td><td><span class="badge bo">ask</span></td><td>修改文件</td></tr>
+<tr><td><code>Bash</code></td><td><span class="badge br">always</span></td><td>高度危险</td></tr>
+<tr><td><code>WebSearch</code></td><td><span class="badge bo">ask</span></td><td>联网搜索</td></tr>
+<tr><td><code>Agent</code></td><td><span class="badge bg">auto</span></td><td>继承父权限</td></tr>
+<tr><td><code>MCP</code></td><td><span class="badge bo">ask</span></td><td>取决于server配置</td></tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 9: 工具治理管道 + Hook权限 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Governance Pipeline</div>
+<h2><span class="icon">&#9881;</span>14步工具治理管道<span class="ref">[5]</span> + Hook权限管道</h2>
+<p class="sub" style="margin-bottom:12px">从模型输出到工具执行的严格安全管控链</p>
+<div class="g3">
+<div class="cd ca ai">
+<h3 style="font-size:.95em">&#128269; 解析与验证 (Step 1-4)</h3>
+<ul style="font-size:.78em">
+<li><strong>① 输出解析</strong> — 解析tool_use blocks</li>
+<li><strong>② 并行检测</strong> — 检测多个tool_use依赖关系</li>
+<li><strong>③ 存在性验证</strong> — ToolRegistry.has(name)</li>
+<li><strong>④ Schema验证</strong> — JSON Schema类型检查</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3 style="font-size:.95em">&#128274; 安全检查 (Step 5-9)</h3>
+<ul class="o" style="font-size:.78em">
+<li><strong>⑤ 安全策略</strong> — 黑名单+危险模式检测</li>
+<li><strong>⑥ 权限评估</strong> — auto_allow/ask_user/deny</li>
+<li><strong>⑦ 用户授权</strong> — Allow/Deny/Allow Always</li>
+<li><strong>⑧ 沙箱准备</strong> — 工作目录+环境变量+超时</li>
+<li><strong>⑨ 工具执行</strong> — 调用invoke()并计时</li>
+</ul>
+</div>
+<div class="cd cg ai">
+<h3 style="font-size:.95em">&#128221; 结果处理 (Step 10-14)</h3>
+<ul class="g" style="font-size:.78em">
+<li><strong>⑩ 输出截断</strong> — 限制~100K tokens</li>
+<li><strong>⑪ 结果封装</strong> — tool_result content block</li>
+<li><strong>⑫ 审计日志</strong> — 完整调用轨迹记录</li>
+<li><strong>⑬ 上下文更新</strong> — 注入对话+更新token计数</li>
+<li><strong>⑭ 循环决策</strong> — 继续工具调用或返回模型</li>
+</ul>
+</div>
+</div>
+<div class="cd ai" style="margin-top:10px;border-left:4px solid var(--a);padding:10px 14px">
+<h3 style="color:var(--a);font-size:.92em">&#127919; Hook权限管道机制</h3>
+<div class="af ai" style="font-size:.78em;transform:scale(.92);transform-origin:left top">
+<div class="abx ab4" style="width:90%">Pre-Tool Hook<small>验证参数 · 检查路径白名单 · 注入环境变量 · 预处理输入</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab3" style="width:90%">工具执行<small>invoke()调用 · 超时控制 · 资源限制 · 并行管理</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab5" style="width:90%">Post-Tool Hook<small>结果过滤 · 敏感信息脱敏 · 格式标准化 · 审计记录</small></div>
+</div>
+</div>
+<div class="hb ai">
+<strong>Fail-Closed设计：</strong>默认拒绝所有未明确允许的操作；工具执行失败返回结构化错误而非崩溃；熔断器在连续失败后自动切断调用链路；所有输入通过 <code>Zod</code> Schema严格验证。
+</div>
+</div>
+
+<!-- ===== SLIDE 10: 权限系统 — 6种模式 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Permissions</div>
+<h2><span class="icon">&#128274;</span>权限系统 — 6种权限模式</h2>
+<p class="sub" style="margin-bottom:14px">从严格限制到完全放开的灵活安全梯度</p>
+<div class="g3">
+<div class="cd ca ai">
+<h3 style="font-size:.92em">&#128274; Default 默认模式</h3>
+<p style="font-size:.82em">所有写操作和Bash命令<strong>均需用户确认</strong>。最安全的默认行为，适合初次使用。</p>
+</div>
+<div class="cd cg ai">
+<h3 style="font-size:.92em">&#128221; acceptEdits 编辑模式</h3>
+<p style="font-size:.82em">自动接受文件编辑操作，<strong>Bash仍需确认</strong>。适合代码重构等大量编辑场景。</p>
+</div>
+<div class="cd co ai">
+<h3 style="font-size:.92em">&#128218; Plan 规划模式</h3>
+<p style="font-size:.82em"><strong>只允许只读操作</strong>，禁止所有写入和执行。适合代码审查和分析任务。</p>
+</div>
+<div class="cd cp ai">
+<h3 style="font-size:.92em">&#9889; Auto 自动模式</h3>
+<p style="font-size:.82em">自动接受大部分操作，<strong>仅高危命令</strong>(如rm -rf)需确认。适合信任场景。</p>
+</div>
+<div class="cd cc ai">
+<h3 style="font-size:.92em">&#128266; dontAsk 静默模式</h3>
+<p style="font-size:.82em">不询问用户，<strong>受安全策略限制</strong>。适合自动化脚本和CI/CD集成。</p>
+</div>
+<div class="cd" style="border-left:3px solid var(--r)">
+<h3 style="font-size:.92em;color:var(--r)">&#128680; bypass 绕过模式</h3>
+<p style="font-size:.82em"><strong>跳过所有权限检查</strong>。仅限开发调试，需要显式flag启用。</p>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 11: 权限评估与沙箱 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Sandbox</div>
+<h2><span class="icon">&#128737;</span>7步权限评估与操作系统沙箱</h2>
+<p class="sub" style="margin-bottom:14px">多层安全防线确保工具调用不越界</p>
+<div class="g2">
+<div>
+<div class="cd ca ai" style="margin-bottom:12px">
+<h3>&#128274; 7步权限评估管道</h3>
+<div class="tl">
+<div class="tli"><strong>① 模式匹配</strong> — 确定当前permission mode</div>
+<div class="tli"><strong>② 工具分类</strong> — 判断只读类 or 写入类</div>
+<div class="tli"><strong>③ 规则查找</strong> — allow/deny规则集匹配</div>
+<div class="tli"><strong>④ 路径策略</strong> — 检查protected paths列表</div>
+<div class="tli"><strong>⑤ 命令分析</strong> — Bash命令AST级危险模式识别</div>
+<div class="tli"><strong>⑥ 用户交互</strong> — 弹出确认提示(显示操作摘要)</div>
+<div class="tli"><strong>⑦ 决策记录</strong> — 记录到session policy(可选永久允许)</div>
+</div>
+</div>
+</div>
+<div>
+<div class="cd co ai" style="margin-bottom:12px">
+<h3>&#127822; macOS Seatbelt 沙箱</h3>
+<ul class="o" style="font-size:.82em">
+<li>使用 <code>sandbox-exec</code> (Seatbelt) 机制</li>
+<li>生成 <code>.sb</code> profile限制文件系统/网络访问</li>
+<li>只允许访问<strong>项目目录和临时目录</strong></li>
+<li>禁止访问 <code>~/.ssh</code>、<code>~/Documents</code>等敏感路径</li>
+<li>通过spawn的stdio配置实现<strong>进程级隔离</strong></li>
+</ul>
+</div>
+<div class="cd cg ai">
+<h3>&#129470; Linux bubblewrap 沙箱</h3>
+<ul class="g" style="font-size:.82em">
+<li>使用 <code>bwrap</code> (bubblewrap) 进行命名空间隔离</li>
+<li>创建新的<strong>mount namespace + PID namespace</strong></li>
+<li>只bind mount项目目录和必要系统路径</li>
+<li><strong>阻止网络访问</strong>（除非显式允许）</li>
+<li>通过seccomp限制系统调用</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 12: 三层记忆系统 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Memory</div>
+<h2><span class="icon">&#128451;</span>三层记忆系统架构</h2>
+<p class="sub" style="margin-bottom:14px">从短期会话到长期自动记忆的完整体系</p>
+<div class="g2">
+<div>
+<div class="cd ca ai" style="margin-bottom:12px">
+<h3>&#128194; 三层记忆架构</h3>
+<div class="tc">
+<table style="font-size:.8em">
+<tr><th>层级</th><th>存储位置</th><th>生命周期</th></tr>
+<tr><td><strong>Session Memory</strong></td><td>内存对话历史</td><td>单次会话</td></tr>
+<tr><td><strong>Project Memory</strong></td><td><code>CLAUDE.md</code></td><td>持久化</td></tr>
+<tr><td><strong>Auto Memory</strong></td><td><code>~/.claude/CLAUDE.md</code></td><td>持久化</td></tr>
+</table>
+</div>
+</div>
+<div class="cd cg ai">
+<h3>&#128209; CLAUDE.md 分层加载</h3>
+<ul class="g" style="font-size:.82em">
+<li>全局 <code>~/.claude/CLAUDE.md</code> → 通用偏好</li>
+<li>项目根 <code>CLAUDE.md</code> → 项目约定</li>
+<li>子目录 <code>CLAUDE.md</code> → 模块规则</li>
+<li>每次会话启动自动加载，支持Markdown</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cp ai" style="margin-bottom:12px">
+<h3>&#127769; KAIROS守护进程 — "做梦"机制</h3>
+<ul class="p" style="font-size:.82em">
+<li>后台自主守护进程，借鉴<strong>人类睡眠记忆整合</strong></li>
+<li>在空闲时自动回顾和整理会话记忆</li>
+<li>将分散在多次会话中的学习内容<strong>整合到长期记忆</strong></li>
+<li>识别反复出现的模式并<strong>固化为规则</strong></li>
+</ul>
+</div>
+<div class="hb ai">
+<strong>记忆整合流程：</strong>定期扫描所有会话记录 → 提取关键决策和偏好 → 将高频信息写入 <code>CLAUDE.md</code> → 清理过期临时记忆。这种"自我进化"机制使Agent越用越智能。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 13: 上下文管理与五层压缩 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Context</div>
+<h2><span class="icon">&#128200;</span>上下文管理与五层压缩体系</h2>
+<p class="sub" style="margin-bottom:12px">解决长对话context window溢出的关键机制</p>
+<div class="g2">
+<div>
+<div class="cd ca ai" style="margin-bottom:12px">
+<h3>&#128200; 五层压缩体系</h3>
+<div class="tc">
+<table style="font-size:.78em">
+<tr><th>层级</th><th>触发条件</th><th>策略</th></tr>
+<tr><td><strong>L1 Micro</strong></td><td>单条消息过长</td><td>截断工具输出，保留摘要</td></tr>
+<tr><td><strong>L2 Auto</strong></td><td>上下文达<strong>87%</strong>阈值</td><td>压缩早期对话，保留最近N轮</td></tr>
+<tr><td><strong>L3 Full</strong></td><td>接近100%上限</td><td>9段式结构化摘要重建上下文</td></tr>
+<tr><td><strong>L4 Cache-Aware</strong></td><td>缓存边界优化</td><td>"外科手术式删除"保留缓存命中区</td></tr>
+<tr><td><strong>L5 Sliding</strong></td><td>持续对话</td><td>动态滑动窗口+摘要外内容</td></tr>
+</table>
+</div>
+</div>
+<div class="cd cp ai">
+<h3>&#128196; Token预算管理</h3>
+<ul class="p" style="font-size:.78em">
+<li><strong>三段分配</strong>：输入tokens / 输出tokens / 预留缓冲</li>
+<li><strong>动态计算</strong>：根据模型context window自动调整</li>
+<li><strong>双重控制</strong>：单次budget + 累计session budget</li>
+<li><strong>超限策略</strong>：触发L2/L3压缩 → 释放空间 → 继续执行</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd co ai" style="margin-bottom:12px">
+<h3>&#128221; 9段式完整摘要（Full Compaction）</h3>
+<ul class="o" style="font-size:.78em">
+<li>① 当前目标 — 用户正在做什么</li>
+<li>② 已完成工作 — 完成了哪些步骤</li>
+<li>③ 当前文件状态 — 涉及文件及状态</li>
+<li>④ 待办事项 — 还需做什么</li>
+<li>⑤ 关键决策 — 重要技术决策</li>
+<li>⑥ 遇到的问题 — 错误或障碍</li>
+<li>⑦ 环境信息 — 目录、分支、环境变量</li>
+<li>⑧ 用户偏好 — 会话中表达的偏好</li>
+<li>⑨ 下一步行动 — 压缩后应继续的步骤</li>
+</ul>
+</div>
+<div class="cd cg ai">
+<h3>&#128260; Cache-Aware 压缩策略</h3>
+<ul class="g" style="font-size:.78em">
+<li>利用Anthropic API的 <strong>prompt caching</strong> 机制</li>
+<li>system prompt和早期对话被缓存</li>
+<li><strong>"外科手术式删除"</strong>（surgical deletion）</li>
+<li>保留已缓存部分不动（避免cache invalidation）</li>
+<li>只删除缓存边界之后的内容</li>
+<li>最大化 <strong>cache hit rate</strong>，节省~80%成本</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 14: Prompt工程与缓存 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Prompt Engineering</div>
+<h2><span class="icon">&#128221;</span>Prompt工程与Token缓存策略</h2>
+<p class="sub" style="margin-bottom:14px">动态组装 + 缓存边界 = 80%成本节省</p>
+<div class="g2">
+<div>
+<div class="cd ca ai" style="margin-bottom:12px">
+<h3>&#128196; getSystemPrompt() 动态组装</h3>
+<ul style="font-size:.82em">
+<li><strong>静态部分（"System Constitution"）</strong><br>核心行为准则 · 工具使用指南 · 安全策略 · 代码风格规范<br>会话间不变，标记为 <code>cache_control: ephemeral</code></li>
+<li><strong>动态部分（"Current Policies"）</strong><br>当前权限模式 · 激活工具列表 · CLAUDE.md内容<br>环境检测(OS/shell/git状态) · 每次请求可能变化</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#128640; SYSTEM_PROMPT_DYNAMIC_BOUNDARY</h3>
+<ul class="o" style="font-size:.82em">
+<li>在system prompt中明确标记<strong>缓存边界</strong></li>
+<li>边界前内容被缓存，边界后不缓存</li>
+<li>类似 <code>&lt;!-- CACHE_BOUNDARY --&gt;</code> 文本标记</li>
+<li>确保静态内容稳定缓存、动态内容实时更新</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#128176; Token缓存经济效益</h3>
+<div class="tc">
+<table style="font-size:.8em">
+<tr><th>指标</th><th>数值</th></tr>
+<tr><td>缓存Token成本</td><td>正常价格的<strong>10%</strong>（节省90%）</td></tr>
+<tr><td>Cache写入成本</td><td>正常价格的125%（仅首次）</td></tr>
+<tr><td>综合成本节省</td><td>约<strong>80%</strong></td></tr>
+<tr><td>缓存TTL</td><td>5分钟</td></tr>
+<tr><td>最小缓存单元</td><td>1024 tokens (Claude 3.5)<br>2048 tokens (Claude 4)</td></tr>
+</table>
+</div>
+</div>
+<div class="hb ai">
+<strong>设计启示：</strong>将大型工具定义放在缓存区域内，每次请求只更新动态部分。通过精心设计缓存边界，在保持灵活性的同时大幅降低API调用成本。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 15: 多Agent系统 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Multi-Agent</div>
+<h2><span class="icon">&#129302;</span>多Agent系统：Explore / Plan / Verify</h2>
+<p class="sub" style="margin-bottom:14px">三种核心Agent协同模式，覆盖从探索到验证的完整链路</p>
+<div class="g3">
+<div class="cd ca ai">
+<h3 style="color:var(--a)">&#128269; Explore Agent</h3>
+<ul style="font-size:.78em">
+<li><strong>Researcher</strong> + 代码库分析</li>
+<li>搜索相关文件和依赖关系</li>
+<li>理解项目结构和架构</li>
+<li>收集上下文信息给Plan</li>
+<li>使用 Glob/Grep/Read/LS 工具</li>
+</ul>
+</div>
+<div class="cd cg ai">
+<h3 style="color:var(--g)">&#128221; Plan Agent</h3>
+<ul class="g" style="font-size:.78em">
+<li><strong>Coordinator</strong> + 任务分解</li>
+<li>基于Explore结果制定执行计划</li>
+<li>分解大任务为可管理子任务</li>
+<li>分配子任务给Task Agent</li>
+<li>管理依赖关系和执行顺序</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3 style="color:var(--o)">&#9989; Verify Agent</h3>
+<ul class="o" style="font-size:.78em">
+<li><strong>Verifier</strong> + 质量保障</li>
+<li>运行测试套件验证正确性</li>
+<li>lint检查代码规范</li>
+<li>类型检查确保类型安全</li>
+<li>失败 → 反馈给Plan重新规划</li>
+</ul>
+</div>
+</div>
+<div class="g2" style="margin-top:12px">
+<div class="cd ai" style="border-left:4px solid var(--a)">
+<h3 style="font-size:.92em">&#128260; 协同流程</h3>
+<div class="af ai" style="font-size:.78em;transform:scale(.88);transform-origin:left top">
+<div class="abx ab1" style="width:90%">Explore<small>搜索 · 分析 · 收集上下文</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab3" style="width:90%">Plan<small>分解 · 排序 · 分配子任务</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab5" style="width:90%">Execute<small>Task Agent执行各子任务</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab2" style="width:90%">Verify<small>测试 · lint · 类型检查</small></div>
+</div>
+</div>
+<div>
+<div class="cd ai" style="margin-bottom:10px">
+<h3 style="font-size:.92em">&#129302; 6种内置Agent角色</h3>
+<table style="font-size:.76em">
+<tr><th>角色</th><th>职责</th></tr>
+<tr><td><strong>Main Agent</strong></td><td>主代理，处理用户直接交互</td></tr>
+<tr><td><strong>Task Agent</strong></td><td>子代理，处理分派的子任务</td></tr>
+<tr><td><strong>Coordinator</strong></td><td>协调多个子代理的执行顺序</td></tr>
+<tr><td><strong>Verifier</strong></td><td>验证输出质量(运行测试/lint)</td></tr>
+<tr><td><strong>Researcher</strong></td><td>搜索和信息收集</td></tr>
+<tr><td><strong>Coder</strong></td><td>代码编写和修改</td></tr>
+</table>
+</div>
+<div class="hb ai" style="font-size:.76em">
+<strong>自动激活：</strong>任务复杂度超阈值时，Coordinator自动启动Explore→Plan→Execute→Verify闭环。maxAgentDepth=10防止递归爆炸。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 16: 反懒惰与安全机制 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Safety Mechanisms</div>
+<h2><span class="icon">&#128736;</span>反懒惰与反递归安全机制</h2>
+<p class="sub" style="margin-bottom:14px">防止Agent过度保守或陷入无限循环</p>
+<div class="g2">
+<div>
+<div class="cd ca ai" style="margin-bottom:12px">
+<h3>&#128565; 反懒惰机制 (Anti-Laziness)</h3>
+<ul style="font-size:.82em">
+<li>检测模型是否<strong>过于保守</strong>地拒绝执行</li>
+<li>连续多次"我不能做这个"时触发</li>
+<li>通过prompt engineering重新引导模型<strong>积极行动</strong></li>
+<li>在system prompt中注入anti-laziness指令</li>
+<li>确保Agent不过度推卸责任</li>
+</ul>
+</div>
+<div class="cd cp ai">
+<h3>&#129514; 反无限递归机制</h3>
+<ul class="p" style="font-size:.82em">
+<li>子代理<strong>最大递归深度3-5层</strong></li>
+<li>单次查询<strong>最大工具调用~100次</strong></li>
+<li>检测循环模式（反复执行相同操作序列）</li>
+<li>异常模式检测 → <strong>强制终止</strong>并报告</li>
+<li>RateLimiter限流 + CircuitBreaker熔断</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd co ai" style="margin-bottom:12px">
+<h3>&#128202; 遥测与隐私</h3>
+<ul class="o" style="font-size:.82em">
+<li><strong>两个分析数据接收端：</strong></li>
+<li>1P (First Party) → Anthropic服务器</li>
+<li>Datadog → 性能监控和错误追踪</li>
+<li><strong>环境指纹：</strong>OS/Node版本/终端/Shell/项目类型/Git</li>
+<li><strong>进程指标：</strong>token使用量/工具调用次数/API延迟/错误率</li>
+<li>遥测默认开启，<code>DISABLE_TELEMETRY=1</code>可关闭</li>
+</ul>
+</div>
+<div class="hb ai">
+<strong>社区争议：</strong>UI中没有明确的"关闭遥测"按钮，只能通过配置文件或环境变量关闭，引发了隐私方面的讨论。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 17: 隐藏特性与彩蛋 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Hidden Features</div>
+<h2><span class="icon">&#127922;</span>隐藏特性与动物代号</h2>
+<p class="sub" style="margin-bottom:14px">源码中发现的有趣彩蛋和内部版本系统</p>
+<div class="g2">
+<div>
+<div class="cd ca ai" style="margin-bottom:12px">
+<h3>&#128039; 动物代号系统 (Animal Codenames)</h3>
+<div class="tc">
+<table style="font-size:.82em">
+<tr><th>代号</th><th>对应版本</th></tr>
+<tr><td><strong>Capybara（水豚）</strong></td><td>Claude Code v8</td></tr>
+<tr><td><strong>Tengu（天狗）</strong></td><td>内部版本</td></tr>
+<tr><td><strong>Fennec（耳廓狐）</strong></td><td>Opus 4.6 相关</td></tr>
+<tr><td><strong>Numbat（袋食蚁兽）</strong></td><td>另一版本代号</td></tr>
+</table>
+</div>
+<p style="font-size:.82em;margin-top:8px">代号用于内部feature flag和A/B测试标识</p>
+</div>
+<div class="cd cg ai">
+<h3>&#128373; Undercover Mode（卧底模式）</h3>
+<ul class="g" style="font-size:.82em">
+<li>特殊交互模式，降低Claude的"AI感"</li>
+<li>使行为更像<strong>普通开发者</strong></li>
+<li>具体细节在公开资料中有限</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd co ai" style="margin-bottom:12px">
+<h3>&#128054; Buddy Pet System（伙伴宠物）</h3>
+<ul class="o" style="font-size:.82em">
+<li><strong>18种</strong>可选宠物物种</li>
+<li>每种有不同稀有度等级</li>
+<li>common / uncommon / rare / legendary</li>
+<li>隐藏彩蛋功能，增加<strong>使用趣味性</strong></li>
+</ul>
+</div>
+<div class="cd cp ai" style="margin-bottom:12px">
+<h3>&#127769; KAIROS自主守护进程</h3>
+<ul class="p" style="font-size:.82em">
+<li>后台运行的<strong>自主Agent</strong></li>
+<li>"Dream"模式用于记忆整合</li>
+<li>监听文件变化并自动响应</li>
+<li>可在用户不在时执行任务</li>
+</ul>
+</div>
+<div class="cd cc ai">
+<h3>&#127919; Feature Flags</h3>
+<ul class="c" style="font-size:.82em">
+<li>内部feature flag系统控制发布</li>
+<li>支持<strong>渐进式发布</strong>（灰度发布）</li>
+<li>代号系统标识不同功能实验</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 18: 性能优化 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Performance</div>
+<h2><span class="icon">&#128640;</span>性能优化策略</h2>
+<p class="sub" style="margin-bottom:14px">从缓存到懒加载的全方位优化</p>
+<div class="g3">
+<div class="cd ca ai">
+<h3 style="font-size:.92em">&#128260; Prompt Caching</h3>
+<ul style="font-size:.8em">
+<li>System prompt标记为缓存目标</li>
+<li>大型工具定义放入缓存区</li>
+<li>每次请求只更新动态部分</li>
+<li><code>cache_control: ephemeral</code></li>
+</ul>
+</div>
+<div class="cd cg ai">
+<h3 style="font-size:.92em">&#9889; 并行预取</h3>
+<ul class="g" style="font-size:.8em">
+<li>等模型响应时预加载文件</li>
+<li><code>Promise.all</code>并发执行</li>
+<li>只读工具调用并行化</li>
+<li>子代理并行处理子任务</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3 style="font-size:.92em">&#128195; 懒加载</h3>
+<ul class="o" style="font-size:.8em">
+<li>工具定义<strong>按需加载</strong></li>
+<li>子代理需要时才创建</li>
+<li>MCP工具首次使用时连接</li>
+<li>减少初始加载体积</li>
+</ul>
+</div>
+<div class="cd cp ai">
+<h3 style="font-size:.92em">&#128465; 死代码消除</h3>
+<ul class="p" style="font-size:.8em">
+<li>esbuild tree shaking</li>
+<li>动态import减少初始体积</li>
+<li>条件编译移除开发代码</li>
+<li>单文件打包~12MB</li>
+</ul>
+</div>
+<div class="cd cc ai">
+<h3 style="font-size:.92em">&#128218; 子代理缓存</h3>
+<ul class="c" style="font-size:.8em">
+<li>上下文可能时复用</li>
+<li>同类子任务共享工具定义</li>
+<li>减少重复Schema序列化</li>
+<li>优化Agent启动开销</li>
+</ul>
+</div>
+<div class="cd" style="border-left:3px solid var(--g)">
+<h3 style="font-size:.92em;color:var(--g)">&#128200; 综合效果</h3>
+<ul class="g" style="font-size:.8em">
+<li>API成本节省<strong>~80%</strong></li>
+<li>首次启动<strong>&lt;2秒</strong></li>
+<li>工具执行延迟<strong>&lt;100ms</strong></li>
+<li>支持超长对话不断裂</li>
+</ul>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 19a: 推测执行机制 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Speculative Execution</div>
+<h2><span class="icon">&#128640;</span>推测执行机制</h2>
+<p class="sub" style="margin-bottom:14px">用户输入时后台预执行，降低响应延迟</p>
+<div class="g2">
+<div>
+<div class="cd ca ai" style="margin-bottom:12px">
+<h3>&#9889; 核心原理</h3>
+<ul style="font-size:.82em">
+<li>用户输入时，后台<strong>预加载上下文</strong></li>
+<li>预组装System Prompt和工具列表</li>
+<li>预热API连接和缓存</li>
+<li>用户按回车时<strong>立即开始推理</strong></li>
+</ul>
+</div>
+<div class="cd cg ai">
+<h3>&#128200; 性能收益</h3>
+<ul class="g" style="font-size:.82em">
+<li>首次响应延迟降低 <strong>40-60%</strong></li>
+<li>上下文加载与用户输入<strong>并行</strong></li>
+<li>缓存预热避免冷启动惩罚</li>
+<li>用户感知的"秒回"体验</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd co ai" style="margin-bottom:12px">
+<h3>&#128295; 实现细节</h3>
+<ul class="o" style="font-size:.82em">
+<li><strong>Idle检测</strong>：监听用户输入事件</li>
+<li><strong>增量预加载</strong>：分阶段加载资源</li>
+<li><strong>取消机制</strong>：新输入时取消旧预执行</li>
+<li><strong>内存控制</strong>：限制预执行资源占用</li>
+</ul>
+</div>
+<div class="hb ai">
+<strong>设计智慧：</strong>推测执行体现了"用空间换时间"的优化思想。通过在用户思考时提前准备工作，将原本串行的"输入→加载→推理"变为"输入+加载→推理"，显著提升了交互流畅度。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 19b: 七层安全模型 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · 7-Layer Security</div>
+<h2><span class="icon">&#128274;</span>七层安全模型</h2>
+<p class="sub" style="margin-bottom:14px">覆盖文件系统、工具调用、提示注入和社会工程风险</p>
+<div class="g3">
+<div class="cd ca ai">
+<h3 style="font-size:.92em">&#128274; L1-L3 基础安全</h3>
+<ul style="font-size:.76em">
+<li><strong>L1 文件系统</strong> — 路径白名单/黑名单，目录限制</li>
+<li><strong>L2 工具调用</strong> — 14步治理管道<span class="ref">[5]</span>，权限模式</li>
+<li><strong>L3 网络访问</strong> — 沙箱网络隔离，URL过滤</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3 style="font-size:.92em">&#128737; L4-L5 进阶防护</h3>
+<ul class="o" style="font-size:.76em">
+<li><strong>L4 提示注入</strong> — 检测恶意指令嵌入</li>
+<li><strong>L5 社会工程</strong> — 识别欺骗性请求</li>
+<li>内容过滤 + 意图分析</li>
+<li>异常行为模式检测</li>
+</ul>
+</div>
+<div class="cd cg ai">
+<h3 style="font-size:.92em">&#128170; L6-L7 纵深防御</h3>
+<ul class="g" style="font-size:.76em">
+<li><strong>L6 沙箱隔离</strong> — Seatbelt/bubblewrap OS级</li>
+<li><strong>L7 审计追溯</strong> — 完整操作日志，不可篡改</li>
+<li>Fail-Closed默认拒绝</li>
+<li>熔断器自动切断异常链路</li>
+</ul>
+</div>
+</div>
+<div class="hb ai" style="margin-top:10px">
+<strong>纵深防御理念：</strong>每一层都是独立的安全边界。即使某层被突破，后续层仍能拦截威胁。这与网络安全的"洋葱模型"一致——安全不是单一屏障，而是多层叠加的防护体系。
+</div>
+</div>
+
+<!-- ===== SLIDE 19c: 能力扩展生态 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Ecosystem</div>
+<h2><span class="icon">&#129504;</span>能力扩展生态</h2>
+<p class="sub" style="margin-bottom:14px">Skill / Plugin / MCP 支持动态工具与外部服务接入</p>
+<div class="g3">
+<div class="cd ca ai">
+<h3>&#128295; Skill 技能</h3>
+<ul style="font-size:.8em">
+<li><code>.claude/skills/</code> 目录</li>
+<li>Markdown定义技能描述</li>
+<li>自动注册为可用工具</li>
+<li>支持参数模板化</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#128268; Plugin 插件</h3>
+<ul class="o" style="font-size:.8em">
+<li>Node.js插件架构</li>
+<li>自定义工具实现</li>
+<li>生命周期钩子</li>
+<li>第三方开发者扩展</li>
+</ul>
+</div>
+<div class="cd cg ai">
+<h3>&#128279; MCP 协议</h3>
+<ul class="g" style="font-size:.8em">
+<li>Model Context Protocol</li>
+<li>标准化外部工具接入</li>
+<li>Server/Client架构</li>
+<li>动态发现和注册</li>
+</ul>
+</div>
+</div>
+<div class="g2" style="margin-top:12px">
+<div class="cd ai" style="border-left:4px solid var(--a)">
+<h3 style="font-size:.92em">&#128260; MCP 工作流</h3>
+<div class="af ai" style="font-size:.76em;transform:scale(.88);transform-origin:left top">
+<div class="abx ab1" style="width:90%">MCP Server<small>提供工具定义 · 处理工具调用</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab3" style="width:90%">MCP Client<small>发现工具 · 注册到ToolRegistry</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab5" style="width:90%">ToolRegistry<small>统一管理 · 权限映射 · 调用分发</small></div>
+</div>
+</div>
+<div class="hb ai">
+<strong>生态策略：</strong>Claude Code采用"核心精简+生态扩展"的策略。42个内置工具<span class="ref">[4]</span>覆盖编码核心场景，MCP/Skill/Plugin支持无限扩展。这既保证了核心体验的一致性，又为长尾需求提供了解决方案。
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 19d: 未来功能展望 ===== -->
+<div class="slide claude-section">
+<div class="stag">Claude Code · Future</div>
+<h2><span class="icon">&#128302;</span>未来功能展望</h2>
+<p class="sub" style="margin-bottom:14px">KAIROS、Capybara、Buddy 等系统能力仍在扩展中</p>
+<div class="g3">
+<div class="cd ai" style="border-top:3px solid var(--a)">
+<h3 style="color:var(--a)">&#127760; KAIROS</h3>
+<ul style="font-size:.8em">
+<li>会话结束后的<strong>"梦境"守护进程</strong></li>
+<li>自动整理、合并、反思记忆</li>
+<li>优化项目记忆结构</li>
+<li>持续学习用户偏好</li>
+</ul>
+</div>
+<div class="cd ai" style="border-top:3px solid var(--g)">
+<h3 style="color:var(--g)">&#128041; Capybara</h3>
+<ul class="g" style="font-size:.8em">
+<li>内部代号：<strong>水豚</strong></li>
+<li>增强的上下文理解能力</li>
+<li>更长的上下文窗口支持</li>
+<li>改进的多轮对话连贯性</li>
+</ul>
+</div>
+<div class="cd ai" style="border-top:3px solid var(--o)">
+<h3 style="color:var(--o)">&#128054; Buddy System</h3>
+<ul class="o" style="font-size:.8em">
+<li><strong>18种伙伴宠物</strong>物种</li>
+<li>个性化Agent外观和性格</li>
+<li>情感化交互体验</li>
+<li>用户粘性与趣味性</li>
+</ul>
+</div>
+</div>
+<div class="g2" style="margin-top:12px">
+<div class="cd ai" style="border-left:4px solid var(--a2)">
+<h3 style="color:var(--a2)">&#127919; 更多隐藏特性</h3>
+<ul style="font-size:.8em">
+<li><strong>动物代号系统</strong> — Tengu(天狗)、Fennec(耳廓狐)、Numbat(袋食蚁兽)</li>
+<li><strong>Undercover Mode</strong> — 隐蔽模式，隐藏AI辅助痕迹</li>
+<li><strong>Feature Flags</strong> — 实验性功能开关系统</li>
+<li><strong>自定义Personality</strong> — 用户可定义Agent性格</li>
+</ul>
+</div>
+<div class="hb ai">
+<strong>扩展方向：</strong>从KAIROS的"记忆梦境"到Buddy的"情感陪伴"，Claude Code正在从"工具"向"伙伴"进化。这些未来功能展示了AI Agent的无限可能——不仅是编码助手，更是智能伙伴。
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 19: Claude Code 总结 ===== -->
+<div class="slide claude-section es">
+<div>
+<div class="stag ai">Part I Summary</div>
+<h1 class="gt ai" style="font-size:2.6em">Claude Code 模块总结</h1>
+<div class="g3 ai" style="margin:24px 0;max-width:900px;margin-left:auto;margin-right:auto">
+<div style="text-align:center">
+<div style="font-size:2.2em">&#128187;</div>
+<h3 class="atext">QueryEngine</h3>
+<p style="font-size:.8em">8步异步生成器循环<br>Token预算管理<br>流式API调用</p>
+</div>
+<div style="text-align:center">
+<div style="font-size:2.2em">&#129504;</div>
+<h3 class="otext">工具系统</h3>
+<p style="font-size:.8em">60+内置工具<span class="ref">[4]</span><br>14步治理管道<span class="ref">[5]</span><br>Hook权限管道</p>
+</div>
+<div style="text-align:center">
+<div style="font-size:2.2em">&#128274;</div>
+<h3 class="ptext">权限与安全</h3>
+<p style="font-size:.8em">6种权限模式<br>7步评估管道<br>OS级沙箱隔离</p>
+</div>
+</div>
+<div class="g3 ai" style="max-width:900px;margin-left:auto;margin-right:auto">
+<div style="text-align:center">
+<div style="font-size:2.2em">&#128451;</div>
+<h3 class="gtext">记忆系统</h3>
+<p style="font-size:.8em">三层记忆架构<br>KAIROS守护进程<br>自我进化机制</p>
+</div>
+<div style="text-align:center">
+<div style="font-size:2.2em">&#128200;</div>
+<h3 class="ctext">上下文管理</h3>
+<p style="font-size:.8em">五层压缩体系<br>Cache-Aware策略<br>Token预算管理</p>
+</div>
+<div style="text-align:center">
+<div style="font-size:2.2em">&#129302;</div>
+<h3 style="color:var(--p)">多Agent</h3>
+<p style="font-size:.8em">6种Agent角色<br>验证闭环<br>反递归保护</p>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 19+: Claude Code vs Cursor/Copilot/Aider ===== -->
+<div class="slide claude-section" style="padding:28px 24px">
+<div class="stag">Claude Code · Competitive Analysis</div>
+<h2><span class="icon">&#128200;</span>Claude Code vs Cursor / Copilot / Aider</h2>
+<p class="sub" style="margin-bottom:12px">多维度对比四类AI编程工具，突出 Claude Code 在 Agent 架构层面的完整性</p>
+<div style="overflow-x:auto;margin-bottom:12px">
+<div class="cmp-row hdr">
+<div class="cmp-cell dim" style="background:transparent">对比维度</div>
+<div class="cmp-cell" style="color:var(--a);font-weight:700;justify-content:center">Claude Code</div>
+<div class="cmp-cell" style="color:var(--a2);font-weight:600;justify-content:center">Cursor</div>
+<div class="cmp-cell" style="color:var(--g);font-weight:600;justify-content:center">Copilot</div>
+<div class="cmp-cell" style="color:var(--o);font-weight:600;justify-content:center">Aider</div>
+</div>
+<div class="cmp-row">
+<div class="cmp-cell dim">核心定位</div>
+<div class="cmp-cell winner"><span class="cmp-badge best">Agent操作系统</span></div>
+<div class="cmp-cell"><span class="cmp-badge mid">IDE插件</span></div>
+<div class="cmp-cell"><span class="cmp-badge low">代码补全</span></div>
+<div class="cmp-cell"><span class="cmp-badge mid">CLI代码助手</span></div>
+</div>
+<div class="cmp-row">
+<div class="cmp-cell dim">架构层级</div>
+<div class="cmp-cell winner"><span class="cmp-badge best">四层完整架构</span></div>
+<div class="cmp-cell">两层：IDE + 模型</div>
+<div class="cmp-cell">单层：补全引擎</div>
+<div class="cmp-cell">两层：CLI + 模型</div>
+</div>
+<div class="cmp-row">
+<div class="cmp-cell dim">控制权归属</div>
+<div class="cmp-cell winner"><span class="cmp-badge best">模型驱动循环</span></div>
+<div class="cmp-cell">用户驱动</div>
+<div class="cmp-cell">用户驱动</div>
+<div class="cmp-cell"><span class="cmp-badge good">混合驱动</span></div>
+</div>
+<div class="cmp-row">
+<div class="cmp-cell dim">上下文管理</div>
+<div class="cmp-cell winner"><span class="cmp-badge best">五层压缩体系</span></div>
+<div class="cmp-cell">简单截断</div>
+<div class="cmp-cell">有限窗口</div>
+<div class="cmp-cell">文件级管理</div>
+</div>
+<div class="cmp-row">
+<div class="cmp-cell dim">工具系统</div>
+<div class="cmp-cell winner"><span class="cmp-badge best">60+ 工具抽象<span class="ref">[4]</span></span></div>
+<div class="cmp-cell">IDE API集成</div>
+<div class="cmp-cell"><span class="cmp-badge low">无</span></div>
+<div class="cmp-cell">有限文件操作</div>
+</div>
+<div class="cmp-row">
+<div class="cmp-cell dim">扩展性</div>
+<div class="cmp-cell winner"><span class="cmp-badge best">Plugin+Skill+MCP</span></div>
+<div class="cmp-cell">有限插件</div>
+<div class="cmp-cell"><span class="cmp-badge low">无</span></div>
+<div class="cmp-cell"><span class="cmp-badge low">无</span></div>
+</div>
+<div class="cmp-row">
+<div class="cmp-cell dim">安全模型</div>
+<div class="cmp-cell winner"><span class="cmp-badge best">七层安全</span></div>
+<div class="cmp-cell">IDE权限继承</div>
+<div class="cmp-cell">基本用户确认</div>
+<div class="cmp-cell">简单确认机制</div>
+</div>
+</div>
+<div class="g2">
+<div>
+<div class="cmp-bar-wrap" id="cmpBars">
+<div style="font-size:.78em;font-weight:700;margin-bottom:8px;color:var(--d2)">综合能力评分（满分100）</div>
+<div class="cmp-bar-row"><div class="cmp-bar-label">Claude Code</div><div class="cmp-bar-track"><div class="cmp-bar-fill bcc" data-w="95">95</div></div></div>
+<div class="cmp-bar-row"><div class="cmp-bar-label">Cursor</div><div class="cmp-bar-track"><div class="cmp-bar-fill bcu" data-w="68">68</div></div></div>
+<div class="cmp-bar-row"><div class="cmp-bar-label">Copilot</div><div class="cmp-bar-track"><div class="cmp-bar-fill bco" data-w="52">52</div></div></div>
+<div class="cmp-bar-row"><div class="cmp-bar-label">Aider</div><div class="cmp-bar-track"><div class="cmp-bar-fill bca" data-w="58">58</div></div></div>
+<div class="cmp-legend">
+<div class="cmp-legend-item"><div class="cmp-legend-dot" style="background:var(--a)"></div>Agent架构</div>
+<div class="cmp-legend-item"><div class="cmp-legend-dot" style="background:var(--a2)"></div>IDE集成</div>
+<div class="cmp-legend-item"><div class="cmp-legend-dot" style="background:var(--g)"></div>代码补全</div>
+<div class="cmp-legend-item"><div class="cmp-legend-dot" style="background:var(--o)"></div>CLI工具</div>
+</div>
+</div>
+</div>
+<div class="cmp-highlight">
+<strong>Claude Code 核心优势：</strong>四层架构（用户层→推理层→工具层→权限层）实现了从自然语言输入到工具执行的完整自治循环，配合五层压缩体系和七层安全模型，是目前架构最完整的AI编程Agent。Cursor和Copilot本质上仍是"人在回路"的辅助工具，而Claude Code已进化为<strong>模型驱动的自治系统</strong>。
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 20: 分隔线 — Part II OpenClaw ===== -->
+<div class="slide section-divider openclaw-section">
+<div style="text-align:center">
+<div class="stag ai" style="color:var(--c)">Part II</div>
+<h1 class="ctext ai" style="font-size:3em">OpenClaw 深度解析</h1>
+<p class="sub ai">开源个人AI智能体 — 本地优先 · 多渠道接入 · 社区驱动</p>
+<div class="tag-row ai" style="justify-content:center">
+<span class="tag" style="border-color:rgba(6,182,212,.3)">24.8万 GitHub Stars<span class="ref">[2]</span></span>
+<span class="tag" style="border-color:rgba(6,182,212,.3)">TypeScript/Node.js</span>
+<span class="tag" style="border-color:rgba(6,182,212,.3)">MIT开源协议</span>
+<span class="tag" style="border-color:rgba(6,182,212,.3)">16000+ Skills<span class="ref">[3]</span></span>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 21: OpenClaw 概述 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Overview</div>
+<h2><span class="icon" style="color:var(--c)">&#128065;</span>OpenClaw：本地优先的 Agent 操作系统雏形</h2>
+<p class="sub" style="margin-bottom:14px">从聊天机器人到长期运行的智能体平台 — Moltbot / Clawdbot → OpenClaw</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#128161; 它是什么？</h3>
+<ul class="c" style="font-size:.85em">
+<li><strong>本地优先、自托管、多通道 AI Agent 框架</strong></li>
+<li>不是普通聊天机器人，而是<strong>长期驻留的 Agent 平台</strong></li>
+<li>Gateway 守护进程统一管理：通道 · 会话 · 工具 · 记忆 · 权限 · 多Agent路由</li>
+<li>支持 Claude / OpenAI / Gemini / 本地LLM 等多模型接入</li>
+<li>早期曾叫 <strong>Moltbot</strong>、<strong>Clawdbot</strong>，后更名为 OpenClaw</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#128195; 本地优先架构</h3>
+<ul class="o" style="font-size:.82em">
+<li>会话状态 · 记忆文件 · 配置均存放在<strong>本机工作区</strong></li>
+<li>存储格式：<code>Markdown</code> / <code>JSONL</code> / <code>SQLite</code></li>
+<li>仅调用外部模型时才进行<strong>必要的出站访问</strong></li>
+<li>数据可控 · 可审计 · 可备份 · 可版本管理</li>
+<li>增强<strong>私有化部署</strong>能力和合规性</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#127970; Gateway 控制平面</h3>
+<ul class="g" style="font-size:.85em">
+<li>长期运行的 <strong>Node.js 守护进程</strong></li>
+<li>通过 <strong>WebSocket</strong> 暴露统一 API</li>
+<li>维护：通道连接 · 会话状态 · 工具调用 · 记忆写入 · 权限策略</li>
+<li>系统的<strong>单一控制平面</strong>、<strong>单一写入者</strong>、<strong>单一事实来源</strong></li>
+<li>保证状态一致性和操作可追踪</li>
+</ul>
+</div>
+<div class="stat-row ai">
+<div class="stat"><div class="n ctext">24.8万<span class="ref">[2]</span></div><div class="l">GitHub Stars</div></div>
+<div class="stat"><div class="n otext">16000+<span class="ref">[3]</span></div><div class="l">ClawHub技能</div></div>
+<div class="stat"><div class="n gtext">7+</div><div class="l">消息通道</div></div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 22: OpenClaw 五层架构 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Architecture</div>
+<h2><span class="icon" style="color:var(--c)">&#128736;</span>OpenClaw 五层架构</h2>
+<p class="sub" style="margin-bottom:14px">清晰的分层设计，每层职责明确 · <span style="font-size:.8em;opacity:.6">点击各层查看内部细节</span></p>
+<div class="af ai">
+<div class="arch-unit">
+<div class="abx ab5 arch-expandable" onclick="toggleArch(this)" style="width:88%">&#128279; Channel 通道层<small>WhatsApp / Telegram / Slack / Discord / iMessage / Signal / Matrix — Channel Bridges 归一化</small></div>
+<div class="arch-detail" style="width:80%"><div class="arch-detail-inner">
+<div class="ad-item"><span class="ad-icon bc">🌉</span><span><strong>Channel Bridges</strong> — 将各平台消息归一为内部统一事件，再路由给对应Agent或工作区</span></div>
+<div class="ad-item"><span class="ad-icon bc">TG</span><span><strong>Telegram / WhatsApp</strong> — Bot API + Webhook，支持图片/文件/语音，InlineKeyboard交互</span></div>
+<div class="ad-item"><span class="ad-icon bc">💬</span><span><strong>Slack / Discord</strong> — 企业协作与社区场景，支持线程、频道、@提及、富文本消息</span></div>
+<div class="ad-item"><span class="ad-icon bc">📱</span><span><strong>iMessage / Signal / Matrix</strong> — 社区贡献桥接器，覆盖更多即时通讯场景</span></div>
+<div class="ad-item"><span class="ad-icon bc">IF</span><span><strong>统一接口</strong> — ChannelAdapter抽象接口，消息格式标准化（text/image/file），异步消息+流式响应</span></div>
+</div></div>
+<p class="arch-hint">▸ 点击展开通道层内部实现</p>
+</div>
+<div class="aar">&#8595;</div>
+<div class="arch-unit">
+<div class="abx ab1 arch-expandable" onclick="toggleArch(this)" style="width:88%">&#127970; Gateway 网关层<small>单一控制平面 · 单一写入者 · 单一事实来源 · Node.js 守护进程</small></div>
+<div class="arch-detail" style="width:80%"><div class="arch-detail-inner">
+<div class="ad-item"><span class="ad-icon ba">🎯</span><span><strong>单一控制平面</strong> — Gateway是系统中枢，通过WebSocket暴露统一API，保证状态一致性</span></div>
+<div class="ad-item"><span class="ad-icon ba">RT</span><span><strong>会话路由</strong> — 按用户/群组/通道/工作区粒度划分Agent会话和记忆，实现多智能体隔离</span></div>
+<div class="ad-item"><span class="ad-icon ba">TR</span><span><strong>Tool Registry</strong> — 内置工具 + MCP工具注册，toolCallTypes/toolCallFactory/toolCallExecutor</span></div>
+<div class="ad-item"><span class="ad-icon ba">CB</span><span><strong>Context Builder</strong> — 组装上下文：系统提示(SOUL.md) + 用户画像(USER.md) + 记忆(MEMORY.md) + 工具列表</span></div>
+<div class="ad-item"><span class="ad-icon ba">🛡</span><span><strong>安全与稳定</strong> — Fail-Closed默认拒绝 + RateLimiter限流 + CircuitBreaker熔断 + 完整审计日志</span></div>
+</div></div>
+<p class="arch-hint">▸ 点击展开网关层内部实现</p>
+</div>
+<div class="aar">&#8595;</div>
+<div class="arch-unit">
+<div class="abx ab4 arch-expandable" onclick="toggleArch(this)" style="width:88%">&#128194; Workspace 工作空间<small>SOUL.md · USER.md · MEMORY.md · AGENTS.md · JSONL · SQLite · 文件化记忆体系</small></div>
+<div class="arch-detail" style="width:80%"><div class="arch-detail-inner">
+<div class="ad-item"><span class="ad-icon bp">S</span><span><strong>SOUL.md</strong> — 智能体人格定义：性格、语言风格、价值取向、行为边界</span></div>
+<div class="ad-item"><span class="ad-icon bp">U</span><span><strong>USER.md</strong> — 用户画像：偏好、习惯、常用称呼、工作背景</span></div>
+<div class="ad-item"><span class="ad-icon bp">📄</span><span><strong>JSONL 会话记录</strong> — 每条消息一行JSON，人类可读、可编辑、可备份、可版本管理</span></div>
+<div class="ad-item"><span class="ad-icon bp">📅</span><span><strong>memory/YYYY-MM-DD.md</strong> — 每日记忆日志，按日期归档，关键事件和对话摘要</span></div>
+<div class="ad-item"><span class="ad-icon bp">M</span><span><strong>MEMORY.md</strong> — 长期记忆：关键事实、跨会话索引，支持跨通道共享</span></div>
+</div></div>
+<p class="arch-hint">▸ 点击展开工作空间内部实现</p>
+</div>
+<div class="aar">&#8595;</div>
+<div class="arch-unit">
+<div class="abx ab3 arch-expandable" onclick="toggleArch(this)" style="width:88%">&#129504; Skills 技能系统<small>SKILL.md · Skill · Plugin · MCP · ClawHub市场 · 16000+技能<span class="ref">[3]</span></small></div>
+<div class="arch-detail" style="width:80%"><div class="arch-detail-inner">
+<div class="ad-item"><span class="ad-icon bo">📝</span><span><strong>SKILL.md</strong> — 技能核心描述文件，声明能力、参数、权限等级，Gateway按需加载</span></div>
+<div class="ad-item"><span class="ad-icon bo">🔌</span><span><strong>Plugin / MCP</strong> — 插件和Model Context Protocol扩展Agent能力，支持外部工具和服务接入</span></div>
+<div class="ad-item"><span class="ad-icon bo">📦</span><span><strong>ClawHub市场</strong> — 16000+社区技能<span class="ref">[3]</span>，claw install一键安装，版本管理+安全审计+评分排名</span></div>
+<div class="ad-item"><span class="ad-icon bo">⚠️</span><span><strong>供应链风险</strong> — 恶意技能可能窃取API Key、上传隐私、植入后门提示，需安全审计机制</span></div>
+</div></div>
+<p class="arch-hint">▸ 点击展开技能系统内部实现</p>
+</div>
+<div class="aar">&#8595;</div>
+<div class="arch-unit">
+<div class="abx ab2 arch-expandable" onclick="toggleArch(this)" style="width:88%">&#128260; Model Provider 模型层<small>Claude · OpenAI · Gemini · DeepSeek · 本地LLM(Ollama) · 20+模型 · 统一接口</small></div>
+<div class="arch-detail" style="width:80%"><div class="arch-detail-inner">
+<div class="ad-item"><span class="ad-icon bg">🔌</span><span><strong>统一模型接口</strong> — 抽象Provider层，屏蔽不同模型API差异，统一的chat/embedding/image接口</span></div>
+<div class="ad-item"><span class="ad-icon bg">☁</span><span><strong>云端模型</strong> — Claude / OpenAI / Gemini / DeepSeek / 通义千问，API Key配置即用</span></div>
+<div class="ad-item"><span class="ad-icon bg">🏠</span><span><strong>本地模型</strong> — Ollama集成，支持Llama/Qwen/Mistral等开源模型，数据完全不出本地</span></div>
+<div class="ad-item"><span class="ad-icon bg">⚡</span><span><strong>智能路由</strong> — 按任务复杂度自动选择模型，简单任务用小模型降本，复杂任务用大模型保质</span></div>
+</div></div>
+<p class="arch-hint">▸ 点击展开模型层内部实现</p>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 23: Gateway 网关层详解 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Gateway</div>
+<h2><span class="icon" style="color:var(--c)">&#127970;</span>Gateway：系统的单一控制平面</h2>
+<p class="sub" style="margin-bottom:14px">长期运行的 Node.js 守护进程 · WebSocket 统一 API · 单一写入者 · 单一事实来源</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#127970; 核心职责</h3>
+<ul class="c" style="font-size:.82em">
+<li><strong>通道连接</strong> — 维护所有Channel Bridge的生命周期</li>
+<li><strong>会话路由</strong> — 按用户/群组/通道/工作区粒度分发</li>
+<li><strong>工具调用</strong> — 注册、执行、审计所有工具调用</li>
+<li><strong>记忆写入</strong> — 统一管理记忆文件的读写和压缩</li>
+<li><strong>权限策略</strong> — Fail-Closed默认拒绝，显式授权才执行</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#127970; 三重身份</h3>
+<ul class="o" style="font-size:.82em">
+<li><strong>单一控制平面</strong> — 所有操作经由Gateway协调</li>
+<li><strong>单一写入者</strong> — 只有Gateway可写入状态和记忆</li>
+<li><strong>单一事实来源</strong> — 保证状态一致性和操作可追踪</li>
+<li>WebSocket暴露统一API，外部不直接操作文件</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#128737; 稳定性保障</h3>
+<ul class="g" style="font-size:.82em">
+<li><strong>RateLimiter</strong> — 请求限流，防止过载</li>
+<li><strong>CircuitBreaker</strong> — 熔断器，连续失败自动切断</li>
+<li><strong>MetricsCollector</strong> — 指标采集与监控</li>
+<li><strong>Fail-Closed</strong> — 默认拒绝未明确允许的操作</li>
+<li><strong>FileAuditLogger</strong> — 完整审计轨迹，不可篡改</li>
+</ul>
+</div>
+<div class="cd cp ai">
+<h3>&#128260; 工具调用协议</h3>
+<ul class="p" style="font-size:.82em">
+<li><code>toolCallTypes</code> — 调用类型定义</li>
+<li><code>toolCallFactory</code> — 调用ID生成</li>
+<li><code>toolCallExecutor</code> — 调用执行与审计</li>
+<li><code>@modelcontextprotocol/sdk</code> — MCP外部工具接入</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 24: Channel 通道层 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Channels</div>
+<h2><span class="icon" style="color:var(--c)">&#128279;</span>Channel 通道适配层</h2>
+<p class="sub" style="margin-bottom:14px">Channel Bridges 将多平台消息归一为内部事件 — 一个灵魂，多张面孔</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#128279; 支持的通道</h3>
+<div class="tc">
+<table style="font-size:.82em">
+<tr><th>通道</th><th>类型</th><th>状态</th></tr>
+<tr><td><strong>WhatsApp</strong></td><td>即时通讯</td><td><span class="badge bg">已实现</span></td></tr>
+<tr><td><strong>Telegram</strong></td><td>即时通讯</td><td><span class="badge bg">已实现</span></td></tr>
+<tr><td><strong>Slack</strong></td><td>企业协作</td><td><span class="badge bg">已实现</span></td></tr>
+<tr><td><strong>Discord</strong></td><td>社区</td><td><span class="badge bg">已实现</span></td></tr>
+<tr><td><strong>iMessage</strong></td><td>即时通讯</td><td><span class="badge bb">社区贡献</span></td></tr>
+<tr><td><strong>Signal</strong></td><td>即时通讯</td><td><span class="badge bb">社区贡献</span></td></tr>
+<tr><td><strong>Matrix</strong></td><td>去中心化</td><td><span class="badge bb">社区贡献</span></td></tr>
+</table>
+</div>
+</div>
+</div>
+<div>
+<div class="cd co ai" style="margin-bottom:12px">
+<h3>&#127793; Channel Bridges 归一化</h3>
+<ul class="o" style="font-size:.82em">
+<li>每种通道实现统一的<strong>ChannelAdapter接口</strong></li>
+<li>Channel Bridge将平台消息<strong>归一为内部统一事件</strong></li>
+<li>再由Gateway路由给<strong>对应的Agent或工作区</strong></li>
+<li>支持按用户/群组/通道粒度划分Agent会话和记忆</li>
+<li>通道间无缝切换，SOUL.md和MEMORY.md保持一致</li>
+</ul>
+</div>
+<div class="hb ai">
+<strong>设计优势：</strong>用户可以在电脑上用CLI开始任务，然后在手机上通过Telegram继续对话。Channel Bridges确保无论通过哪个渠道接入，智能体都保持一致的"人格"和记忆——实现了多智能体隔离和协作。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 25: Workspace 工作空间 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Workspace</div>
+<h2><span class="icon" style="color:var(--c)">&#128194;</span>Workspace：文件化记忆体系</h2>
+<p class="sub" style="margin-bottom:14px">Markdown · JSONL · SQLite — 人类可读、可编辑、可备份、可版本管理</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#128196; 核心配置文件</h3>
+<table style="font-size:.82em">
+<tr><th>文件</th><th>职责</th><th>特点</th></tr>
+<tr><td><strong>SOUL.md</strong></td><td>智能体人格定义</td><td>性格、语言风格、价值取向</td></tr>
+<tr><td><strong>USER.md</strong></td><td>用户画像</td><td>偏好、习惯、常用称呼</td></tr>
+<tr><td><strong>MEMORY.md</strong></td><td>长期记忆</td><td>关键事实、跨会话索引</td></tr>
+<tr><td><strong>AGENTS.md</strong></td><td>多Agent配置</td><td>角色分工、协作规则</td></tr>
+</table>
+</div>
+<div class="cd co ai">
+<h3>&#128195; 文件化存储格式</h3>
+<ul class="o" style="font-size:.82em">
+<li><strong>JSONL</strong> — 每条消息一行JSON，会话记录</li>
+<li><strong>memory/YYYY-MM-DD.md</strong> — 每日记忆日志</li>
+<li><strong>MEMORY.md</strong> — 长期记忆，关键事实索引</li>
+<li><strong>SQLite + Embedding + BM25</strong> — 混合检索层</li>
+<li>所有文件<strong>人类可读、可编辑、可备份</strong></li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#128260; 上下文恢复流程</h3>
+<ul class="g" style="font-size:.82em">
+<li>启动时自动加载 <code>SOUL.md</code> + <code>USER.md</code></li>
+<li>根据会话ID检索 <code>MEMORY.md</code> 中的历史</li>
+<li>Context Builder 组装完整上下文</li>
+<li>支持跨会话、跨通道的<strong>无缝记忆恢复</strong></li>
+</ul>
+</div>
+<div class="hb ai">
+<strong>设计理念：</strong>OpenClaw将所有状态以纯文本文件存储，这不是技术限制，而是刻意的设计选择——让智能体的"内心世界"对用户完全透明。用户可以直接编辑记忆文件、用Git版本管理、用grep搜索——这些工具链天然可用。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 26: Skills 技能系统与ClawHub ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Skills</div>
+<h2><span class="icon" style="color:var(--c)">&#129504;</span>Skills · Plugin · MCP 能力扩展生态</h2>
+<p class="sub" style="margin-bottom:14px">SKILL.md 核心描述 · ClawHub 16000+ 技能<span class="ref">[3]</span> · 供应链安全挑战</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#128295; 三种扩展机制</h3>
+<table style="font-size:.82em">
+<tr><th>类型</th><th>核心</th><th>说明</th></tr>
+<tr><td><strong>Skill</strong></td><td>SKILL.md</td><td>技能描述文件，声明能力、参数、权限</td></tr>
+<tr><td><strong>Plugin</strong></td><td>Node.js</td><td>插件钩子，扩展Gateway功能</td></tr>
+<tr><td><strong>MCP</strong></td><td>Protocol</td><td>Model Context Protocol，标准工具接入</td></tr>
+</table>
+</div>
+<div class="cd co ai">
+<h3>&#128230; ClawHub 技能市场</h3>
+<ul class="o" style="font-size:.82em">
+<li>类似npm的<strong>技能包管理器</strong></li>
+<li><code>claw install &lt;skill&gt;</code> 一键安装</li>
+<li><strong>16000+</strong><span class="ref">[3]</span> 社区贡献技能</li>
+<li>支持版本管理和依赖声明</li>
+<li>安全审计与评分排名</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#128640; SKILL.md 工作流</h3>
+<ul class="g" style="font-size:.82em">
+<li>每个技能以 <code>SKILL.md</code> 为核心描述文件</li>
+<li>声明：能力范围、输入输出、权限等级</li>
+<li>Gateway <strong>按需加载</strong>，不占用启动时间</li>
+<li>支持<strong>热更新</strong>：修改技能文件立即生效</li>
+<li>技能运行在<strong>独立上下文</strong>，互相隔离</li>
+</ul>
+</div>
+<div class="cd cp ai">
+<h3>&#9888; 供应链安全风险</h3>
+<ul class="p" style="font-size:.82em">
+<li>恶意技能可能<strong>窃取API Key</strong>和隐私数据</li>
+<li>伪装正常工具，实际<strong>植入后门提示</strong></li>
+<li>通过多步工具调用<strong>绕过单点安全检测</strong></li>
+<li>需要：代码审查 · 权限声明 · 沙箱隔离 · 社区评分</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 27: Memory 记忆系统 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Memory</div>
+<h2><span class="icon" style="color:var(--c)">&#129504;</span>Memory 文件化记忆体系</h2>
+<p class="sub" style="margin-bottom:14px">JSONL · Markdown · SQLite · Embedding · BM25 — 人类可读、可审计的记忆架构</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#128195; 四层记忆架构</h3>
+<div class="af ai" style="font-size:.82em">
+<div class="abx ab1" style="width:95%">当前会话上下文<small>JSONL会话记录 · 每条消息一行JSON</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab4" style="width:95%">每日记忆日志<small>memory/YYYY-MM-DD.md · 关键事件和对话摘要</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab3" style="width:95%">长期记忆文件<small>MEMORY.md · 关键事实 · 跨会话索引</small></div>
+<div class="aar">&#8595;</div>
+<div class="abx ab2" style="width:95%">向量检索层<small>SQLite + Embedding + BM25 混合检索</small></div>
+</div>
+</div>
+<div class="cd co ai">
+<h3>&#128260; 记忆压缩与恢复</h3>
+<ul class="o" style="font-size:.82em">
+<li>会话过长时自动触发<strong>摘要压缩</strong></li>
+<li>压缩比可配置（默认50%）</li>
+<li>关键信息标记为<strong>不可压缩</strong></li>
+<li>压缩日志记录到 <code>DREAMS.md</code></li>
+<li>用户可审阅和修正智能体的"记忆"</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#127760; 跨通道记忆共享</h3>
+<ul class="g" style="font-size:.82em">
+<li>Telegram上对话的记忆，CLI可检索</li>
+<li>所有通道共享同一 <code>MEMORY.md</code></li>
+<li>记忆按<strong>时间戳+来源通道</strong>索引</li>
+<li>用户可手动<strong>标记重要记忆</strong></li>
+<li>支持<strong>遗忘</strong>命令：主动删除特定记忆</li>
+</ul>
+</div>
+<div class="cd cp ai">
+<h3>&#128161; 文件化记忆优势</h3>
+<ul class="p" style="font-size:.82em">
+<li><strong>人类可读</strong> — Markdown/JSONL，无需专用工具</li>
+<li><strong>可编辑</strong> — 用户可直接修改记忆文件</li>
+<li><strong>可备份</strong> — 文件系统天然支持</li>
+<li><strong>可版本管理</strong> — Git追踪记忆变更历史</li>
+<li><strong>可审计</strong> — 记忆内容完全透明</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 28: Heartbeat 心跳与主动式 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Heartbeat</div>
+<h2><span class="icon" style="color:var(--c)">&#128147;</span>Heartbeat 心跳与主动式交互</h2>
+<p class="sub" style="margin-bottom:14px">让智能体从"被动应答"进化为"主动服务"</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#9200; Cron调度引擎</h3>
+<ul class="c" style="font-size:.82em">
+<li>基于<strong>Cron表达式</strong>的定时任务系统</li>
+<li>配置文件：<code>heartbeat.config.json</code></li>
+<li>支持秒级精度的定时触发</li>
+<li>内置<strong>重试机制</strong>与<strong>失败回退</strong></li>
+<li>任务队列管理，防止并发冲突</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#128172; 主动式任务示例</h3>
+<table style="font-size:.82em">
+<tr><th>场景</th><th>频率</th><th>动作</th></tr>
+<tr><td>日报生成</td><td>每日18:00</td><td>汇总当天工作</td></tr>
+<tr><td>天气提醒</td><td>每日07:30</td><td>推送天气预报</td></tr>
+<tr><td>邮件摘要</td><td>每2小时</td><td>检查未读邮件</td></tr>
+<tr><td>健康提醒</td><td>每45分钟</td><td>提醒休息喝水</td></tr>
+</table>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#128227; 消息推送通道</h3>
+<ul class="g" style="font-size:.82em">
+<li>Heartbeat触发的任务通过<strong>指定Channel</strong>推送</li>
+<li>支持<strong>多通道同时推送</strong>（如Telegram+微信）</li>
+<li>推送内容根据通道<strong>自动格式化</strong></li>
+<li>用户可通过 <code>/pause</code> 暂停所有心跳</li>
+<li>支持<strong>地理围栏</strong>触发（实验性）</li>
+</ul>
+</div>
+<div class="hb ai">
+<strong>与Claude Code对比：</strong>Claude Code的KAIROS守护进程在终端空闲时自动整理记忆，是一种"后台静默"模式。OpenClaw的Heartbeat则更强调"主动与用户交互"——它不只是整理记忆，而是主动推送信息和服务。两者代表了智能体主动性的不同维度。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 29: 安全与沙箱 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Security</div>
+<h2><span class="icon" style="color:var(--c)">&#128274;</span>安全机制与攻击面分析</h2>
+<p class="sub" style="margin-bottom:14px">Fail-Closed 设计 · 真实系统权限 · 复杂攻击面 · 安全研究重要案例</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#128737; 防御机制</h3>
+<ul class="c" style="font-size:.82em">
+<li><strong>Fail-Closed</strong> — 权限检查默认拒绝，不确定时宁可拒绝</li>
+<li><strong>输入验证</strong> — Schema校验 + 注入检测 + 频率限制</li>
+<li><strong>审计日志</strong> — 所有工具调用记录完整审计链，不可篡改</li>
+<li><strong>技能隔离</strong> — 每个技能运行在独立上下文</li>
+<li><strong>显式授权</strong> — 外部API调用需用户确认</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#9888; 攻击面分析</h3>
+<ul class="o" style="font-size:.82em">
+<li><strong>文件系统</strong> — Agent可读写文件，存在数据泄露风险</li>
+<li><strong>Shell执行</strong> — 可执行命令，存在远程代码执行风险</li>
+<li><strong>浏览器控制</strong> — 可操控浏览器，扩大攻击面</li>
+<li><strong>网络访问</strong> — 可发起HTTP请求，存在数据外传风险</li>
+<li><strong>长期记忆</strong> — 记忆文件可能包含敏感信息</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#128274; 安全研究价值</h3>
+<ul class="g" style="font-size:.82em">
+<li><strong>提示注入</strong> — 恶意指令隐藏在网页/邮件/文档中</li>
+<li><strong>工具链攻击</strong> — 多步工具调用组合绕过单点检测</li>
+<li><strong>供应链污染</strong> — 恶意技能伪装正常工具窃取数据</li>
+<li><strong>记忆泄露</strong> — API密钥、隐私数据可能被提取</li>
+<li><strong>多Agent失控</strong> — Agent互相调用导致任务失控</li>
+</ul>
+</div>
+<div class="hb ai">
+<strong>研究意义：</strong>OpenClaw具备真实的系统权限和复杂的攻击面，成为研究智能体安全、供应链攻击、提示注入、工具滥用和权限治理的重要案例。Agent越接近操作系统，安全治理就越重要。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 30a: 挑战与风险 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Challenges</div>
+<h2><span class="icon" style="color:var(--c)">&#9888;</span>OpenClaw 面临的挑战与风险</h2>
+<p class="sub" style="margin-bottom:14px">Agent 越接近操作系统，权限控制和安全审计就越重要</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#128737; 安全风险</h3>
+<ul class="c" style="font-size:.82em">
+<li><strong>权限配置不当</strong> — Gateway暴露不安全或技能恶意行为</li>
+<li><strong>远程代码执行</strong> — 文件/Shell/浏览器/网络强工具风险</li>
+<li><strong>沙箱隔离不足</strong> — 直接运行在主机环境扩大攻击面</li>
+<li>容器沙箱+最小权限+只读挂载+网络隔离+人工确认</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#128165; 提示注入与工具链攻击</h3>
+<ul class="o" style="font-size:.82em">
+<li><strong>恶意指令</strong> — 隐藏在网页/邮件/文档/工具输出中</li>
+<li><strong>顺序工具链</strong> — 多步工具调用组合绕过单点检测</li>
+<li><strong>记忆篡改</strong> — 诱导Agent修改记忆文件植入后门</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#128230; 供应链与记忆风险</h3>
+<ul class="g" style="font-size:.82em">
+<li><strong>恶意技能</strong> — 伪装正常工具窃取API Key和隐私数据</li>
+<li><strong>记忆泄露</strong> — Markdown/JSONL/SQLite缺少加密和脱敏</li>
+<li><strong>上下文压缩</strong> — 压缩策略不当导致关键信息丢失</li>
+<li><strong>安全策略遗忘</strong> — 摘要覆盖或遗忘安全约束</li>
+</ul>
+</div>
+<div class="cd cp ai">
+<h3>&#129302; 多Agent调度复杂</h3>
+<ul class="p" style="font-size:.82em">
+<li>任务路由 · 上下文隔离 · 并发控制 · 成本控制</li>
+<li><strong>Agent互相调用</strong> — 任务失控、成本暴涨</li>
+<li><strong>状态混乱</strong> — 缺乏调度策略导致结果不确定</li>
+<li>使用门槛高 · 技能生态质量参差不齐</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 30b: 研究意义 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Significance</div>
+<h2><span class="icon" style="color:var(--c)">&#128161;</span>OpenClaw 的研究意义</h2>
+<p class="sub" style="margin-bottom:14px">技术 · 工程 · 应用 · 安全 — Agent 操作系统雏形的四维价值</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#128736; 技术层面</h3>
+<ul class="c" style="font-size:.82em">
+<li>典型 <strong>Agent 操作系统参考架构</strong></li>
+<li>Gateway 控制平面 + 文件化记忆 + 工具系统</li>
+<li>多通道接入 + 多Agent路由 + 技能扩展生态</li>
+<li>展示如何组合成一个<strong>完整平台</strong></li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#128736; 工程层面</h3>
+<ul class="o" style="font-size:.82em">
+<li>Agent系统不能只关注<strong>模型能力</strong></li>
+<li>还必须关注：工具权限 · 状态管理 · 上下文压缩</li>
+<li>长期记忆 · 运行隔离 · 审计日志 · 生态治理</li>
+<li>展示了<strong>工程化Agent平台</strong>的完整实践</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#127919; 应用层面</h3>
+<ul class="g" style="font-size:.82em">
+<li><strong>个人/中小团队</strong> — 本地AI助手基础设施</li>
+<li><strong>企业私有化</strong> — 合规审计和垂直领域Agent平台</li>
+<li><strong>技术参考</strong> — Agent平台化架构设计参考</li>
+</ul>
+</div>
+<div class="cd cp ai">
+<h3>&#128274; 安全层面</h3>
+<ul class="p" style="font-size:.82em">
+<li>暴露Agent平台化过程中的<strong>典型风险</strong></li>
+<li>权限滥用 · 远程代码执行 · 提示注入</li>
+<li>技能供应链污染 · 记忆泄露 · 多Agent失控</li>
+<li>为<strong>安全研究</strong>提供真实案例和攻击面</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 31: OpenClaw 多Agent模式 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Multi-Agent</div>
+<h2><span class="icon" style="color:var(--c)">&#129302;</span>OpenClaw 多Agent协作模式</h2>
+<p class="sub" style="margin-bottom:14px">AGENTS.md 驱动 · 会话键隔离 · 多Agent分工协作 · 复杂任务自动化</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#128101; Agent角色定义</h3>
+<ul class="c" style="font-size:.82em">
+<li>通过 <code>AGENTS.md</code> 声明式定义多个Agent</li>
+<li>每个Agent拥有独立的<strong>SOUL.md</strong></li>
+<li>角色示例：信息探索、任务规划、工具执行、结果验证</li>
+<li>支持<strong>动态切换</strong>和<strong>按需激活</strong></li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#128260; 协作机制</h3>
+<ul class="o" style="font-size:.82em">
+<li>Agent间通过<strong>消息队列</strong>通信</li>
+<li><strong>会话键隔离</strong> — 按用户/群组/通道/工作区划分</li>
+<li>支持<strong>级联调用</strong>：A调用B的结果给C</li>
+<li><strong>共识机制</strong>：多Agent投票决定结果</li>
+<li>单Agent失败不影响其他Agent</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#127919; 与Claude Code对比</h3>
+<table style="font-size:.82em">
+<tr><th>维度</th><th>Claude Code</th><th>OpenClaw</th></tr>
+<tr><td><strong>Agent数量</strong></td><td>6种固定角色</td><td>自定义无限</td></tr>
+<tr><td><strong>定义方式</strong></td><td>代码硬编码</td><td>Markdown声明</td></tr>
+<tr><td><strong>触发方式</strong></td><td>系统自动</td><td>用户可配置</td></tr>
+<tr><td><strong>通信方式</strong></td><td>上下文传递</td><td>消息队列</td></tr>
+<tr><td><strong>适用场景</strong></td><td>编码任务分工</td><td>通用任务协作</td></tr>
+</table>
+</div>
+<div class="hb ai">
+<strong>设计哲学差异：</strong>Claude Code的多Agent是"平台决定"的（什么场景用什么Agent由系统设计），OpenClaw的多Agent是"用户决定"的（用户自己定义Agent角色和协作规则）。两者适合不同场景——CC在编码任务中更高效，OC在通用场景中更灵活。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 31: OpenClaw 应用场景 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Applications</div>
+<h2><span class="icon" style="color:var(--c)">&#127919;</span>OpenClaw 应用场景</h2>
+<p class="sub" style="margin-bottom:14px">从个人助手到垂直领域，广泛覆盖</p>
+<div class="g3">
+<div class="cd cc ai">
+<h3>&#128187; 个人效率</h3>
+<ul class="c" style="font-size:.82em">
+<li>日程管理与提醒</li>
+<li>邮件自动分类与回复</li>
+<li>笔记整理与知识库构建</li>
+<li>多平台消息聚合</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#128218; 学习教育</h3>
+<ul class="o" style="font-size:.82em">
+<li>个性化学习辅导</li>
+<li>外语练习与翻译</li>
+<li>论文阅读与摘要</li>
+<li>知识问答与测试</li>
+</ul>
+</div>
+<div class="cd cg ai">
+<h3>&#128176; 商业应用</h3>
+<ul class="g" style="font-size:.82em">
+<li>客户服务自动化</li>
+<li>数据报表生成</li>
+<li>市场情报收集</li>
+<li>流程自动化审批</li>
+</ul>
+</div>
+</div>
+<div class="g3" style="margin-top:12px">
+<div class="cd cp ai">
+<h3>&#128295; 开发者工具</h3>
+<ul class="p" style="font-size:.82em">
+<li>代码审查与重构建议</li>
+<li>CI/CD监控与告警</li>
+<li>技术文档自动生成</li>
+<li>API测试与调试</li>
+</ul>
+</div>
+<div class="cd cc ai">
+<h3>&#127968; 生活助手</h3>
+<ul class="c" style="font-size:.82em">
+<li>智能家居控制</li>
+<li>健康管理与提醒</li>
+<li>旅行规划与预订</li>
+<li>社交日程协调</li>
+</ul>
+</div>
+<div class="cd co ai">
+<h3>&#128736; 专业领域</h3>
+<ul class="o" style="font-size:.82em">
+<li>法律咨询辅助</li>
+<li>医学文献分析</li>
+<li>金融数据分析</li>
+<li>学术研究支持</li>
+</ul>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 32: 生态与社区 ===== -->
+<div class="slide openclaw-section">
+<div class="stag" style="color:var(--c)">OpenClaw · Ecosystem</div>
+<h2><span class="icon" style="color:var(--c)">&#127793;</span>OpenClaw 生态与社区</h2>
+<p class="sub" style="margin-bottom:14px">开源驱动，社区共建的活跃生态</p>
+<div class="g2">
+<div>
+<div class="cd cc ai" style="margin-bottom:12px">
+<h3>&#128200; 关键数据</h3>
+<table style="font-size:.82em">
+<tr><th>指标</th><th>数值</th></tr>
+<tr><td>GitHub Stars</td><td><strong>24.8万+</strong><span class="ref">[2]</span></td></tr>
+<tr><td>社区技能</td><td><strong>16000+</strong><span class="ref">[3]</span></td></tr>
+<tr><td>支持通道</td><td><strong>7+</strong></td></tr>
+<tr><td>支持模型</td><td><strong>20+</strong></td></tr>
+<tr><td>贡献者</td><td><strong>500+</strong></td></tr>
+<tr><td>许可证</td><td><strong>MIT</strong></td></tr>
+</table>
+</div>
+<div class="cd co ai">
+<h3>&#128295; 技术生态</h3>
+<ul class="o" style="font-size:.82em">
+<li><strong>MCP协议</strong>：标准化工具接入</li>
+<li><strong>ClawHub</strong>：技能包市场</li>
+<li><strong>Plugin API</strong>：插件开发接口</li>
+<li><strong>SDK</strong>：多语言SDK支持</li>
+</ul>
+</div>
+</div>
+<div>
+<div class="cd cg ai" style="margin-bottom:12px">
+<h3>&#128101; 社区治理</h3>
+<ul class="g" style="font-size:.82em">
+<li>完全<strong>开源开放</strong>（MIT License）</li>
+<li>GitHub Issues + Discussions 驱动</li>
+<li><strong>RFC流程</strong>：重大变更提案机制</li>
+<li><strong>月度发布</strong>：稳定的版本迭代</li>
+<li><strong>安全响应</strong>：漏洞报告与修复流程</li>
+</ul>
+</div>
+<div class="hb ai">
+<strong>生态对比：</strong>Claude Code是Anthropic的商业产品，生态封闭但体验一致；OpenClaw是社区驱动的开源项目，生态开放但质量参差。两者代表了AI Agent领域的两种发展模式。
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 33: 全面对比 ===== -->
+<div class="slide">
+<div class="stag" style="color:var(--p)">Part III · Comparison</div>
+<h2><span class="icon" style="color:var(--p)">&#128200;</span>Claude Code vs OpenClaw 全面对比</h2>
+<p class="sub" style="margin-bottom:14px">核心维度系统性对比分析</p>
+<div style="overflow-x:auto">
+<table style="font-size:.78em">
+<tr><th>维度</th><th style="color:var(--a)">Claude Code</th><th style="color:var(--c)">OpenClaw</th></tr>
+<tr><td><strong>定位</strong></td><td>专业编码Agent</td><td>通用个人Agent</td></tr>
+<tr><td><strong>架构</strong></td><td>单体进程（~12MB）</td><td>5层分离架构</td></tr>
+<tr><td><strong>技术栈</strong></td><td>TypeScript + Bun/Node.js</td><td>TypeScript + Node.js</td></tr>
+<tr><td><strong>工具策略</strong></td><td>42+内置工具<span class="ref">[4]</span></td><td>16000+社区技能<span class="ref">[3]</span></td></tr>
+<tr><td><strong>权限模型</strong></td><td>6种模式（灵活）</td><td>Fail-Closed（安全）</td></tr>
+<tr><td><strong>沙箱</strong></td><td>OS级（Seatbelt/bubblewrap）</td><td>应用级（技能隔离）</td></tr>
+<tr><td><strong>记忆</strong></td><td>会话/项目/自动 + KAIROS</td><td>SOUL/USER/MEMORY + DREAMS</td></tr>
+<tr><td><strong>多Agent</strong></td><td>6种固定角色</td><td>用户自定义无限</td></tr>
+<tr><td><strong>通道</strong></td><td>终端/IDE</td><td>7+通道（IM/Web/CLI）</td></tr>
+<tr><td><strong>模型支持</strong></td><td>仅Claude</td><td>20+模型</td></tr>
+<tr><td><strong>许可证</strong></td><td>商业（Anthropic）</td><td>MIT开源</td></tr>
+<tr><td><strong>目标用户</strong></td><td>专业开发者</td><td>所有用户</td></tr>
+</table>
+</div>
+</div>
+
+<!-- ===== SLIDE 34: 设计哲学差异 ===== -->
+<div class="slide">
+<div class="stag" style="color:var(--p)">Part III · Philosophy</div>
+<h2><span class="icon" style="color:var(--p)">&#129504;</span>设计哲学差异分析</h2>
+<p class="sub" style="margin-bottom:14px">两种截然不同的AI Agent设计思路</p>
+<div class="g2">
+<div>
+<div class="cd ai" style="border-left:4px solid var(--a);margin-bottom:12px;padding:14px">
+<h3 style="color:var(--a)">&#127919; Claude Code 哲学</h3>
+<ul style="font-size:.82em">
+<li><strong>"精锐部队"</strong> — 少量但高度优化的工具</li>
+<li><strong>"深度优先"</strong> — 在编码场景做到极致</li>
+<li><strong>"平台主导"</strong> — 最佳实践由平台决定</li>
+<li><strong>"安全优先"</strong> — OS级沙箱严格限制</li>
+<li><strong>"单一模型"</strong> — 深度绑定Claude系列</li>
+</ul>
+<p style="font-size:.8em;color:var(--a2);margin-top:8px">核心理念：在特定领域做到最好，而非什么都做</p>
+</div>
+</div>
+<div>
+<div class="cd ai" style="border-left:4px solid var(--c);margin-bottom:12px;padding:14px">
+<h3 style="color:var(--c)">&#127793; OpenClaw 哲学</h3>
+<ul style="font-size:.82em">
+<li><strong>"人民战争"</strong> — 海量社区技能覆盖一切</li>
+<li><strong>"广度优先"</strong> — 覆盖生活工作全场景</li>
+<li><strong>"用户主导"</strong> — 用户决定Agent的行为</li>
+<li><strong>"透明可控"</strong> — Markdown文件，用户可编辑</li>
+<li><strong>"模型无关"</strong> — 支持任意模型接入</li>
+</ul>
+<p style="font-size:.8em;color:var(--c);margin-top:8px">核心理念：让每个人都能拥有自己的AI Agent</p>
+</div>
+</div>
+</div>
+<div class="hb ai" style="margin-top:8px">
+<strong>辩证思考：</strong>这两种哲学并非对立，而是互补。Claude Code证明了AI Agent在专业领域的深度潜力，OpenClaw展示了AI Agent在通用场景的广度可能。未来理想的AI Agent可能需要兼具两者——既有Claude Code级别的专业深度，又有OpenClaw级别的通用广度。
+</div>
+</div>
+
+<!-- ===== SLIDE 35: 关键洞察与启示 ===== -->
+<div class="slide">
+<div class="stag" style="color:var(--p)">Part III · Insights</div>
+<h2><span class="icon" style="color:var(--p)">&#128161;</span>关键洞察与启示</h2>
+<p class="sub" style="margin-bottom:12px">点击每张卡片，展开图形化深度解读</p>
+<div class="ins-grid">
+<div class="ins-card" data-color="blue" data-idx="0" onclick="openInsight(0)">
+<span class="ins-num">#01</span>
+<span class="ins-icon">&#9878;</span>
+<h4>工具治理 > 工具数量</h4>
+<p>42+工具<span class="ref">[4]</span>通过14步治理管道<span class="ref">[5]</span>获得99%安全执行率</p>
+</div>
+<div class="ins-card" data-color="orange" data-idx="1" onclick="openInsight(1)">
+<span class="ins-num">#02</span>
+<span class="ins-icon">&#129504;</span>
+<h4>记忆是智能体的灵魂</h4>
+<p>KAIROS梦境系统 + 五层压缩 + SOUL.md人格记忆</p>
+</div>
+<div class="ins-card" data-color="green" data-idx="2" onclick="openInsight(2)">
+<span class="ins-num">#03</span>
+<span class="ins-icon">&#128737;</span>
+<h4>安全模型决定用户群体</h4>
+<p>OS级沙箱→开发者 vs Fail-Closed→终端用户</p>
+</div>
+<div class="ins-card" data-color="purple" data-idx="3" onclick="openInsight(3)">
+<span class="ins-num">#04</span>
+<span class="ins-icon">&#128279;</span>
+<h4>多通道是通用Agent必要条件</h4>
+<p>终端+IDE="编码专家" vs 7+通道="通用伙伴"</p>
+</div>
+<div class="ins-card" data-color="red" data-idx="4" onclick="openInsight(4)">
+<span class="ins-num">#05</span>
+<span class="ins-icon">&#127793;</span>
+<h4>开源生态释放长尾需求</h4>
+<p>内置能力覆盖80%需求，生态能力覆盖99%长尾</p>
+</div>
+<div class="ins-card" data-color="cyan" data-idx="5" onclick="openInsight(5)">
+<span class="ins-num">#06</span>
+<span class="ins-icon">&#128221;</span>
+<h4>Markdown即配置，配置即代码</h4>
+<p>CLAUDE.md / SOUL.md 用Markdown定义智能体行为</p>
+</div>
+</div>
+<div class="hb ai" style="font-size:.75em;text-align:center">
+<strong>核心结论：</strong>Claude Code是Agent OS的<strong>开发者版</strong>，OpenClaw是Agent OS的<strong>用户版</strong>。两者共同展示了AI Agent从聊天工具走向操作系统的完整路径。
+</div>
+</div>
+
+<!-- Insight Overlay Modal -->
+<div class="ins-overlay" id="insOverlay">
+<div class="ins-backdrop" onclick="closeInsight()"></div>
+<div class="ins-modal">
+<div class="ins-modal-head">
+<span class="ins-m-icon" id="insIcon"></span>
+<h3 id="insTitle"></h3>
+<button class="ins-close" onclick="closeInsight()">&times;</button>
+</div>
+<div class="ins-modal-body">
+<div class="ins-svg-wrap" id="insSvg"></div>
+<div class="ins-detail" id="insDetail"></div>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 36: 未来发展方向 ===== -->
+<div class="slide">
+<div class="stag" style="color:var(--p)">Part III · Future</div>
+<h2><span class="icon" style="color:var(--p)">&#128640;</span>AI Agent 未来的发展方向</h2>
+<p class="sub" style="margin-bottom:14px">基于本次研究的前瞻性思考</p>
+<div class="g3">
+<div class="cd ai" style="border-left:4px solid var(--g)">
+<h3 style="color:var(--g)">&#128260; 技术趋势</h3>
+<ul style="font-size:.82em">
+<li><strong>Agent操作系统化</strong> — 从工具到平台的演进</li>
+<li><strong>模型无关架构</strong> — 统一接口对接多模型</li>
+<li><strong>记忆标准化</strong> — 跨Agent记忆互通协议</li>
+<li><strong>安全形式化</strong> — 可证明的安全保障</li>
+<li><strong>多模态融合</strong> — 文本/图像/语音/视频统一处理</li>
+</ul>
+</div>
+<div class="cd ai" style="border-left:4px solid var(--p)">
+<h3 style="color:var(--p)">&#128214; 学术方向</h3>
+<ul style="font-size:.82em">
+<li><strong>Agent安全性</strong> — 对齐、治理、可控性</li>
+<li><strong>记忆架构</strong> — 长期记忆的高效管理</li>
+<li><strong>多Agent协作</strong> — 分布式智能体理论</li>
+<li><strong>评估框架</strong> — Agent能力标准化评测</li>
+<li><strong>人机交互</strong> — 自然语言编程范式</li>
+</ul>
+</div>
+<div class="cd ai" style="border-left:4px solid var(--o)">
+<h3 style="color:var(--o)">&#127919; 产品趋势</h3>
+<ul style="font-size:.82em">
+<li><strong>个人Agent普及</strong> — 每人一个AI助手</li>
+<li><strong>垂直领域深耕</strong> — 法律/医疗/教育专业化</li>
+<li><strong>Agent经济</strong> — Agent技能市场与交易</li>
+<li><strong>人机协作深化</strong> — 从工具到伙伴</li>
+</ul>
+</div>
+</div>
+</div>
+
+<!-- ===== SLIDE 37: 总结与致谢 ===== -->
+<div class="slide">
+<div class="stag" style="color:var(--p)">Summary</div>
+<h2><span class="icon" style="color:var(--p)">&#127942;</span>总结与致谢</h2>
+<p class="sub" style="margin-bottom:18px">课题组个人智能体研究汇报</p>
+<div class="g2" style="margin-bottom:18px">
+<div>
+<div class="cd ai" style="text-align:center;padding:20px;border-top:3px solid var(--a)">
+<div style="font-size:2.5em;margin-bottom:8px">&#127919;</div>
+<h3 style="color:var(--a)">Claude Code</h3>
+<p style="font-size:.85em;color:var(--d2)">专业编码Agent的巅峰之作<br>51.2万行代码<span class="ref">[1]</span> · 42+工具<span class="ref">[4]</span> · 14步治理<span class="ref">[5]</span><br>6种权限模式 · OS级沙箱 · KAIROS记忆</p>
+</div>
+</div>
+<div>
+<div class="cd ai" style="text-align:center;padding:20px;border-top:3px solid var(--c)">
+<div style="font-size:2.5em;margin-bottom:8px">&#127793;</div>
+<h3 style="color:var(--c)">OpenClaw</h3>
+<p style="font-size:.85em;color:var(--d2)">通用个人Agent的开源标杆<br>5层架构 · 16000+技能<span class="ref">[3]</span> · 7+通道<br>Fail-Closed安全 · Markdown配置 · 模型无关</p>
+</div>
+</div>
+</div>
+<div class="cd ai" style="text-align:center;padding:16px;border-top:3px solid var(--p)">
+<h3 style="color:var(--p)">&#128161; 核心结论</h3>
+<p style="font-size:.9em;max-width:680px;margin:8px auto">Claude Code和OpenClaw代表了AI Agent的两条路径：<strong>深度专精</strong>与<strong>广度通用</strong>。未来理想的AI Agent将融合两者优势——既有专业级的深度能力，又有通用级的场景覆盖。我们的课题组研究可以在这两个方向上寻找切入点。</p>
+</div>
+<div style="text-align:center;margin-top:20px">
+<p style="font-size:1.1em;color:var(--d2)">感谢聆听，欢迎指导交流</p>
+<p style="font-size:.8em;color:var(--d);margin-top:6px">课题组 · 2026年4月</p>
+</div>
+</div>
+
+<!-- ===== SLIDE: 参考文献 ===== -->
+<div class="slide">
+<div class="stag">References</div>
+<h2><span class="icon">&#128214;</span>参考文献与数据来源</h2>
+<p class="sub" style="margin-bottom:16px">本演示文稿中所有统计数据的来源说明</p>
+<div class="ref-list">
+<ol>
+<li id="ref1"><strong>[1] Claude Code 源码泄露分析</strong> — 源码泄露后社区通过 Source Map 还原的代码统计：1906个源文件，512,000+ 行 TypeScript。来源：CSDN 博客，2025年。"<a href="https://blog.csdn.net/warm3snow/article/details/159733747" target="_blank">Claude Code 源码泄露全复盘：51.2 万行代码裸奔，Anthropic 在同一个坑里摔了两次</a>"</li>
+<li id="ref2"><strong>[2] OpenClaw GitHub Stars</strong> — 2026年3月，OpenClaw 以超过 24.8 万 GitHub Stars 登顶最受欢迎开源项目。来源：OpenClaw 官方博客 2026年3月3日公告；百度百科 OpenClaw 词条。"<a href="https://openclaws.io/zh/blog/openclaw-250k-stars-milestone" target="_blank">25 万 Stars：OpenClaw 超越 React，成为 GitHub 上 Star 数最多的软件项目</a>"</li>
+<li id="ref3"><strong>[3] ClawHub 社区技能数量</strong> — 截至 2026年3月，ClawHub 已收录 25,000–37,000+ 个社区技能（不同统计口径有所差异，文中取保守估计 16,000+）。来源：Thunderbit 博客 2026年3月；OpenClaw Hub 官网；ClawOneClick 追踪器。"<a href="https://thunderbit.com/zh-Hans/blog/best-skills-for-openclaw" target="_blank">2026 年 OpenClaw 最值得掌握的 10 大技能</a>"</li>
+<li id="ref4"><strong>[4] Claude Code 内置工具数量</strong> — Claude Code 架构分析文档统计的核心内置工具数（Read/Write/Edit/Bash/Grep/Glob/LS/Agent 等 16个核心工具 + MCP 扩展）。"42+"和"60+"来源于不同版本的源码分析，文中 42+ 指核心内置工具集。来源：GitHub Claude Code 架构分析文档；CSDN Claude Code 工具架构核心解析。"<a href="https://github.com/kekmodel/custom-claude-code/blob/main/docs/CLAUDE_CODE_ARCHITECTURE_ANALYSIS.md" target="_blank">Claude Code Architecture Analysis</a>"</li>
+<li id="ref5"><strong>[5] Claude Code 14步工具治理管道</strong> — 从源码逆向还原的工具调用全生命周期：解析 → Schema校验 → 安全检查 → 权限评估 → 沙箱配置 → 执行 → 结果审计。来源：GitHub Claude Code 架构分析指南；今日头条 Claude Code 系列深度文章。"<a href="https://github.com/FlorianBruniaux/claude-code-ultimate-guide/blob/main/guide/core/architecture.md" target="_blank">How Claude Code Works: Architecture &amp; Internals</a>"</li>
+</ol>
+</div>
+<p style="font-size:.68em;color:rgba(255,255,255,.3);text-align:center;margin-top:16px">注：部分数据为社区分析与多方交叉验证结果，非 Anthropic 或 OpenClaw 官方披露，仅供学术参考</p>
+</div>
+
+<script>
+const slides=document.querySelectorAll('.slide');const total=slides.length;let current=0;
+function goSlide(n){if(n<0||n>=total)return;slides[current].classList.remove('active');slides[current].classList.add('exit-left');
+const prev=current;current=n;slides[current].classList.add('active');setTimeout(()=>slides[prev].classList.remove('exit-left'),500);
+document.getElementById('progress').style.width=((current+1)/total*100)+'%';document.getElementById('counter').textContent=(current+1)+' / '+total;
+document.getElementById('btnPrev').disabled=current===0;document.getElementById('btnNext').disabled=current===total-1;
+animateBars(slides[current]);}
+function animateBars(slide){const bars=slide.querySelectorAll('.cmp-bar-fill[data-w]');if(!bars.length)return;bars.forEach((b,i)=>{b.style.width='0';setTimeout(()=>{b.style.width=b.dataset.w+'%';},100+i*120);});}
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' '){e.preventDefault();goSlide(current+1);}
+else if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();goSlide(current-1);}
+else if(e.key==='Home'){e.preventDefault();goSlide(0);}else if(e.key==='End'){e.preventDefault();goSlide(total-1);}});
+let touchStartX=0;document.addEventListener('touchstart',e=>{touchStartX=e.touches[0].clientX;});document.addEventListener('touchend',e=>{const diff=touchStartX-e.changedTouches[0].clientX;if(Math.abs(diff)>50){diff>0?goSlide(current+1):goSlide(current-1);}});
+function switchTab(btn,pid){const p=btn.closest('.slide');p.querySelectorAll('.tb').forEach(b=>b.classList.remove('active'));p.querySelectorAll('.tp').forEach(t=>t.classList.remove('active'));btn.classList.add('active');document.getElementById(pid).classList.add('active');}
+document.querySelectorAll('.expandable').forEach(el=>{el.querySelector('.expand-header').addEventListener('click',()=>el.classList.toggle('open'));});
+function copyCode(btn){const pre=btn.closest('pre');const code=pre.querySelector('code')||pre;const text=code.textContent;navigator.clipboard.writeText(text);btn.textContent='已复制';setTimeout(()=>btn.textContent='复制',1500);}
+function toggleArch(el){const unit=el.closest('.arch-unit');if(!unit)return;const isOpen=unit.classList.contains('arch-expanded');const container=unit.closest('.af');if(container){container.querySelectorAll('.arch-unit.arch-expanded').forEach(u=>{if(u!==unit){u.classList.remove('arch-expanded');u.querySelector('.arch-expandable')?.classList.remove('arch-open');}});}if(isOpen){unit.classList.remove('arch-expanded');el.classList.remove('arch-open');}else{unit.classList.add('arch-expanded');el.classList.add('arch-open');}}
+const TAOR_DATA=[
+{title:'\u{1F9E0} Think \u2014 \u601D\u8003\u9636\u6BB5',color:'var(--a)',center:'Think',cdesc:'\u5206\u6790\u7528\u6237\u610F\u56FE<br>\u89C4\u5212\u6267\u884C\u7B56\u7565',
+items:['\u89E3\u6790\u7528\u6237\u81EA\u7136\u8BED\u8A00\u8F93\u5165\uFF0C\u63D0\u53D6<strong>\u610F\u56FE\u548C\u7EA6\u675F</strong>','\u52A0\u8F7D\u9879\u76EE\u4E0A\u4E0B\u6587\uFF08CLAUDE.md\u3001\u8BB0\u5FC6\u6587\u4EF6\uFF09','\u5206\u6790\u4EFB\u52A1\u590D\u6742\u5EA6\uFF0C\u51B3\u5B9A<strong>\u5355Agent/\u591AAgent</strong>\u8DEF\u5F84','\u5236\u5B9A\u6267\u884C\u8BA1\u5212\uFF1A\u5DE5\u5177\u9009\u62E9\u3001\u6743\u9650\u8BC4\u4F30\u3001\u6B65\u9AA4\u6392\u5E8F']},
+{title:'\u26A1 Act \u2014 \u884C\u52A8\u9636\u6BB5',color:'var(--g)',center:'Act',cdesc:'\u6267\u884C\u5DE5\u5177\u8C03\u7528<br>\u8BBF\u95EE\u6587\u4EF6\u7CFB\u7EDF',
+items:['\u89E3\u6790\u6A21\u578B\u8F93\u51FA\u7684 <code>tool_use</code> \u8C03\u7528\u8BF7\u6C42','\u901A\u8FC7 <strong>Zod Schema</strong> \u6821\u9A8C\u5DE5\u5177\u53C2\u6570\u5408\u6CD5\u6027','<strong>Hook\u6743\u9650\u7BA1\u9053</strong>\uFF1APre-Tool Hook \u2192 \u6267\u884C \u2192 Post-Tool Hook','\u5E76\u884C\u6267\u884C\u591A\u4E2A\u72EC\u7ACB\u5DE5\u5177\uFF0C\u7ED3\u679C\u6CE8\u5165\u4E0A\u4E0B\u6587']},
+{title:'\u{1F441} Observe \u2014 \u89C2\u5BDF\u9636\u6BB5',color:'var(--o)',center:'Observe',cdesc:'\u68C0\u67E5\u6267\u884C\u7ED3\u679C<br>\u9A8C\u8BC1\u8F93\u51FA\u8D28\u91CF',
+items:['\u89E3\u6790\u5DE5\u5177\u8FD4\u56DE\u7684 <code>tool_result</code>\uFF0C\u68C0\u67E5\u9519\u8BEF','<strong>Verifier Agent</strong>\u81EA\u52A8\u8FD0\u884C\u6D4B\u8BD5/lint/\u7C7B\u578B\u68C0\u67E5','\u5BF9\u6BD4\u9884\u671F\u7ED3\u679C\u4E0E\u5B9E\u9645\u8F93\u51FA\uFF0C\u68C0\u6D4B<strong>\u53CD\u61D2\u60F2</strong>\u884C\u4E3A','\u8BC4\u4F30\u5F53\u524D Token \u6D88\u8017\u4E0E\u4E0A\u4E0B\u6587\u7A7A\u95F4\u5229\u7528\u7387']},
+{title:'\u{1F504} Repeat \u2014 \u91CD\u590D\u9636\u6BB5',color:'var(--a2)',center:'Repeat',cdesc:'\u5FAA\u73AF\u6216\u7EC8\u6B62<br>\u7EF4\u62A4\u6267\u884C\u72B6\u6001',
+items:['\u5C06\u89C2\u5BDF\u7ED3\u679C\u53CD\u9988\u7ED9\u63A8\u7406\u5F15\u64CE\uFF0C\u8FDB\u5165\u4E0B\u4E00\u8F6E Think','\u82E5\u65E0\u65B0\u5DE5\u5177\u8C03\u7528\u2192 <strong>\u8FD4\u56DE\u6700\u7EC8\u54CD\u5E94</strong>','\u82E5\u8D85\u8FC7 <strong>maxTurns</strong> \u9650\u5236\u2192 \u5F3A\u5236\u7EC8\u6B62\u5E76\u8B66\u544A','<strong>KAIROS\u5B88\u62A4\u8FDB\u7A0B</strong>\u5728\u540E\u53F0\u6574\u7406\u672C\u8F6E\u8BB0\u5FC6']}
+];
+let taorIdx=0,taorRunning=true,taorTimer=null;
+function taorRender(i){
+const d=TAOR_DATA[i],stage=document.getElementById('taorStage');
+stage.querySelectorAll('.tn').forEach((n,idx)=>{n.classList.toggle('lit',idx===i);});
+stage.querySelectorAll('.taor-seg').forEach((s,idx)=>{s.classList.toggle('seg-on',idx===i);});
+const tcp=document.getElementById('tcp'),tcd=document.getElementById('tcd');
+tcp.textContent=d.center;tcp.style.color=d.color;tcd.innerHTML=d.cdesc;
+document.getElementById('tdTitle').innerHTML=d.title;document.getElementById('tdTitle').style.color=d.color;
+const ul=document.getElementById('tdList');ul.innerHTML='';d.items.forEach(t=>{const li=document.createElement('li');li.innerHTML=t;ul.appendChild(li);});
+document.querySelectorAll('#tdPager .td-dot').forEach((dot,idx)=>{dot.classList.toggle('on',idx===i);});
+}
+function taorGo(n){
+if(n===-1){taorIdx=(taorIdx+3)%4;}else if(n===99){taorIdx=(taorIdx+1)%4;}else{taorIdx=n;}
+taorRender(taorIdx);
+}
+function taorToggle(){
+taorRunning=!taorRunning;
+document.getElementById('taorBtn').innerHTML=taorRunning?'\u23F8 \u6682\u505C':'\u25B6 \u64AD\u653E';
+if(taorRunning)taorStart();else{clearTimeout(taorTimer);}
+}
+function taorStart(){clearTimeout(taorTimer);taorTimer=setInterval(()=>{taorIdx=(taorIdx+1)%4;taorRender(taorIdx);},3000);}
+taorRender(0);taorStart();
+goSlide(0);
+const INSIGHTS=[
+{icon:'&#9878;',title:'洞察一：工具治理 > 工具数量',
+svg:`<svg viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient id="ib1" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#60a5fa"/></linearGradient>
+<linearGradient id="ir1" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ef4444"/><stop offset="100%" stop-color="#f87171"/></linearGradient></defs>
+<text x="170" y="25" fill="#94a3b8" font-size="13" text-anchor="middle" font-weight="600">Claude Code 治理路径</text>
+<text x="530" y="25" fill="#94a3b8" font-size="13" text-anchor="middle" font-weight="600">无治理工具堆叠</text>
+<rect x="30" y="40" width="280" height="160" rx="10" fill="rgba(59,130,246,.08)" stroke="rgba(59,130,246,.2)" stroke-dasharray="4"/>
+<rect x="390" y="40" width="280" height="160" rx="10" fill="rgba(239,68,68,.08)" stroke="rgba(239,68,68,.2)" stroke-dasharray="4"/>
+<rect x="50" y="60" width="100" height="28" rx="6" fill="url(#ib1)" opacity=".9"/><text x="100" y="79" fill="#fff" font-size="11" text-anchor="middle" font-weight="600">Zod Schema</text>
+<text x="160" y="79" fill="#60a5fa" font-size="14">&#8594;</text>
+<rect x="175" y="60" width="100" height="28" rx="6" fill="url(#ib1)" opacity=".9"/><text x="225" y="79" fill="#fff" font-size="11" text-anchor="middle" font-weight="600">Hook管道</text>
+<text x="285" y="79" fill="#60a5fa" font-size="14">&#8594;</text>
+<rect x="50" y="100" width="100" height="28" rx="6" fill="url(#ib1)" opacity=".9"/><text x="100" y="119" fill="#fff" font-size="11" text-anchor="middle" font-weight="600">权限检查</text>
+<text x="160" y="119" fill="#60a5fa" font-size="14">&#8594;</text>
+<rect x="175" y="100" width="100" height="28" rx="6" fill="url(#ib1)" opacity=".9"/><text x="225" y="119" fill="#fff" font-size="11" text-anchor="middle" font-weight="600">沙箱执行</text>
+<rect x="50" y="140" width="225" height="28" rx="6" fill="rgba(52,211,153,.15)" stroke="rgba(52,211,153,.3)"/><text x="162" y="159" fill="#34d399" font-size="12" text-anchor="middle" font-weight="600">&#10003; 99% 安全执行率 · 14步治理管道</text>
+<rect x="410" y="60" width="240" height="28" rx="6" fill="url(#ir1)" opacity=".7"/><text x="530" y="79" fill="#fff" font-size="11" text-anchor="middle">100个工具 · 0步治理</text>
+<rect x="410" y="100" width="240" height="28" rx="6" fill="url(#ir1)" opacity=".5"/><text x="530" y="119" fill="#fff" font-size="11" text-anchor="middle">无Schema · 无Hook · 无沙箱</text>
+<rect x="410" y="140" width="240" height="28" rx="6" fill="rgba(239,68,68,.15)" stroke="rgba(239,68,68,.3)"/><text x="530" y="159" fill="#f87171" font-size="12" text-anchor="middle" font-weight="600">&#10007; ~30% 潜在风险调用</text>
+<text x="350" y="210" fill="#94a3b8" font-size="11" text-anchor="middle">42个治理工具 vs 100个未治理工具 → 治理质量决定安全上限</text>
+</svg>`,
+detail:`<div class="ins-highlight">核心观点：工具数量的增长必须伴随治理能力的提升，否则更多工具意味着更大风险。</div>
+<ul>
+<li><strong>Claude Code 的14步治理管道<span class="ref">[5]</span>：</strong>Zod Schema参数校验 → Pre-Tool Hook权限检查 → 输入净化 → 沙箱隔离执行 → Post-Tool Hook结果审计 → 输出过滤 → 审计日志写入</li>
+<li><strong>OpenClaw 的 Fail-Closed 设计：</strong>权限检查默认拒绝，技能声明权限 → Gateway验证 → 才执行。不确定时宁可拒绝不执行</li>
+<li><strong>实践启示：</strong>在构建Agent系统时，应优先投资治理管道（Schema校验、Hook机制、沙箱隔离），而非单纯增加工具数量。42个经过严格治理的工具<span class="ref">[4]</span>，比100个未经治理的工具更安全、更可靠</li>
+</ul>`},
+{icon:'&#129504;',title:'洞察二：记忆是智能体的灵魂',
+svg:`<svg viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg">
+<text x="175" y="22" fill="#f59e0b" font-size="13" text-anchor="middle" font-weight="600">Claude Code 记忆架构</text>
+<text x="525" y="22" fill="#06b6d4" font-size="13" text-anchor="middle" font-weight="600">OpenClaw 记忆架构</text>
+<rect x="30" y="35" width="290" height="170" rx="10" fill="rgba(245,158,11,.06)" stroke="rgba(245,158,11,.15)"/>
+<rect x="380" y="35" width="290" height="170" rx="10" fill="rgba(6,182,212,.06)" stroke="rgba(6,182,212,.15)"/>
+<rect x="55" y="50" width="240" height="30" rx="6" fill="rgba(245,158,11,.2)"/><text x="175" y="70" fill="#fbbf24" font-size="11" text-anchor="middle" font-weight="600">会话记忆 → 项目记忆 → 自动记忆</text>
+<text x="175" y="95" fill="#94a3b8" font-size="10" text-anchor="middle">CLAUDE.md + MEMORY.md + ~/.claude/</text>
+<rect x="55" y="108" width="240" height="30" rx="6" fill="rgba(168,85,247,.2)"/><text x="175" y="128" fill="#c084fc" font-size="11" text-anchor="middle" font-weight="600">KAIROS "梦境" — 非交互式记忆整理</text>
+<text x="175" y="152" fill="#94a3b8" font-size="10" text-anchor="middle">后台反思 · 模式识别 · 知识提炼</text>
+<rect x="55" y="165" width="240" height="25" rx="6" fill="rgba(59,130,246,.15)"/><text x="175" y="182" fill="#60a5fa" font-size="10" text-anchor="middle">五层压缩: Micro→Auto→Full→Cache→Sliding</text>
+<rect x="405" y="50" width="240" height="30" rx="6" fill="rgba(6,182,212,.2)"/><text x="525" y="70" fill="#22d3ee" font-size="11" text-anchor="middle" font-weight="600">SOUL.md — 智能体人格定义</text>
+<text x="525" y="95" fill="#94a3b8" font-size="10" text-anchor="middle">性格 · 语言风格 · 价值取向 · 行为边界</text>
+<rect x="405" y="108" width="240" height="30" rx="6" fill="rgba(52,211,153,.2)"/><text x="525" y="128" fill="#34d399" font-size="11" text-anchor="middle" font-weight="600">USER.md + MEMORY.md — 用户画像+记忆</text>
+<text x="525" y="152" fill="#94a3b8" font-size="10" text-anchor="middle">偏好 · 习惯 · JSONL · 每日日志 · SQLite</text>
+<rect x="405" y="165" width="240" height="25" rx="6" fill="rgba(6,182,212,.15)"/><text x="525" y="182" fill="#22d3ee" font-size="10" text-anchor="middle">Embedding + BM25 混合检索 · 文件化可审计</text>
+<text x="350" y="215" fill="#94a3b8" font-size="11" text-anchor="middle">记忆质量决定Agent"智能上限" — 从工具到伙伴的关键</text>
+</svg>`,
+detail:`<div class="ins-highlight">核心观点：记忆机制决定了Agent的"智能上限"，是智能体从"工具"进化为"伙伴"的关键。</div>
+<ul>
+<li><strong>Claude Code 的记忆哲学：</strong>三层记忆（会话→项目→自动）+ KAIROS"梦境"系统。KAIROS在非交互时段进行记忆整理、模式识别和知识提炼，类似人类的"睡眠记忆巩固"</li>
+<li><strong>OpenClaw 的记忆哲学：</strong>SOUL.md定义人格、USER.md记录用户画像、MEMORY.md存储长期记忆。所有记忆以Markdown/JSONL/SQLite存储，人类可读、可编辑、可备份、可版本管理</li>
+<li><strong>五层压缩体系：</strong>Micro(即时) → Auto(87%阈值) → Full(9段式摘要) → Cache-Aware(精准删除) → Sliding(滑动窗口)，确保长上下文任务中关键信息不丢失</li>
+<li><strong>实践启示：</strong>投资记忆系统就是投资Agent的"智能成长"。好的记忆系统让Agent越用越懂你，差的记忆系统让Agent每次对话都像初次见面</li>
+</ul>`},
+{icon:'&#128737;',title:'洞察三：安全模型决定用户群体',
+svg:`<svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient id="sg1" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#22c55e"/><stop offset="100%" stop-color="#16a34a"/></linearGradient>
+<linearGradient id="sb1" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#2563eb"/></linearGradient></defs>
+<text x="350" y="20" fill="#94a3b8" font-size="13" text-anchor="middle" font-weight="600">安全模型光谱：从灵活到安全</text>
+<rect x="40" y="40" width="620" height="40" rx="8" fill="url(#sg1)" opacity=".15"/>
+<rect x="40" y="40" width="310" height="40" rx="8" fill="url(#sg1)" opacity=".3"/>
+<rect x="350" y="40" width="310" height="40" rx="8" fill="url(#sb1)" opacity=".3"/>
+<text x="195" y="65" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="600">OS级沙箱 · 开发者友好</text>
+<text x="505" y="65" fill="#60a5fa" font-size="12" text-anchor="middle" font-weight="600">应用级沙箱 · 用户友好</text>
+<rect x="40" y="95" width="295" height="85" rx="8" fill="rgba(34,197,94,.08)" stroke="rgba(34,197,94,.2)"/>
+<text x="187" y="115" fill="#4ade80" font-size="11" text-anchor="middle" font-weight="600">Claude Code</text>
+<text x="187" y="133" fill="#94a3b8" font-size="10" text-anchor="middle">Seatbelt/bubblewrap OS级隔离</text>
+<text x="187" y="148" fill="#94a3b8" font-size="10" text-anchor="middle">6种权限模式 · 用户可精细控制</text>
+<text x="187" y="166" fill="#4ade80" font-size="10" text-anchor="middle">目标用户：开发者 · 需要灵活+可控</text>
+<rect x="365" y="95" width="295" height="85" rx="8" fill="rgba(59,130,246,.08)" stroke="rgba(59,130,246,.2)"/>
+<text x="512" y="115" fill="#60a5fa" font-size="11" text-anchor="middle" font-weight="600">OpenClaw</text>
+<text x="512" y="133" fill="#94a3b8" font-size="10" text-anchor="middle">Fail-Closed 默认拒绝</text>
+<text x="512" y="148" fill="#94a3b8" font-size="10" text-anchor="middle">技能声明权限 → Gateway验证 → 执行</text>
+<text x="512" y="166" fill="#60a5fa" font-size="10" text-anchor="middle">目标用户：终端用户 · 需要安全+简单</text>
+</svg>`,
+detail:`<div class="ins-highlight">核心观点：没有万能的安全模型，只有适合目标用户的安全模型。安全策略必须与用户能力匹配。</div>
+<ul>
+<li><strong>Claude Code 的 OS 级沙箱：</strong>使用 macOS Seatbelt / Linux bubblewrap 实现操作系统级隔离。提供6种权限模式（auto-accept、ask、deny等），用户可精细控制每个工具的执行权限。适合有能力判断风险的开发者</li>
+<li><strong>OpenClaw 的 Fail-Closed 设计：</strong>权限检查默认拒绝，技能声明所需权限 → Gateway验证 → 才执行。不确定时宁可拒绝。适合不具备安全判断能力的终端用户</li>
+<li><strong>设计启示：</strong>面向开发者的Agent应提供"足够灵活的安全控制"（让用户自己决定），面向终端用户的Agent应提供"足够安全的默认值"（让系统替用户决定）。两者没有优劣之分，只有适配之别</li>
+</ul>`},
+{icon:'&#128279;',title:'洞察四：多通道是通用Agent必要条件',
+svg:`<svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg">
+<text x="175" y="20" fill="#a78bfa" font-size="13" text-anchor="middle" font-weight="600">Claude Code：专注双通道</text>
+<text x="525" y="20" fill="#06b6d4" font-size="13" text-anchor="middle" font-weight="600">OpenClaw：7+ 通道覆盖</text>
+<circle cx="175" cy="110" r="35" fill="rgba(167,139,250,.15)" stroke="rgba(167,139,250,.4)" stroke-width="2"/>
+<text x="175" y="115" fill="#a78bfa" font-size="12" text-anchor="middle" font-weight="600">Agent</text>
+<rect x="85" y="50" width="70" height="26" rx="6" fill="rgba(167,139,250,.2)"/><text x="120" y="68" fill="#c4b5fd" font-size="10" text-anchor="middle">终端 CLI</text>
+<line x1="120" y1="76" x2="155" y2="90" stroke="rgba(167,139,250,.4)" stroke-width="1.5"/>
+<rect x="215" y="50" width="70" height="26" rx="6" fill="rgba(167,139,250,.2)"/><text x="250" y="68" fill="#c4b5fd" font-size="10" text-anchor="middle">IDE 插件</text>
+<line x1="250" y1="76" x2="195" y2="90" stroke="rgba(167,139,250,.4)" stroke-width="1.5"/>
+<rect x="115" y="155" width="120" height="26" rx="6" fill="rgba(167,139,250,.1)"/><text x="175" y="173" fill="#a78bfa" font-size="10" text-anchor="middle">= "编码专家"</text>
+<circle cx="525" cy="110" r="35" fill="rgba(6,182,212,.15)" stroke="rgba(6,182,212,.4)" stroke-width="2"/>
+<text x="525" y="115" fill="#22d3ee" font-size="12" text-anchor="middle" font-weight="600">Agent</text>
+<rect x="410" y="42" width="62" height="22" rx="5" fill="rgba(6,182,212,.2)"/><text x="441" y="57" fill="#67e8f9" font-size="9" text-anchor="middle">WhatsApp</text>
+<line x1="448" y1="64" x2="505" y2="90" stroke="rgba(6,182,212,.3)" stroke-width="1"/>
+<rect x="480" y="35" width="55" height="22" rx="5" fill="rgba(6,182,212,.2)"/><text x="507" y="50" fill="#67e8f9" font-size="9" text-anchor="middle">Telegram</text>
+<line x1="510" y1="57" x2="520" y2="85" stroke="rgba(6,182,212,.3)" stroke-width="1"/>
+<rect x="545" y="42" width="45" height="22" rx="5" fill="rgba(6,182,212,.2)"/><text x="567" y="57" fill="#67e8f9" font-size="9" text-anchor="middle">Slack</text>
+<line x1="562" y1="64" x2="540" y2="90" stroke="rgba(6,182,212,.3)" stroke-width="1"/>
+<rect x="600" y="55" width="55" height="22" rx="5" fill="rgba(6,182,212,.2)"/><text x="627" y="70" fill="#67e8f9" font-size="9" text-anchor="middle">Discord</text>
+<line x1="620" y1="77" x2="555" y2="95" stroke="rgba(6,182,212,.3)" stroke-width="1"/>
+<rect x="410" y="145" width="55" height="22" rx="5" fill="rgba(6,182,212,.2)"/><text x="437" y="160" fill="#67e8f9" font-size="9" text-anchor="middle">iMessage</text>
+<rect x="475" y="150" width="45" height="22" rx="5" fill="rgba(6,182,212,.2)"/><text x="497" y="165" fill="#67e8f9" font-size="9" text-anchor="middle">Signal</text>
+<rect x="530" y="145" width="50" height="22" rx="5" fill="rgba(6,182,212,.2)"/><text x="555" y="160" fill="#67e8f9" font-size="9" text-anchor="middle">Matrix</text>
+<rect x="465" y="175" width="120" height="20" rx="5" fill="rgba(6,182,212,.1)"/><text x="525" y="189" fill="#22d3ee" font-size="10" text-anchor="middle">= "通用伙伴"</text>
+</svg>`,
+detail:`<div class="ins-highlight">核心观点：AI Agent的终极形态必须能"随时随地"服务用户，多通道是通用Agent的必要条件。</div>
+<ul>
+<li><strong>Claude Code 的双通道策略：</strong>终端CLI + IDE插件，深度服务开发者工作流。在编码场景中体验极致，但无法脱离开发环境使用</li>
+<li><strong>OpenClaw 的多通道策略：</strong>WhatsApp / Telegram / Slack / Discord / iMessage / Signal / Matrix，通过Channel Bridges将所有平台消息归一为内部事件。用户可以在任何"所在的地方"与Agent交互</li>
+<li><strong>Channel Bridges 归一化：</strong>每种通道实现统一的ChannelAdapter接口，Gateway按用户/群组/通道粒度路由到对应Agent和工作区，实现多智能体隔离和协作</li>
+<li><strong>实践启示：</strong>垂直场景Agent可以深耕单通道（如CC专注编码），但通用Agent必须支持多通道。用户不会为了使用AI而改变自己的通讯习惯——Agent应该适应用户，而非相反</li>
+</ul>`},
+{icon:'&#127793;',title:'洞察五：开源生态释放长尾需求',
+svg:`<svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg">
+<text x="350" y="20" fill="#94a3b8" font-size="13" text-anchor="middle" font-weight="600">能力覆盖：内置 vs 生态 — 长尾效应</text>
+<path d="M60,160 Q150,155 200,130 Q250,105 280,80 Q320,50 380,35 Q450,22 520,18 Q580,15 640,14" fill="none" stroke="rgba(168,85,247,.5)" stroke-width="2.5"/>
+<path d="M60,160 Q150,155 200,130 Q250,105 280,80 Q320,50 380,35 Q450,22 520,18 Q580,15 640,14 L640,160 Z" fill="rgba(168,85,247,.08)"/>
+<line x1="280" y1="30" x2="280" y2="165" stroke="rgba(59,130,246,.4)" stroke-width="1.5" stroke-dasharray="5"/>
+<line x1="520" y1="30" x2="520" y2="165" stroke="rgba(52,211,153,.4)" stroke-width="1.5" stroke-dasharray="5"/>
+<rect x="130" y="30" width="160" height="28" rx="6" fill="rgba(59,130,246,.2)"/><text x="210" y="49" fill="#60a5fa" font-size="11" text-anchor="middle" font-weight="600">CC: 42+ 内置工具</text>
+<rect x="320" y="30" width="170" height="28" rx="6" fill="rgba(168,85,247,.2)"/><text x="405" y="49" fill="#c084fc" font-size="11" text-anchor="middle" font-weight="600">OC: 16000+ ClawHub技能</text>
+<text x="195" y="75" fill="#60a5fa" font-size="10" text-anchor="middle">覆盖 80% 主流编码需求</text>
+<text x="525" y="75" fill="#c084fc" font-size="10" text-anchor="middle">覆盖 99% 长尾需求</text>
+<rect x="60" y="165" width="580" height="25" rx="6" fill="rgba(255,255,255,.03)"/>
+<text x="150" y="182" fill="#60a5fa" font-size="10" text-anchor="middle">主流需求</text>
+<text x="400" y="182" fill="#c084fc" font-size="10" text-anchor="middle">长尾需求（小众场景、垂直领域、个性化定制）</text>
+<text x="350" y="200" fill="#94a3b8" font-size="11" text-anchor="middle">内置能力决定下限，生态能力决定上限</text>
+</svg>`,
+detail:`<div class="ins-highlight">核心观点：内置能力决定下限，生态能力决定上限。开源生态释放了闭源平台难以覆盖的长尾需求。</div>
+<ul>
+<li><strong>Claude Code 的内置策略：</strong>60+精心设计的内置工具<span class="ref">[4]</span>，覆盖80%主流编码需求。每个工具经过严格治理（14步管道<span class="ref">[5]</span>），质量极高。但受限于团队资源，无法覆盖所有小众场景</li>
+<li><strong>OpenClaw 的生态策略：</strong>ClawHub技能市场16000+社区贡献技能<span class="ref">[3]</span>，覆盖从天气查询到法律咨询、从代码审计到数据分析的无数小众场景。<code>claw install &lt;skill&gt;</code>一键安装</li>
+<li><strong>长尾效应：</strong>80%的用户需求集中在20%的主流功能上（内置工具可覆盖），但剩余20%的需求分散在无数小众场景中（只有社区生态才能覆盖）。这20%的长尾需求，恰恰是Agent"个性化"的关键</li>
+<li><strong>实践启示：</strong>最佳策略是"内置精品 + 生态扩展"。核心工具内置保证质量，开放生态释放长尾。两者互补而非替代</li>
+</ul>`},
+{icon:'&#128221;',title:'洞察六：Markdown即配置，配置即代码',
+svg:`<svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg">
+<text x="350" y="20" fill="#94a3b8" font-size="13" text-anchor="middle" font-weight="600">Markdown 定义智能体 — 配置即代码范式</text>
+<rect x="40" y="40" width="140" height="50" rx="8" fill="rgba(59,130,246,.12)" stroke="rgba(59,130,246,.3)"/>
+<text x="110" y="60" fill="#60a5fa" font-size="11" text-anchor="middle" font-weight="600">CLAUDE.md</text>
+<text x="110" y="76" fill="#94a3b8" font-size="9" text-anchor="middle">项目上下文 · 编码规范</text>
+<rect x="220" y="40" width="140" height="50" rx="8" fill="rgba(6,182,212,.12)" stroke="rgba(6,182,212,.3)"/>
+<text x="290" y="60" fill="#22d3ee" font-size="11" text-anchor="middle" font-weight="600">SOUL.md</text>
+<text x="290" y="76" fill="#94a3b8" font-size="9" text-anchor="middle">人格定义 · 行为边界</text>
+<rect x="400" y="40" width="140" height="50" rx="8" fill="rgba(52,211,153,.12)" stroke="rgba(52,211,153,.3)"/>
+<text x="470" y="60" fill="#34d399" font-size="11" text-anchor="middle" font-weight="600">USER.md</text>
+<text x="470" y="76" fill="#94a3b8" font-size="9" text-anchor="middle">用户画像 · 偏好习惯</text>
+<rect x="580" y="40" width="80" height="50" rx="8" fill="rgba(168,85,247,.12)" stroke="rgba(168,85,247,.3)"/>
+<text x="620" y="60" fill="#c084fc" font-size="11" text-anchor="middle" font-weight="600">...</text>
+<text x="620" y="76" fill="#94a3b8" font-size="9" text-anchor="middle">更多.md</text>
+<text x="350" y="115" fill="#94a3b8" font-size="12" text-anchor="middle">&#8595; 解析 &#8595;</text>
+<rect x="100" y="128" width="500" height="40" rx="8" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.1)"/>
+<text x="200" y="152" fill="#60a5fa" font-size="11" text-anchor="middle">→ Agent 人格</text>
+<text x="350" y="152" fill="#34d399" font-size="11" text-anchor="middle">→ 记忆系统</text>
+<text x="500" y="152" fill="#c084fc" font-size="11" text-anchor="middle">→ 行为策略</text>
+<text x="350" y="190" fill="#94a3b8" font-size="11" text-anchor="middle">Markdown = 人类可读 + 可版本管理 + 可协作编辑 + 低门槛</text>
+</svg>`,
+detail:`<div class="ins-highlight">核心观点：Agent的"代码"不仅是传统代码，更是结构化的人类意图。Markdown作为配置语言，实现了"低门槛定制化"。</div>
+<ul>
+<li><strong>Claude Code 的 CLAUDE.md：</strong>项目级配置文件，定义编码规范、项目上下文、工具偏好。开发者用自然语言描述规则，Agent自动遵循</li>
+<li><strong>OpenClaw 的 SOUL.md + USER.md：</strong>人格级配置文件，定义智能体的性格、语言风格、价值取向、行为边界。用户无需编程即可定制"专属AI伙伴"</li>
+<li><strong>Markdown 的天然优势：</strong>人类可读（无需专用工具编辑）、可版本管理（Git追踪变更）、可协作编辑（多人共建Agent人格）、低门槛（非技术人员也能使用）</li>
+<li><strong>范式启示：</strong>"配置即代码"（Configuration as Code）的理念正在从DevOps扩展到AI Agent领域。未来Agent的定制可能不再是写代码，而是写Markdown——用自然语言定义AI的行为和记忆</li>
+</ul>`}
+];
+function openInsight(idx){
+const d=INSIGHTS[idx],ov=document.getElementById('insOverlay');
+document.getElementById('insIcon').innerHTML=d.icon;
+document.getElementById('insTitle').textContent=d.title;
+document.getElementById('insSvg').innerHTML=d.svg;
+document.getElementById('insDetail').innerHTML=d.detail;
+ov.classList.add('open');
+}
+function closeInsight(){document.getElementById('insOverlay').classList.remove('open');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeInsight();});
+</script>
+</body>
+</html>

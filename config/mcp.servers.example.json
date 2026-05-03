@@ -9,7 +9,13 @@
       "args": ["-m", "app.main", "stdio"],
       "cwd": "D:/WorkStation/Trae/course-project-intelligence-mcp-server",
       "env": {},
-      "toolNamePrefix": "mcp.course_project"
+      "toolNamePrefix": "mcp.course_project",
+      "isolation": {
+        "enabled": true,
+        "mode": "restricted",
+        "runtimeRoot": "workspace/sandbox/mcp/course_project",
+        "preserveEnvKeys": ["PATH", "SYSTEMROOT", "COMSPEC", "PATHEXT"]
+      }
     }
   ]
 }

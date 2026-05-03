@@ -1,5 +1,11 @@
 import type { GatewayToolCallRecord } from "./toolCallTypes";
 
+/**
+ * 在终端打印一次工具调用记录。
+ *
+ * 输出内容强调“可排查性”而不是“美观性”，
+ * 因此会直接把状态、耗时、错误和结构化输出都打出来。
+ */
 export function printToolCallRecord(record: GatewayToolCallRecord): void {
   console.log(`[tool-call] id: ${record.id}`);
   console.log(`[tool-call] tool: ${record.toolName}`);

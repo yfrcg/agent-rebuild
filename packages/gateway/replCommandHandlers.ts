@@ -1,12 +1,15 @@
 import type { Interface as ReadlineInterface } from "node:readline";
 
+import type { AuditEventType } from "../audit/types";
 import { resolveWorkspacePath } from "../core/src/config";
+import { discoverSkills, selectSkillsForUserInput } from "../core/src/skills";
 import type { TranscriptEntry } from "../core/src/types";
 
 import {
   preCompactionFlush,
   postCompactionRecovery,
 } from "../session/src/compaction";
+import { compactTranscript } from "../session/src/compact";
 
 import { classifyMemory } from "../memory/src/classifyMemory";
 import {
@@ -18,8 +21,10 @@ import { hybridSearch } from "../memory/src/hybridSearch";
 import { upsertFileIndex } from "../memory/src/memoryIndex";
 
 import type { ParsedGatewayCommand } from "./commandParser";
+import { createApprovalToken } from "./approvalToken";
 import { printGatewayHelp } from "./replHelp";
 import { SessionManager } from "./sessionManager";
+import type { GatewaySandbox } from "./sandbox";
 import { GatewayMcpManager } from "./mcpManager";
 import { createGatewayToolCallRequest } from "./toolCallFactory";
 import { ToolCallExecutor } from "./toolCallExecutor";
@@ -27,24 +32,50 @@ import { printToolCallRecord } from "./toolCallPrinter";
 import { ToolRegistry } from "./toolRegistry";
 import { recordTranscript } from "./transcriptRecorder";
 
+/**
+ * 内建命令处理器需要依赖的上下文对象。
+ *
+ * 之所以把依赖集中成一个对象传入，
+ * 是为了让命令处理器更容易测试，也避免参数列表无限增长。
+ */
 export interface ReplCommandHandlerContext {
   sessionManager: SessionManager;
   toolRegistry: ToolRegistry;
   toolCallExecutor: ToolCallExecutor;
   memoryTopK: number;
   mcpManager?: GatewayMcpManager;
+  sandbox: GatewaySandbox;
+  auditLogger?: unknown;
+  confirmTokenTtlMs: number;
   rl: ReadlineInterface;
 }
 
+/**
+ * 命令处理结果。
+ *
+ * - `handled=true` 表示该输入已经在命令层完成处理，不要再走模型对话链路。
+ * - `shouldExit=true` 表示主循环应终止。
+ */
 export interface ReplCommandHandleResult {
   handled: boolean;
   shouldExit?: boolean;
 }
 
+/**
+ * 处理 REPL 层内建命令。
+ *
+ * 这里的职责是把 `parseGatewayCommand()` 产出的命令类型，进一步执行成具体动作，
+ * 包括会话管理、记忆写入、MCP 状态查看、工具手动调用等。
+ */
 export async function handleBuiltInGatewayCommand(
   command: ParsedGatewayCommand,
   context: ReplCommandHandlerContext
 ): Promise<ReplCommandHandleResult> {
+  /**
+   * 把一条系统反馈记录到“当前会话”中。
+   *
+   * 这样即使命令没有走模型链路，用户仍然能在 transcript 里看到完整交互历史。
+   */
   const recordToCurrentSession = (
     role: TranscriptEntry["role"],
     content: string
@@ -52,6 +83,55 @@ export async function handleBuiltInGatewayCommand(
     const sessionId = context.sessionManager.getCurrentSessionId();
     recordTranscript(sessionId, role, content);
     context.sessionManager.incrementCurrentSessionMessageCount();
+  };
+
+  const recordAudit = async (
+    type: AuditEventType,
+    message: string,
+    data: Record<string, unknown> = {}
+  ): Promise<void> => {
+    if (!context.auditLogger) {
+      return;
+    }
+
+    const logger = context.auditLogger as {
+      log?: (event: unknown) => Promise<void> | void;
+      record?: (event: unknown) => Promise<void> | void;
+      append?: (event: unknown) => Promise<void> | void;
+      write?: (event: unknown) => Promise<void> | void;
+    };
+
+    const event = {
+      id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      requestId: `session:${context.sessionManager.getCurrentSessionId()}`,
+      type,
+      message,
+      createdAt: new Date().toISOString(),
+      data: {
+        sessionId: context.sessionManager.getCurrentSessionId(),
+        ...data,
+      },
+    };
+
+    try {
+      if (typeof logger.log === "function") {
+        await logger.log(event);
+        return;
+      }
+      if (typeof logger.record === "function") {
+        await logger.record(event);
+        return;
+      }
+      if (typeof logger.append === "function") {
+        await logger.append(event);
+        return;
+      }
+      if (typeof logger.write === "function") {
+        await logger.write(event);
+      }
+    } catch {
+      // 审计失败不能中断主流程。
+    }
   };
 
   if (command.type === "exit") {
@@ -87,15 +167,22 @@ export async function handleBuiltInGatewayCommand(
       };
     }
 
+    // `:mcp` 和 `:mcp status` 都走状态查看。
     if (!payload || payload === "status") {
       const statuses = manager.listStatuses();
       console.log("[mcp] server status:");
       statuses.forEach((status, index) => {
-        const base = `${index + 1}. ${status.id} (${status.name}) enabled=${status.enabled} connected=${status.connected} tools=${status.toolCount}`;
+        const base = `${index + 1}. ${status.id} (${status.name}) enabled=${status.enabled} connected=${status.connected} tools=${status.toolCount} phase=${status.phase ?? "unknown"} launch=${status.launchMode ?? "direct"} isolation=${status.isolationMode ?? "off"}`;
         if (status.error) {
           console.log(`${base} error=${status.error}`);
         } else {
           console.log(base);
+        }
+        if (status.runtimeRoot) {
+          console.log(`   runtimeRoot=${status.runtimeRoot}`);
+        }
+        if (status.cwd) {
+          console.log(`   cwd=${status.cwd}`);
         }
       });
       recordToCurrentSession("assistant", `[mcp] listed ${statuses.length} server status(es).`);
@@ -136,6 +223,276 @@ export async function handleBuiltInGatewayCommand(
     };
   }
 
+  if (command.type === "skills") {
+    const payload = (command.payload ?? "").trim();
+    const discovery = discoverSkills();
+
+    if (discovery.skills.length === 0) {
+      const output = "[skills] no compatible SKILL.md files discovered";
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return {
+        handled: true,
+      };
+    }
+
+    if (!payload || payload === "list") {
+      console.log("[skills] discovered:");
+      discovery.skills.forEach((skill, index) => {
+        console.log(
+          `${index + 1}. ${skill.name} [platform=${skill.platform}] ${skill.description}`
+        );
+      });
+      recordToCurrentSession(
+        "assistant",
+        `[skills] listed ${discovery.skills.length} compatible skill(s).`
+      );
+      return {
+        handled: true,
+      };
+    }
+
+    if (payload === "current") {
+      const currentSkills = context.sessionManager.getCurrentSession().activeSkills ?? [];
+      const output =
+        currentSkills.length === 0
+          ? "[skills] no active session skills"
+          : `[skills] active: ${currentSkills.join(", ")}`;
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return {
+        handled: true,
+      };
+    }
+
+    if (payload === "clear") {
+      context.sessionManager.setCurrentSessionSkills([]);
+      const output = "[skills] cleared active session skills";
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return {
+        handled: true,
+      };
+    }
+
+    if (payload === "use" || payload.startsWith("use ")) {
+      const requestedName = payload.replace(/^use\s*/, "").trim();
+      const matched = selectSkillsForUserInput(requestedName, discovery.skills, {
+        maxMatches: 1,
+      })[0];
+
+      if (!matched) {
+        const output = `[skills] not found: ${requestedName}`;
+        console.log(output);
+        recordToCurrentSession("assistant", output);
+        return {
+          handled: true,
+        };
+      }
+
+      const current = context.sessionManager.getCurrentSession().activeSkills ?? [];
+      const conflicts = discovery.skills
+        .filter((skill) => skill.name === matched.name)
+        .flatMap((skill) => skill.conflicts ?? []);
+      const updated = [...new Set([...current.filter((name) => !conflicts.includes(name)), matched.name])];
+      context.sessionManager.setCurrentSessionSkills(updated);
+      const conflictNote =
+        conflicts.length > 0
+          ? ` (removed conflicts: ${current.filter((name) => conflicts.includes(name)).join(", ") || "none"})`
+          : "";
+      const output = `[skills] activated for session: ${matched.name}${conflictNote}`;
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return {
+        handled: true,
+      };
+    }
+
+    const requestedName = payload.replace(/^show\s*/, "").trim();
+    const matched = selectSkillsForUserInput(requestedName, discovery.skills, {
+      maxMatches: 1,
+    })[0];
+
+    if (!matched) {
+      const output = `[skills] not found: ${requestedName}`;
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return {
+        handled: true,
+      };
+    }
+
+    console.log(`[skills] ${matched.name} (${matched.relativePath})`);
+    console.log(matched.content);
+    recordToCurrentSession("assistant", `[skills] showed ${matched.name}.`);
+    return {
+      handled: true,
+    };
+  }
+
+  if (command.type === "confirm") {
+    const token = (command.payload ?? "").trim();
+    if (!token) {
+      const output = "[confirm] usage: :confirm <token>";
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return {
+        handled: true,
+      };
+    }
+
+    const consumeResult = context.sessionManager.consumeCurrentSessionApproval(token);
+    if (consumeResult.status !== "consumed" || !consumeResult.approval) {
+      const output =
+        consumeResult.status === "expired"
+          ? `[confirm] token expired: ${token}`
+          : `[confirm] token not found or already used: ${token}`;
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      await recordAudit(
+        consumeResult.status === "expired"
+          ? "gateway.confirmation.expired"
+          : "gateway.confirmation.missing",
+        output,
+        {
+          token,
+          toolName: consumeResult.approval?.toolName,
+          createdAt: consumeResult.approval?.createdAt,
+          expiresAt: consumeResult.approval?.expiresAt,
+        }
+      );
+      return {
+        handled: true,
+      };
+    }
+    const approval = consumeResult.approval;
+
+    await recordAudit(
+      "gateway.confirmation.confirmed",
+      `[confirm] token accepted for ${approval.toolName}`,
+      {
+        token: approval.token,
+        toolName: approval.toolName,
+        createdAt: approval.createdAt,
+        expiresAt: approval.expiresAt,
+      }
+    );
+
+    const toolCallRequest = createGatewayToolCallRequest({
+      toolName: approval.toolName,
+      input: approval.input,
+      sessionId: context.sessionManager.getCurrentSessionId(),
+      approved: true,
+    });
+    const toolCallRecord = await context.toolCallExecutor.execute(toolCallRequest);
+    printToolCallRecord(toolCallRecord);
+    recordToCurrentSession(
+      "assistant",
+      `[tool-call] ${toolCallRecord.toolName} ${toolCallRecord.status} (${toolCallRecord.id})`
+    );
+    return {
+      handled: true,
+    };
+  }
+
+  if (command.type === "reject") {
+    const token = (command.payload ?? "").trim();
+    if (!token) {
+      const output = "[reject] usage: :reject <token>";
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return {
+        handled: true,
+      };
+    }
+
+    const result = context.sessionManager.rejectCurrentSessionApproval(token);
+    if (result.status !== "rejected" || !result.approval) {
+      const output =
+        result.status === "expired"
+          ? `[reject] token already expired: ${token}`
+          : `[reject] token not found: ${token}`;
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      await recordAudit(
+        result.status === "expired"
+          ? "gateway.confirmation.expired"
+          : "gateway.confirmation.missing",
+        output,
+        {
+          token,
+          toolName: result.approval?.toolName,
+          createdAt: result.approval?.createdAt,
+          expiresAt: result.approval?.expiresAt,
+        }
+      );
+      return {
+        handled: true,
+      };
+    }
+
+    const output = `[reject] removed approval token for ${result.approval.toolName}: ${token}`;
+    console.log(output);
+    recordToCurrentSession("assistant", output);
+    await recordAudit("gateway.confirmation.rejected", output, {
+      token,
+      toolName: result.approval.toolName,
+      createdAt: result.approval.createdAt,
+      expiresAt: result.approval.expiresAt,
+    });
+    return {
+      handled: true,
+    };
+  }
+
+  if (command.type === "approvals") {
+    const payload = (command.payload ?? "").trim();
+    if (payload === "clear") {
+      const approvals = context.sessionManager.clearCurrentSessionApprovals();
+      const output =
+        approvals.length === 0
+          ? "[approvals] nothing to clear"
+          : `[approvals] cleared ${approvals.length} pending approval(s)`;
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      if (approvals.length > 0) {
+        await recordAudit("gateway.confirmation.cleared", output, {
+          count: approvals.length,
+          toolNames: approvals.map((item) => item.toolName),
+          tokens: approvals.map((item) => item.token),
+        });
+      }
+      return {
+        handled: true,
+      };
+    }
+
+    const approvals = context.sessionManager.listCurrentSessionApprovals();
+    if (approvals.length === 0) {
+      const output = "[approvals] no pending approvals";
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return {
+        handled: true,
+      };
+    }
+
+    console.log("[approvals] pending:");
+    approvals.forEach((approval, index) => {
+      console.log(
+        `${index + 1}. token=${approval.token} tool=${approval.toolName} expiresAt=${approval.expiresAt}`
+      );
+      console.log(`   message=${approval.message}`);
+    });
+    recordToCurrentSession(
+      "assistant",
+      `[approvals] listed ${approvals.length} pending approval(s).`
+    );
+    return {
+      handled: true,
+    };
+  }
+
   if (command.type === "tools") {
     const tools = context.toolRegistry.list();
     if (tools.length === 0) {
@@ -149,7 +506,10 @@ export async function handleBuiltInGatewayCommand(
 
     console.log("[tools] registered:");
     tools.forEach((tool, index) => {
-      console.log(`${index + 1}. ${tool.name} - ${tool.description}`);
+      const policySuffix = tool.policy
+        ? ` [automation=${tool.policy.automationLevel}, risk=${tool.policy.riskLevel}]`
+        : "";
+      console.log(`${index + 1}. ${tool.name} - ${tool.description}${policySuffix}`);
     });
     recordToCurrentSession("assistant", `[tools] listed ${tools.length} tool(s).`);
     return {
@@ -168,6 +528,7 @@ export async function handleBuiltInGatewayCommand(
       };
     }
 
+    // 约定命令第一段是工具名，剩余部分整体视为 JSON 输入。
     const firstSpace = payload.indexOf(" ");
     const toolName = firstSpace === -1 ? payload : payload.slice(0, firstSpace).trim();
     const jsonInput = firstSpace === -1 ? "" : payload.slice(firstSpace + 1).trim();
@@ -212,6 +573,48 @@ export async function handleBuiltInGatewayCommand(
       };
     }
 
+    const tool = context.toolRegistry.get(toolName);
+    const pathDecision = context.sandbox.canUseToolInputPaths(parsedInput);
+    if (!pathDecision.allowed) {
+      console.log(pathDecision.reason);
+      recordToCurrentSession("assistant", pathDecision.reason ?? "[sandbox] blocked tool path");
+      return {
+        handled: true,
+      };
+    }
+
+    if (context.sandbox.requiresConfirmation(tool)) {
+      const confirmMessage =
+        tool?.policy?.confirmationMessage ??
+        `[tool] ${toolName} requires confirmation due to its policy`;
+      const token = createApprovalToken();
+      const createdAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + context.confirmTokenTtlMs).toISOString();
+      context.sessionManager.addCurrentSessionApproval({
+        token,
+        toolName,
+        input: parsedInput,
+        createdAt,
+        expiresAt,
+        message: confirmMessage,
+      });
+      const output = `[tool] confirmation required for ${toolName}. token=${token}. expiresAt=${expiresAt}. Run :confirm ${token}`;
+      console.log(confirmMessage);
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      await recordAudit("gateway.confirmation.queued", output, {
+        token,
+        toolName,
+        createdAt,
+        expiresAt,
+        automationLevel: tool?.policy?.automationLevel,
+        riskLevel: tool?.policy?.riskLevel,
+      });
+      return {
+        handled: true,
+      };
+    }
+
     const toolCallRequest = createGatewayToolCallRequest({
       toolName,
       input: parsedInput,
@@ -233,7 +636,12 @@ export async function handleBuiltInGatewayCommand(
 
     if (!payload || payload === "current") {
       const current = context.sessionManager.getCurrentSession();
-      const output = `[session] current: ${current.id} (${current.name}) messages=${current.messageCount}`;
+      const activeSkills =
+        current.activeSkills && current.activeSkills.length > 0
+          ? ` skills=${current.activeSkills.join(",")}`
+          : "";
+      const approvals = current.pendingApprovals?.length ?? 0;
+      const output = `[session] current: ${current.id} (${current.name}) messages=${current.messageCount}${activeSkills} approvals=${approvals}`;
       console.log(output);
       recordToCurrentSession("assistant", output);
       return {
@@ -248,8 +656,13 @@ export async function handleBuiltInGatewayCommand(
       console.log("[session] list");
       sessions.forEach((session) => {
         const currentFlag = session.id === currentId ? "*" : " ";
+        const skillSuffix =
+          session.activeSkills && session.activeSkills.length > 0
+            ? ` | skills=${session.activeSkills.join(",")}`
+            : "";
+        const approvalSuffix = ` | approvals=${session.pendingApprovals?.length ?? 0}`;
         console.log(
-          `${currentFlag} ${session.id} | ${session.name} | messages=${session.messageCount}`
+          `${currentFlag} ${session.id} | ${session.name} | messages=${session.messageCount}${skillSuffix}${approvalSuffix}`
         );
       });
 
@@ -335,11 +748,19 @@ export async function handleBuiltInGatewayCommand(
   }
 
   if (command.type === "flush") {
+    const decision = context.sandbox.canWriteMemory("flush");
+    if (!decision.allowed) {
+      console.log(decision.reason);
+      recordToCurrentSession("assistant", decision.reason ?? "[sandbox] blocked flush");
+      return {
+        handled: true,
+      };
+    }
+
     const res = preCompactionFlush(context.sessionManager.getCurrentSessionId());
     upsertFileIndex(resolveWorkspacePath("MEMORY.md"));
 
     console.log("[pre-compaction flush]", res);
-
     recordToCurrentSession("tool", `[pre-compaction flush] ${res.message}`);
 
     return {
@@ -365,13 +786,43 @@ export async function handleBuiltInGatewayCommand(
     };
   }
 
+  if (command.type === "compact") {
+    const decision = context.sandbox.canWriteMemory("compact");
+    if (!decision.allowed) {
+      console.log(decision.reason);
+      recordToCurrentSession("assistant", decision.reason ?? "[sandbox] blocked compact");
+      return {
+        handled: true,
+      };
+    }
+
+    const result = compactTranscript(context.sessionManager.getCurrentSessionId());
+    const output = `[session] compacted flushed=${result.flushed} target=${result.target} truncated=${result.truncated}`;
+    console.log(output);
+    recordToCurrentSession("tool", output);
+
+    return {
+      handled: true,
+    };
+  }
+
   if (command.type === "remember") {
     const text = command.payload ?? "";
 
     if (!text) {
       console.log("[memory] empty content, skipped.");
-
       recordToCurrentSession("assistant", "[memory] empty content, skipped.");
+
+      return {
+        handled: true,
+      };
+    }
+
+    // 先分类，再决定落到长期记忆还是当日日志记忆。
+    const decision = context.sandbox.canWriteMemory("remember");
+    if (!decision.allowed) {
+      console.log(decision.reason);
+      recordToCurrentSession("assistant", decision.reason ?? "[sandbox] blocked remember");
 
       return {
         handled: true,
@@ -382,10 +833,8 @@ export async function handleBuiltInGatewayCommand(
 
     if (kind === "long-term") {
       writeLongTermMemory(text);
-      upsertFileIndex(resolveWorkspacePath("MEMORY.md"));
 
       console.log("[saved] MEMORY.md");
-
       recordToCurrentSession("assistant", "[saved] MEMORY.md");
 
       return {
@@ -395,11 +844,7 @@ export async function handleBuiltInGatewayCommand(
 
     writeDailyMemory(text);
 
-    // 保留你原来 main.ts 里的索引路径写法，避免这一步改变旧逻辑。
-    upsertFileIndex(resolveWorkspacePath("memory", "2026-04-20.md"));
-
     console.log("[saved] daily memory");
-
     recordToCurrentSession("assistant", "[saved] daily memory");
 
     return {
@@ -412,7 +857,6 @@ export async function handleBuiltInGatewayCommand(
 
     if (!query) {
       console.log("[search] empty query");
-
       recordToCurrentSession("assistant", "[search] empty query");
 
       return {
@@ -424,7 +868,6 @@ export async function handleBuiltInGatewayCommand(
 
     if (hits.length === 0) {
       console.log("[search] no hits");
-
       recordToCurrentSession("assistant", "[search] no hits");
 
       return {
@@ -440,6 +883,7 @@ export async function handleBuiltInGatewayCommand(
       console.log(hit.content.slice(0, 200));
     });
 
+    // transcript 内只写摘要，避免把大段检索内容无上限灌进会话日志。
     const summary = hits
       .map((h, i) => `#${i + 1}: ${h.content.slice(0, 80)}`)
       .join("\n");
@@ -456,7 +900,6 @@ export async function handleBuiltInGatewayCommand(
 
     if (!file) {
       console.log("[file] empty path");
-
       recordToCurrentSession("assistant", "[file] empty path");
 
       return {
@@ -475,7 +918,6 @@ export async function handleBuiltInGatewayCommand(
       const message = err instanceof Error ? err.message : String(err);
 
       console.error(message);
-
       recordToCurrentSession("assistant", `[error] ${message}`);
     }
 

@@ -1,12 +1,12 @@
 import "dotenv/config";
 
+type EmbeddingProviderName = "dashscope" | "mock";
+
 /**
- * 从环境变量中读取指定名称的配置值。
- * 若变量未设置或值为空，则抛出明确错误，防止后续流程在未察觉的配置缺失状态下继续运行。
+ * 从环境变量中读取必填配置项。
  *
- * @param name - 环境变量名称
- * @returns 该环境变量的值（string）
- * @throws Error - 当环境变量未定义或值为空字符串时
+ * 这里采用“缺失即抛错”的策略，
+ * 避免调用 embedding API 时才发现关键配置根本不存在。
  */
 function getEnv(name: string) {
   const value = process.env[name];
@@ -17,30 +17,58 @@ function getEnv(name: string) {
 }
 
 /**
- * 使用 DashScope（阿里云）文本嵌入 API 将一段文本转换为高维向量表示。
- * 调用 text-embedding-v4 模型，返回 1024 维浮点数向量（维度数可通过环境变量 DASHSCOPE_EMBED_DIMENSIONS 配置）。
- * 该向量可用于语义搜索、相似度计算、向量数据库索引等场景。
+ * 获取当前 embedding 提供商。
  *
- * @param text - 待嵌入的文本内容（可以是任意长度，建议分段以符合模型输入限制）
- * @returns Promise<number[]> - 嵌入向量，浮点数数组，长度为配置的 dimensions（默认 1024）
- * @throws Error - API 请求失败或返回格式异常时
+ * 默认走真实 DashScope；
+ * 显式配置 `EMBEDDING_PROVIDER=mock` 时走离线 deterministic embedding。
+ */
+export function getEmbeddingProviderName(
+  env: NodeJS.ProcessEnv = process.env
+): EmbeddingProviderName {
+  const provider = env.EMBEDDING_PROVIDER?.trim().toLowerCase();
+  if (provider === "mock") {
+    return "mock";
+  }
+
+  return "dashscope";
+}
+
+/**
+ * 返回当前 embedding 配置对应的版本键。
+ *
+ * 这个值会写入 `mem_files.embedder_key`，
+ * 便于后续识别索引是由哪种 embedding 方案生成的。
+ */
+export function getEmbedderKey(env: NodeJS.ProcessEnv = process.env): string {
+  const provider = getEmbeddingProviderName(env);
+  if (provider === "mock") {
+    const dimensions = readDimensions(env, 64);
+    return `mock-${dimensions}`;
+  }
+
+  return `dashscope-${env.DASHSCOPE_EMBED_MODEL ?? "text-embedding-v4"}`;
+}
+
+/**
+ * 调用 DashScope 文本嵌入接口，把文本转换成向量。
+ *
+ * 返回的向量后续会用于：
+ * - 语义检索
+ * - 相似度计算
+ * - 混合搜索排序
  */
 export async function embedText(text: string): Promise<number[]> {
-  // 读取 DashScope API 密钥，必需
-  const apiKey = getEnv("DASHSCOPE_API_KEY");
+  if (getEmbeddingProviderName() === "mock") {
+    return deterministicEmbedding(text, readDimensions(process.env, 64));
+  }
 
-  // API 端点，可通过 DASHSCOPE_BASE_URL 自定义，默认为阿里云兼容模式地址
+  const apiKey = getEnv("DASHSCOPE_API_KEY");
   const baseUrl =
     process.env.DASHSCOPE_BASE_URL ??
     "https://dashscope.aliyuncs.com/compatible-mode/v1";
-
-  // 嵌入模型名称，默认 text-embedding-v4
   const model = process.env.DASHSCOPE_EMBED_MODEL ?? "text-embedding-v4";
+  const dimensions = readDimensions(process.env, 1024);
 
-  // 向量维度，默认 1024；需与向量数据库字段维度保持一致
-  const dimensions = Number(process.env.DASHSCOPE_EMBED_DIMENSIONS ?? "1024");
-
-  // 向 DashScope embeddings 端点发送 POST 请求
   const resp = await fetch(`${baseUrl}/embeddings`, {
     method: "POST",
     headers: {
@@ -48,31 +76,53 @@ export async function embedText(text: string): Promise<number[]> {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model,          // 指定使用的嵌入模型
-      input: text,    // 待嵌入的文本
-      dimensions,     // 输出向量维度
-      encoding_format: "float", // 返回标准浮点数格式
+      model,
+      input: text,
+      dimensions,
+      encoding_format: "float",
     }),
   });
 
-  // 若 HTTP 状态码非 2xx，解析错误信息并抛出
   if (!resp.ok) {
     const errText = await resp.text();
     throw new Error(`DashScope embedding failed: ${resp.status} ${errText}`);
   }
 
-  // 解析响应体，提取 embedding 向量
   const data = (await resp.json()) as {
     data?: Array<{ embedding?: number[] }>;
   };
 
-  // data.data[0].embedding 为实际的向量数组，取第一个结果
   const embedding = data.data?.[0]?.embedding;
-
-  // 防御性校验：确保向量存在且为数组类型
   if (!embedding || !Array.isArray(embedding)) {
     throw new Error("DashScope embedding response missing vector");
   }
 
   return embedding;
+}
+
+function readDimensions(env: NodeJS.ProcessEnv, fallback: number): number {
+  const raw = env.DASHSCOPE_EMBED_DIMENSIONS;
+  const parsed = raw ? Number(raw) : fallback;
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function deterministicEmbedding(text: string, dimensions: number): number[] {
+  const vector = new Array<number>(dimensions).fill(0);
+
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    vector[index % dimensions] += code / 1024;
+  }
+
+  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+  if (norm === 0) {
+    return vector;
+  }
+
+  return vector.map((value) => value / norm);
 }

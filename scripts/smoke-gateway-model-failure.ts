@@ -6,6 +6,9 @@ import { createGatewayRequest } from "../packages/gateway/requestHandler";
 import type { ChatMessage } from "../packages/gateway/types";
 import type { ModelProvider, ModelResponse } from "../packages/model/types";
 
+/**
+ * 固定返回一条命中的 smoke test 记忆。
+ */
 const smokeMemorySearch: MemorySearch = async (query) => {
   return [
     {
@@ -17,14 +20,25 @@ const smokeMemorySearch: MemorySearch = async (query) => {
   ];
 };
 
+/**
+ * 一个故意失败的模型提供商。
+ *
+ * 用它验证模型调用失败时，Gateway 是否仍然能返回可预期的错误响应。
+ */
 class FailingModelProvider implements ModelProvider {
   name = "failing-model";
 
+  /**
+   * 始终抛出错误，模拟上游模型服务故障。
+   */
   async generate(_messages: ChatMessage[]): Promise<ModelResponse> {
     throw new Error("Simulated model provider failure");
   }
 }
 
+/**
+ * 验证模型失败兜底逻辑。
+ */
 async function main(): Promise<void> {
   const gateway = new Gateway({
     memorySearch: smokeMemorySearch,
@@ -40,7 +54,6 @@ async function main(): Promise<void> {
   const response = await gateway.handle(request);
 
   assert.equal(response.id, request.id);
-
   assert.ok(response.text.length > 0);
   assert.ok(response.error);
   assert.match(response.error, /Simulated model provider failure/);

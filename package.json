@@ -11,6 +11,7 @@
     "dev": "tsx apps/gateway/src/main.ts",
     "reindex": "tsx scripts/reindex.ts",
     "build": "tsc",
+    "test": "node --import tsx --test tests/**/*.test.ts",
     "backfill:embeddings": "tsx scripts/backfill-embeddings.ts",
     "scheduler": "tsx scripts/scheduler.ts",
     "gateway": "tsx apps/gateway/src/main.ts",
@@ -19,8 +20,13 @@
     "gateway:smoke:memory-failure": "tsx scripts/smoke-gateway-memory-failure.ts",
     "gateway:smoke:model-failure": "tsx scripts/smoke-gateway-model-failure.ts",
     "gateway:smoke:all": "tsx scripts/smoke-gateway-all.ts",
-    "gateway:detect": "tsx scripts/system-detect.ts",
-    "gateway:check": "npm run typecheck && npm run build && npm run gateway:smoke:all && npm run gateway:detect"
+    "gateway:detect": "tsx scripts/system-detect-offline.ts",
+    "gateway:detect:live": "tsx scripts/system-detect.ts",
+    "gateway:eval:auto-tool": "tsx scripts/eval-auto-tool.ts",
+    "sandbox:check": "tsx scripts/sandbox-check.ts",
+    "sandbox:smoke": "tsx scripts/sandbox-smoke.ts",
+    "gateway:check": "npm run typecheck && npm run build && npm run test && npm run gateway:smoke:all && npm run gateway:detect",
+    "gateway:check:live": "npm run gateway:check && npm run gateway:detect:live"
   },
   "keywords": [],
   "author": "",

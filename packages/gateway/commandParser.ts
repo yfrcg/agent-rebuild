@@ -1,26 +1,50 @@
+/**
+ * Gateway 支持的命令类型。
+ *
+ * 解析器的目标，是把用户随手输入的一段文本，
+ * 规范化为这组有限、可控的动作类型之一。
+ */
 export type GatewayCommandType =
   | "exit"
   | "help"
   | "flush"
   | "recover"
+  | "compact"
   | "remember"
   | "search-memory"
   | "read-file"
   | "session"
   | "mcp"
+  | "skills"
+  | "approvals"
+  | "confirm"
+  | "reject"
   | "tools"
   | "tool"
   | "chat";
 
+/**
+ * 统一的命令解析结果。
+ *
+ * `raw` 保留原始输入，`type` 给出路由目标，
+ * `payload` 则承载命令真正的业务参数。
+ */
 export interface ParsedGatewayCommand {
   type: GatewayCommandType;
   raw: string;
   payload?: string;
 }
 
+/**
+ * 把一行原始输入解析为 Gateway 内部命令。
+ *
+ * 解析顺序遵循“精确命令优先，前缀命令其次，剩余全部当普通聊天”的原则，
+ * 从而让 REPL 层能在非常早的阶段完成路由分流。
+ */
 export function parseGatewayCommand(rawInput: string): ParsedGatewayCommand {
   const raw = rawInput.trim();
 
+  // 先处理无需参数的精确命令。
   if (raw === "exit") {
     return {
       type: "exit",
@@ -49,6 +73,14 @@ export function parseGatewayCommand(rawInput: string): ParsedGatewayCommand {
     };
   }
 
+  if (raw === "compact") {
+    return {
+      type: "compact",
+      raw,
+    };
+  }
+
+  // 再处理带载荷的自然语言命令。
   if (
     raw.startsWith("记住：") ||
     raw.startsWith("记住:") ||
@@ -61,22 +93,31 @@ export function parseGatewayCommand(rawInput: string): ParsedGatewayCommand {
     };
   }
 
-  if (raw.startsWith("查记忆 ")) {
+  if (raw.startsWith("查记忆")) {
     return {
       type: "search-memory",
       raw,
-      payload: raw.replace(/^查记忆 /, "").trim(),
+      payload: raw.replace(/^查记忆\s*/, "").trim(),
     };
   }
 
-  if (raw.startsWith("读文件 ")) {
+  if (raw.startsWith("读文件")) {
     return {
       type: "read-file",
       raw,
-      payload: raw.replace(/^读文件 /, "").trim(),
+      payload: raw.replace(/^读文件\s*/, "").trim(),
     };
   }
 
+  if (raw.toLowerCase().startsWith("use skill ")) {
+    return {
+      type: "skills",
+      raw,
+      payload: `use ${raw.slice("use skill ".length).trim()}`,
+    };
+  }
+
+  // 以下是以冒号开头的运维型命令。
   if (raw === ":session" || raw.startsWith(":session ")) {
     return {
       type: "session",
@@ -90,6 +131,38 @@ export function parseGatewayCommand(rawInput: string): ParsedGatewayCommand {
       type: "mcp",
       raw,
       payload: raw.replace(/^:mcp\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":skills" || raw.startsWith(":skills ")) {
+    return {
+      type: "skills",
+      raw,
+      payload: raw.replace(/^:skills\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":approvals" || raw.startsWith(":approvals ")) {
+    return {
+      type: "approvals",
+      raw,
+      payload: raw.replace(/^:approvals\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":confirm" || raw.startsWith(":confirm ")) {
+    return {
+      type: "confirm",
+      raw,
+      payload: raw.replace(/^:confirm\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":reject" || raw.startsWith(":reject ")) {
+    return {
+      type: "reject",
+      raw,
+      payload: raw.replace(/^:reject\s*/, "").trim(),
     };
   }
 
@@ -108,6 +181,7 @@ export function parseGatewayCommand(rawInput: string): ParsedGatewayCommand {
     };
   }
 
+  // 未命中任何命令时，默认作为普通对话请求下发给 Gateway。
   return {
     type: "chat",
     raw,

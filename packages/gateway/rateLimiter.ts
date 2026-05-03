@@ -11,11 +11,25 @@ export interface GatewayRateLimiterOptions {
   windowMs: number;
 }
 
+/**
+ * 基于滑动时间窗口的轻量级限流器。
+ *
+ * 每个 key 对应一组请求时间戳：
+ * - 先剔除窗口外的旧记录。
+ * - 再判断窗口内请求数是否超过阈值。
+ * 这种实现直观、易调试，适合 CLI 和单进程 Gateway 场景。
+ */
 export class GatewayRateLimiter {
   private readonly requests = new Map<string, number[]>();
 
   constructor(private readonly options: GatewayRateLimiterOptions) {}
 
+  /**
+   * 检查某个 key 当前是否还允许继续请求。
+   *
+   * 如果允许，会顺手把本次请求时间记进去；
+   * 如果不允许，则返回还需要等待多久才能重试。
+   */
   check(key: string, now = Date.now()): RateLimitDecision {
     const recent = this.prune(key, now);
 
@@ -42,6 +56,11 @@ export class GatewayRateLimiter {
     };
   }
 
+  /**
+   * 清理掉滑动窗口之外的旧时间戳。
+   *
+   * 这一步是限流准确性的核心，否则时间戳只增不减，所有 key 最终都会被永久限死。
+   */
   private prune(key: string, now: number): number[] {
     const cutoff = now - this.options.windowMs;
     const values = (this.requests.get(key) ?? []).filter((timestamp) => timestamp > cutoff);

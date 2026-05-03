@@ -15,13 +15,11 @@
 import * as fs from "fs";       // 文件操作：读取内容、获取 mtime
 import * as crypto from "crypto"; // 加密：生成文件 UUID 和内容 MD5 哈希
 import { resolveWorkspacePath } from "../../core/src/config"; // 解析 workspace 路径
+import { getEmbedderKey } from "./embedder";
 import type { MemoryChunk } from "./types"; // 内存切片的类型定义
 
 /** 当前分块配置版本号，用于判断是否需要重新分块（分块规则变化时触发） */
 const CHUNK_CONFIG_KEY = "default-v1";
-
-/** 当前 embedding 模型版本号，用于判断是否需要重新生成向量（模型切换时触发） */
-const EMBEDDER_KEY = "dashscope-v1";
 
 /** 记忆来源类型：memory 为记忆文件，session 为会话记录 */
 export type FileSource = "memory" | "session";
@@ -113,6 +111,7 @@ export function getFileRecord(db: DbConn, filePath: string): FileRecord | undefi
 export function upsertFileRecord(db: DbConn, filePath: string, newHash: string, source: FileSource = "memory"): FileRecord {
   const mtimeMs = getFileMtime(filePath);
   const existing = getFileRecord(db, filePath);
+  const embedderKey = getEmbedderKey();
   // 已有文件沿用原 file_id，新文件生成新 UUID
   const file_id = existing?.file_id ?? crypto.randomUUID();
 
@@ -138,7 +137,7 @@ export function upsertFileRecord(db: DbConn, filePath: string, newHash: string, 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       file_id, filePath, source, newHash, mtimeMs,
-      0, CHUNK_CONFIG_KEY, EMBEDDER_KEY,
+      0, CHUNK_CONFIG_KEY, embedderKey,
       "dirty", "pending", null, null
     );
   }
@@ -147,7 +146,7 @@ export function upsertFileRecord(db: DbConn, filePath: string, newHash: string, 
     file_id, path: filePath, source,
     content_hash: newHash, mtime_ms: mtimeMs,
     chunk_count: existing?.chunk_count ?? 0,
-    chunk_config_key: CHUNK_CONFIG_KEY, embedder_key: EMBEDDER_KEY,
+    chunk_config_key: CHUNK_CONFIG_KEY, embedder_key: embedderKey,
     fts_status: existing?.fts_status ?? "dirty",
     embedding_status: existing?.embedding_status ?? "pending",
     fts_indexed_at: existing?.fts_indexed_at ?? null,

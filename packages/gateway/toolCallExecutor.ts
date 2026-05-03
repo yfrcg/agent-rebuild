@@ -1,16 +1,27 @@
+import {
+  decideToolExecution,
+  resolveToolSecurityProfile,
+} from "../sandbox/src/policy";
+import type {
+  SandboxExecResult,
+  ToolSecurityProfile,
+} from "../sandbox/src/types";
 import type {
   GatewayToolCallExecutorOptions,
   GatewayToolCallRecord,
   GatewayToolCallRequest,
 } from "./toolCallTypes";
+import type { GatewayToolOutput } from "./toolTypes";
 
 export class ToolCallExecutor {
   private readonly registry: GatewayToolCallExecutorOptions["registry"];
   private readonly auditLogger?: unknown;
+  private readonly sandbox?: GatewayToolCallExecutorOptions["sandbox"];
 
   constructor(options: GatewayToolCallExecutorOptions) {
     this.registry = options.registry;
     this.auditLogger = options.auditLogger;
+    this.sandbox = options.sandbox;
   }
 
   async execute(request: GatewayToolCallRequest): Promise<GatewayToolCallRecord> {
@@ -29,25 +40,44 @@ export class ToolCallExecutor {
     record.status = "running";
 
     try {
-      const output = await this.registry.invoke(
-        request.toolName,
-        request.input,
-        {
-          sessionId: request.sessionId,
-          requestId: request.requestId,
-        }
-      );
-
-      record.output = output;
-      if (output.ok) {
-        record.status = "succeeded";
+      const tool = this.registry.get(request.toolName);
+      const pathDecision = this.sandbox?.canUseToolInputPaths(request.input);
+      if (pathDecision && !pathDecision.allowed) {
+        this.failRecord(record, pathDecision.reason ?? "tool input path blocked by sandbox");
       } else {
-        record.status = "failed";
-        record.error = output.error ?? "tool invocation failed";
+        const security = this.sandbox?.getToolSecurityProfile(tool) ??
+          resolveToolSecurityProfile({
+            security: tool?.security,
+            legacyPolicy: tool?.policy,
+          });
+        const executionDecision = decideToolExecution({
+          config: this.sandbox?.containerConfig ?? this.createDisabledSandboxConfig(),
+          profile: security,
+          hasSandboxSpec: Boolean(tool?.sandboxSpec),
+          approved: request.approved,
+        });
+
+        if (!tool?.sandboxSpec) {
+          const legacyDecision = this.sandbox?.canExecuteTool(tool);
+          if (legacyDecision && !legacyDecision.allowed) {
+            this.failRecord(
+              record,
+              legacyDecision.reason ?? "tool execution blocked by legacy sandbox policy"
+            );
+          } else {
+            await this.executeByDecision(record, request, executionDecision);
+          }
+        } else {
+          await this.executeByDecision(record, request, executionDecision);
+        }
       }
     } catch (err) {
       record.status = "failed";
       record.error = err instanceof Error ? err.message : String(err);
+      record.output = {
+        ok: false,
+        error: record.error,
+      };
     }
 
     const completedAtMs = Date.now();
@@ -57,6 +87,133 @@ export class ToolCallExecutor {
     await this.writeAudit(record);
 
     return record;
+  }
+
+  private async executeByDecision(
+    record: GatewayToolCallRecord,
+    request: GatewayToolCallRequest,
+    decision: ReturnType<typeof decideToolExecution>
+  ): Promise<void> {
+    switch (decision.action) {
+      case "blocked":
+        this.failRecord(record, decision.reason ?? "tool execution blocked by policy");
+        return;
+      case "requireApproval":
+        this.failRecord(record, decision.reason ?? "tool execution requires approval", {
+          reason: "requireApproval",
+          riskLevel: decision.profile.riskLevel,
+        });
+        return;
+      case "sandbox":
+        await this.executeInSandbox(record, request, decision.profile);
+        return;
+      case "host":
+        await this.executeOnHost(record, request);
+        return;
+    }
+  }
+
+  private async executeOnHost(
+    record: GatewayToolCallRecord,
+    request: GatewayToolCallRequest
+  ): Promise<void> {
+    const output = await this.registry.invoke(request.toolName, request.input, {
+      sessionId: request.sessionId,
+      requestId: request.requestId,
+    });
+
+    record.output = output;
+    if (output.ok) {
+      record.status = "succeeded";
+    } else {
+      record.status = "failed";
+      record.error = output.error ?? "tool invocation failed";
+    }
+  }
+
+  private async executeInSandbox(
+    record: GatewayToolCallRecord,
+    request: GatewayToolCallRequest,
+    profile: ToolSecurityProfile
+  ): Promise<void> {
+    const tool = this.registry.get(request.toolName);
+    if (!tool?.sandboxSpec || !this.sandbox) {
+      this.failRecord(record, "sandbox execution requested but no sandbox manager is configured");
+      return;
+    }
+
+    const sandboxRequest = tool.sandboxSpec.resolve(request.input, {
+      sessionId: request.sessionId,
+      requestId: request.requestId,
+    });
+    if (sandboxRequest.network === "bridge" && !profile.allowNetwork) {
+      this.failRecord(
+        record,
+        "tool requested bridge network but its security profile does not allow network access",
+        {
+          decision: "blocked",
+          blockedReason: "bridge network is not allowed for this tool",
+        }
+      );
+      return;
+    }
+
+    const result = await this.sandbox.manager.exec({
+      ...sandboxRequest,
+      sessionId: request.sessionId,
+      toolCallId: request.id,
+      toolName: request.toolName,
+      riskLevel: profile.riskLevel,
+    });
+
+    record.output = sandboxResultToToolOutput(result);
+    if (result.ok) {
+      record.status = "succeeded";
+    } else {
+      record.status = "failed";
+      record.error = result.error ?? `sandboxed tool failed with exit code ${result.exitCode}`;
+    }
+  }
+
+  private failRecord(
+    record: GatewayToolCallRecord,
+    error: string,
+    metadata?: Record<string, unknown>
+  ): void {
+    record.status = "failed";
+    record.error = error;
+    record.output = {
+      ok: false,
+      error,
+      metadata,
+    };
+  }
+
+  private createDisabledSandboxConfig() {
+    return {
+      enabled: false,
+      backend: "docker" as const,
+      mode: "off" as const,
+      scope: "call" as const,
+      defaultImage: "node:20-bookworm-slim",
+      network: "none" as const,
+      workspaceAccess: "copy" as const,
+      workRoot: ".agent-rebuild/sandboxes",
+      artifactRoot: ".agent-rebuild/artifacts",
+      timeoutMs: 30_000,
+      memoryLimit: "512m",
+      cpuLimit: "1",
+      pidsLimit: 128,
+      maxOutputBytes: 1_048_576,
+      readOnlyRootfs: false,
+      auditLogPath: "logs/sandbox-audit.jsonl",
+      egressProxy: {
+        enabled: false,
+        allowDomains: [],
+        blockPrivateIp: true,
+        logRequests: true,
+      },
+    };
   }
 
   private async writeAudit(record: GatewayToolCallRecord): Promise<void> {
@@ -106,7 +263,30 @@ export class ToolCallExecutor {
         await logger.write(event);
       }
     } catch {
-      // Audit failure must never affect tool call execution.
+      // audit logging must not break tool execution
     }
   }
+}
+
+function sandboxResultToToolOutput(result: SandboxExecResult): GatewayToolOutput {
+  return {
+    ok: result.ok,
+    content: {
+      decision: result.decision ?? "sandbox",
+      blockedReason: result.blockedReason,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      artifacts: result.artifacts,
+    },
+    error: result.error,
+    metadata: {
+      sandboxId: result.sandboxId,
+      auditId: result.auditId,
+      durationMs: result.durationMs,
+      truncatedStdout: result.truncatedStdout ?? false,
+      truncatedStderr: result.truncatedStderr ?? false,
+    },
+  };
 }

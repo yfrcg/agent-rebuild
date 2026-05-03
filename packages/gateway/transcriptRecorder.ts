@@ -2,10 +2,22 @@ import { appendTranscript } from "../session/src/transcript";
 import type { TranscriptEntry } from "../core/src/types";
 import { createTranscriptEntry } from "./transcriptEntryFactory";
 
+/**
+ * 生成一个简单的会话 ID。
+ *
+ * 当前主流程实际更依赖 `SessionStore` 生成的 ID，
+ * 但这个函数仍可作为轻量场景下的备用入口。
+ */
 export function createGatewaySessionId(): string {
   return `session-${Date.now()}`;
 }
 
+/**
+ * 追加一条会话消息到 transcript。
+ *
+ * 这里把“构造消息对象”和“写入 transcript 文件”两个动作串起来，
+ * 让调用方只需要关心 role 与 content 即可。
+ */
 export function recordTranscript(
   sessionId: string,
   role: TranscriptEntry["role"],
