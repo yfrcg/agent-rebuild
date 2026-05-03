@@ -47,12 +47,13 @@ export class SandboxManager {
     await mkdir(workspaceDir, { recursive: true });
     await mkdir(artifactDir, { recursive: true });
 
+    const effectiveBackend = this.getEffectiveBackend();
     const session: SandboxSession = {
       id: sandboxId,
       sessionId: input.sessionId,
       createdAt: new Date().toISOString(),
       scope: input.scope ?? this.config.scope,
-      backend: this.config.backend,
+      backend: effectiveBackend,
       image: input.image ?? this.config.defaultImage,
       workspaceDir,
       artifactDir,
@@ -79,7 +80,8 @@ export class SandboxManager {
     const auditId = createAuditId(request.toolCallId);
     const blockedReason = findBlockedCommandReason(request);
     const envKeys = Object.keys(request.env ?? {});
-    const executionDecision = this.config.backend === "mock" ? "mock-sandbox" : "sandbox";
+    const effectiveBackend = this.getEffectiveBackend();
+    const executionDecision = effectiveBackend === "mock" ? "mock-sandbox" : "sandbox";
 
     if (blockedReason) {
       await this.auditLogger.write({
@@ -90,7 +92,7 @@ export class SandboxManager {
         toolName: request.toolName,
         riskLevel: request.riskLevel ?? "high",
         decision: "blocked",
-        backend: this.config.backend,
+        backend: effectiveBackend,
         image,
         command: request.command,
         args: request.args,
@@ -148,7 +150,7 @@ export class SandboxManager {
         toolName: request.toolName,
         riskLevel: request.riskLevel ?? "high",
         decision: "error",
-        backend: this.config.backend,
+        backend: effectiveBackend,
         image,
         command: request.command,
         args: request.args,
@@ -214,7 +216,7 @@ export class SandboxManager {
       toolName: request.toolName,
       riskLevel: request.riskLevel ?? "high",
       decision: executionDecision,
-      backend: this.config.backend,
+      backend: effectiveBackend,
       image,
       command: request.command,
       args: request.args,
@@ -317,6 +319,10 @@ export class SandboxManager {
       availability: await this.runtimeProvider.checkAvailability(),
       activeSessions: Array.from(this.sessions.values()),
     };
+  }
+
+  private getEffectiveBackend(): SandboxSession["backend"] {
+    return this.runtimeProvider.backend === "mock" ? "mock" : this.config.backend;
   }
 
   private async getOrCreateSession(
