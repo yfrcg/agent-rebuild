@@ -14,7 +14,13 @@ async function main(): Promise<void> {
   console.log("[sandbox availability]");
   console.log(JSON.stringify(inspection.availability, null, 2));
 
-  if (!inspection.availability.ok) {
+  if (inspection.config.backend === "mock") {
+    console.log("");
+    console.log("[mock sandbox] no real container isolation");
+    return;
+  }
+
+  if (!inspection.availability.ok && inspection.config.requireRuntime) {
     process.exitCode = 1;
   }
 }
@@ -23,4 +29,3 @@ main().catch((error) => {
   console.error("[sandbox:check] failed:", error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
-

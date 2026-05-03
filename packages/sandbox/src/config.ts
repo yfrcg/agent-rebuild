@@ -26,6 +26,10 @@ export const DEFAULT_SANDBOX_CONFIG: SandboxConfig = {
   maxOutputBytes: 1_048_576,
   readOnlyRootfs: false,
   auditLogPath: path.resolve(process.cwd(), "logs", "sandbox-audit.jsonl"),
+  requireRuntime: false,
+  mock: {
+    enabled: false,
+  },
   egressProxy: {
     enabled: false,
     allowDomains: [],
@@ -38,11 +42,20 @@ export function loadSandboxConfig(
   env: NodeJS.ProcessEnv = process.env,
   overrides: Partial<SandboxConfig> = {}
 ): SandboxConfig {
+  const mockEnabled = parseBoolean(
+    env.GATEWAY_SANDBOX_MOCK,
+    overrides.mock?.enabled ?? DEFAULT_SANDBOX_CONFIG.mock.enabled
+  );
+  const backend = parseBackend(
+    env.GATEWAY_SANDBOX_BACKEND,
+    overrides.backend,
+    mockEnabled
+  );
   const merged: SandboxConfig = {
     ...DEFAULT_SANDBOX_CONFIG,
     ...overrides,
     enabled: parseBoolean(env.GATEWAY_SANDBOX_ENABLED, overrides.enabled ?? DEFAULT_SANDBOX_CONFIG.enabled),
-    backend: parseBackend(env.GATEWAY_SANDBOX_BACKEND, overrides.backend),
+    backend,
     mode: parseMode(env.GATEWAY_SANDBOX_MODE, overrides.mode),
     scope: parseScope(env.GATEWAY_SANDBOX_SCOPE, overrides.scope),
     defaultImage:
@@ -89,6 +102,13 @@ export function loadSandboxConfig(
       overrides.auditLogPath,
       DEFAULT_SANDBOX_CONFIG.auditLogPath
     ),
+    requireRuntime: parseBoolean(
+      env.GATEWAY_SANDBOX_REQUIRE_RUNTIME,
+      overrides.requireRuntime ?? DEFAULT_SANDBOX_CONFIG.requireRuntime
+    ),
+    mock: {
+      enabled: backend === "mock" || mockEnabled,
+    },
     egressProxy: {
       enabled: parseBoolean(
         env.GATEWAY_SANDBOX_EGRESS_PROXY_ENABLED,
@@ -115,14 +135,19 @@ export function loadSandboxConfig(
 
 function parseBackend(
   value: string | undefined,
-  fallback?: SandboxRuntimeBackend
+  fallback?: SandboxRuntimeBackend,
+  mockEnabled = false
 ): SandboxRuntimeBackend {
+  if (mockEnabled && (!value || value.trim() === "")) {
+    return "mock";
+  }
+
   if (!value?.trim()) {
     return fallback ?? DEFAULT_SANDBOX_CONFIG.backend;
   }
 
   const normalized = value.trim().toLowerCase();
-  if (normalized === "docker" || normalized === "podman") {
+  if (normalized === "docker" || normalized === "podman" || normalized === "mock") {
     return normalized;
   }
 
@@ -235,4 +260,3 @@ function resolvePath(
   const raw = value?.trim() || override || fallback;
   return path.resolve(process.cwd(), raw);
 }
-

@@ -1,4 +1,4 @@
-export type SandboxRuntimeBackend = "docker" | "podman";
+export type SandboxRuntimeBackend = "docker" | "podman" | "mock";
 export type SandboxMode = "off" | "untrusted" | "all";
 export type SandboxScope = "session" | "call";
 export type SandboxWorkspaceAccess = "none" | "copy" | "ro" | "rw";
@@ -39,6 +39,10 @@ export interface SandboxConfig extends SandboxResourceLimits {
   workRoot: string;
   artifactRoot: string;
   auditLogPath: string;
+  requireRuntime: boolean;
+  mock: {
+    enabled: boolean;
+  };
   egressProxy: SandboxEgressProxyConfig;
 }
 
@@ -92,7 +96,7 @@ export interface SandboxExecResult {
   artifacts: SandboxArtifact[];
   sandboxId: string;
   auditId: string;
-  decision?: "sandbox" | "blocked" | "error";
+  decision?: "sandbox" | "mock-sandbox" | "blocked" | "error";
   blockedReason?: string;
   error?: string;
   truncatedStdout?: boolean;
@@ -106,7 +110,7 @@ export interface SandboxAuditEvent {
   toolCallId: string;
   toolName: string;
   riskLevel: ToolRiskLevel;
-  decision: "host" | "sandbox" | "blocked" | "requireApproval" | "error";
+  decision: "host" | "sandbox" | "mock-sandbox" | "blocked" | "requireApproval" | "error";
   backend: SandboxRuntimeBackend;
   image: string;
   command: string;

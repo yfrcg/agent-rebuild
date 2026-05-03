@@ -116,6 +116,10 @@ export function pickRuntimeProvider(backend: SandboxRuntimeBackend): SandboxRunt
       const { PodmanSandboxProvider } = require("./providers/podmanProvider") as typeof import("./providers/podmanProvider");
       return new PodmanSandboxProvider();
     }
+    case "mock": {
+      const { MockRuntimeProvider } = require("./providers/mockProvider") as typeof import("./providers/mockProvider");
+      return new MockRuntimeProvider();
+    }
   }
 }
 
@@ -265,4 +269,3 @@ function firstNonEmptyLine(input: string): string | undefined {
     .map((line) => line.trim())
     .find(Boolean);
 }
-

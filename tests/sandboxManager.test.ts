@@ -18,6 +18,7 @@ import type {
   SandboxRuntimeProvider,
 } from "../packages/sandbox/src/runtime";
 import { DockerSandboxProvider } from "../packages/sandbox/src/providers/dockerProvider";
+import { MockRuntimeProvider } from "../packages/sandbox/src/providers/mockProvider";
 
 class FakeRuntimeProvider implements SandboxRuntimeProvider {
   readonly backend = "docker" as const;
@@ -45,6 +46,8 @@ test("sandbox config default values are exposed via gateway config", async () =>
   assert.equal(config.sandbox.mode, "untrusted");
   assert.equal(config.sandbox.workspaceAccess, "copy");
   assert.equal(config.sandbox.network, "none");
+  assert.equal(config.sandbox.requireRuntime, false);
+  assert.equal(config.sandbox.mock.enabled, false);
 });
 
 test("blocked sandbox command is rejected before runtime execution", async () => {
@@ -242,6 +245,31 @@ test("medium tool with sandboxSpec executes in sandbox", async () => {
   });
 });
 
+test("mock backend returns explicit mock-sandbox decision without real shell execution", async () => {
+  const manager = new SandboxManager({
+    config: {
+      backend: "mock",
+      mock: {
+        enabled: true,
+      },
+    },
+    runtimeProvider: new MockRuntimeProvider(),
+  });
+
+  const result = await manager.exec({
+    toolCallId: "toolcall-mock",
+    toolName: "sandbox.exec",
+    command: "sh",
+    args: ["-lc", "echo mock backend"],
+    cwd: process.cwd(),
+    riskLevel: "medium",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.decision, "mock-sandbox");
+  assert.match(result.stdout, /\[mock sandbox\] no real container isolation/i);
+});
+
 test("sandbox audit logger writes jsonl", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "sandbox-audit-"));
   const logPath = path.join(tempDir, "sandbox-audit.jsonl");
@@ -380,6 +408,10 @@ test("docker provider builds sandboxed run args with required security flags", (
       maxOutputBytes: 1024,
       readOnlyRootfs: false,
       auditLogPath: "logs/sandbox-audit.jsonl",
+      requireRuntime: false,
+      mock: {
+        enabled: false,
+      },
       egressProxy: {
         enabled: false,
         allowDomains: [],

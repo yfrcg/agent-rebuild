@@ -3,6 +3,7 @@ export * from "./config";
 export * from "./manager";
 export * from "./policy";
 export * from "./providers/dockerProvider";
+export * from "./providers/mockProvider";
 export * from "./providers/podmanProvider";
 export * from "./runtime";
 export * from "./types";

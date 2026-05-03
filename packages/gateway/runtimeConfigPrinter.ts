@@ -15,7 +15,7 @@ export function printRuntimeConfig(config: GatewayRuntimeConfig): void {
   console.log(`- sandboxMode: ${config.sandboxMode}`);
   console.log(`- sandboxAllowedRoots: ${config.sandboxAllowedRoots.join(", ")}`);
   console.log(
-    `- sandbox: enabled=${config.sandbox.enabled}, backend=${config.sandbox.backend}, mode=${config.sandbox.mode}, scope=${config.sandbox.scope}, workspaceAccess=${config.sandbox.workspaceAccess}, network=${config.sandbox.network}`
+    `- sandbox: enabled=${config.sandbox.enabled}, backend=${config.sandbox.backend}, mode=${config.sandbox.mode}, scope=${config.sandbox.scope}, workspaceAccess=${config.sandbox.workspaceAccess}, network=${config.sandbox.network}, mockEnabled=${config.sandbox.mock.enabled}, requireRuntime=${config.sandbox.requireRuntime}`
   );
   console.log(
     `- sandboxLimits: timeoutMs=${config.sandbox.timeoutMs}, memory=${config.sandbox.memoryLimit}, cpu=${config.sandbox.cpuLimit}, pids=${config.sandbox.pidsLimit}, maxOutputBytes=${config.sandbox.maxOutputBytes}`

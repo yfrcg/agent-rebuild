@@ -207,6 +207,10 @@ export class ToolCallExecutor {
       maxOutputBytes: 1_048_576,
       readOnlyRootfs: false,
       auditLogPath: "logs/sandbox-audit.jsonl",
+      requireRuntime: false,
+      mock: {
+        enabled: false,
+      },
       egressProxy: {
         enabled: false,
         allowDomains: [],

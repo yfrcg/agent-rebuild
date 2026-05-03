@@ -79,6 +79,7 @@ export class SandboxManager {
     const auditId = createAuditId(request.toolCallId);
     const blockedReason = findBlockedCommandReason(request);
     const envKeys = Object.keys(request.env ?? {});
+    const executionDecision = this.config.backend === "mock" ? "mock-sandbox" : "sandbox";
 
     if (blockedReason) {
       await this.auditLogger.write({
@@ -212,7 +213,7 @@ export class SandboxManager {
       toolCallId: request.toolCallId,
       toolName: request.toolName,
       riskLevel: request.riskLevel ?? "high",
-      decision: "sandbox",
+      decision: executionDecision,
       backend: this.config.backend,
       image,
       command: request.command,
@@ -255,7 +256,7 @@ export class SandboxManager {
       artifacts,
       sandboxId: session.id,
       auditId,
-      decision: "sandbox",
+      decision: executionDecision,
       error: runtimeResult.error,
       truncatedStdout: stdout.truncated,
       truncatedStderr: stderr.truncated,

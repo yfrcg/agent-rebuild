@@ -22,3 +22,15 @@ test("loadGatewayConfig supports mock model, sandbox, and session auto compactio
   assert.equal(config.sessionAutoCompactEnabled, false);
   assert.equal(config.sessionAutoCompactMaxEntries, 42);
 });
+
+test("loadGatewayConfig supports mock sandbox backend flags", () => {
+  const config = loadGatewayConfig({
+    GATEWAY_SANDBOX_BACKEND: "mock",
+    GATEWAY_SANDBOX_MOCK: "true",
+    GATEWAY_SANDBOX_REQUIRE_RUNTIME: "false",
+  } as NodeJS.ProcessEnv);
+
+  assert.equal(config.sandbox.backend, "mock");
+  assert.equal(config.sandbox.mock.enabled, true);
+  assert.equal(config.sandbox.requireRuntime, false);
+});
