@@ -8,25 +8,19 @@ async function main(): Promise<void> {
   });
   const inspection = await manager.inspect();
 
-  if (inspection.config.backend === "mock") {
-    console.log("[mock sandbox] no real container isolation");
-  } else if (!inspection.availability.ok) {
+  if (!inspection.availability.ok) {
     throw new Error(
-      "Docker runtime unavailable. Run this in Linux VM or set GATEWAY_SANDBOX_BACKEND=mock for development tests."
+      "Docker runtime unavailable. Build agentrebuild-sandbox:latest and ensure Docker is on PATH."
     );
   }
 
   const result = await manager.exec({
     sessionId: "sandbox-smoke",
-    toolCallId: `sandbox-smoke-${Date.now()}`,
     toolName: "sandbox.smoke",
-    command: "sh",
-    args: [
-      "-lc",
-      "node -v && pwd && ls -la /workspace && echo hello > /artifacts/hello.txt",
-    ],
-    cwd: process.cwd(),
-    riskLevel: "high",
+    profileName: "safe-dev",
+    command: "node -v && pwd && ls -la /workspace",
+    cwd: ".",
+    projectRoot: process.cwd(),
   });
 
   console.log("[sandbox smoke result]");

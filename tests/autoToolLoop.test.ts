@@ -5,6 +5,10 @@ import { Gateway } from "../packages/gateway/gateway";
 import { createGatewayRequest } from "../packages/gateway/requestHandler";
 import { ToolCallExecutor } from "../packages/gateway/toolCallExecutor";
 import { ToolRegistry } from "../packages/gateway/toolRegistry";
+import type {
+  GatewayToolCallRecord,
+  GatewayToolCallRequest,
+} from "../packages/gateway/toolCallTypes";
 import type { ChatMessage, ModelProvider, ModelResponse } from "../packages/model/types";
 
 class ScriptedToolLoopProvider implements ModelProvider {
@@ -206,4 +210,81 @@ test("Gateway preserves memory selection explainability for auto tool memory res
   assert.deepEqual(response.debug?.memorySelection?.topMemoryIds, [
     "workspace/memory/2026-05-01.md#Daily Notes",
   ]);
+});
+
+test("Gateway directly executes explicit shell requests through bash.run", async () => {
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "bash.run",
+    description: "Run a shell command through the configured sandbox backend.",
+    policy: {
+      automationLevel: "auto",
+      riskLevel: "stateful",
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: { type: "string" },
+      },
+      required: ["command"],
+    },
+    async invoke() {
+      return {
+        ok: false,
+        error: "must execute through ToolCallExecutor",
+      };
+    },
+  });
+
+  const captured: GatewayToolCallRequest[] = [];
+  const gateway = new Gateway({
+    memorySearch: async () => [],
+    modelProvider: {
+      name: "should-not-be-called",
+      async generate() {
+        throw new Error("model should not be called for direct shell requests");
+      },
+    },
+    toolRegistry: registry,
+    toolCallExecutor: {
+      async execute(request: GatewayToolCallRequest): Promise<GatewayToolCallRecord> {
+        captured.push(request);
+        return {
+          id: request.id,
+          toolName: request.toolName,
+          input: request.input,
+          status: "succeeded",
+          createdAt: request.createdAt,
+          durationMs: 12,
+          output: {
+            ok: true,
+            content: {
+              decision: "sandbox",
+              stdout: "v20.20.2\n",
+              stderr: "",
+              exitCode: 0,
+              artifacts: [],
+            },
+            metadata: {
+              durationMs: 12,
+            },
+          },
+        };
+      },
+    } as unknown as ToolCallExecutor,
+    autoToolLoopEnabled: true,
+    autoToolLoopMaxSteps: 2,
+    debug: true,
+  });
+
+  const response = await gateway.handle(createGatewayRequest("帮我运行 node -v"));
+
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0]?.toolName, "bash.run");
+  assert.deepEqual(captured[0]?.input, {
+    command: "node -v",
+  });
+  assert.match(response.text, /v20\.20\.2/);
+  assert.equal(response.toolCalls?.length, 1);
+  assert.equal(response.debug?.autoToolLoop?.finishReason, "direct-shell-tool");
 });

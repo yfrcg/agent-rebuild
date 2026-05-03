@@ -1,152 +1,59 @@
-export type SandboxRuntimeBackend = "docker" | "podman" | "mock";
-export type SandboxMode = "off" | "untrusted" | "all";
-export type SandboxScope = "session" | "call";
-export type SandboxWorkspaceAccess = "none" | "copy" | "ro" | "rw";
-export type SandboxNetworkPolicy = "none" | "bridge";
-export type ToolRiskLevel = "safe" | "low" | "medium" | "high" | "blocked";
+export type SandboxProfileName = "plan" | "safe-dev" | "elevated";
+export type SandboxNetworkMode = "none" | "restricted" | "host";
+export type SandboxWorkspaceAccess = "none" | "ro" | "rw";
+export type SandboxBackendName = "docker" | "bubblewrap" | "nsjail" | "remote";
+export type PolicyAction = "allow" | "ask" | "deny";
 
-export interface SandboxResourceLimits {
+export interface SandboxProfile {
+  name: SandboxProfileName;
+  network: SandboxNetworkMode;
+  workspaceAccess: SandboxWorkspaceAccess;
   timeoutMs: number;
-  memoryLimit: string;
-  cpuLimit: string;
+  memoryMb: number;
+  cpus: number;
   pidsLimit: number;
-  maxOutputBytes: number;
-  readOnlyRootfs: boolean;
+  requireHumanApproval?: boolean;
 }
 
-export interface SandboxMountPolicy {
-  workspaceAccess: SandboxWorkspaceAccess;
-  workspaceHostPath: string;
-  artifactsHostPath: string;
-  readOnlyRootfs: boolean;
-}
-
-export interface SandboxEgressProxyConfig {
-  enabled: boolean;
-  allowDomains: string[];
-  blockPrivateIp: boolean;
-  logRequests: boolean;
-}
-
-export interface SandboxConfig extends SandboxResourceLimits {
-  enabled: boolean;
-  backend: SandboxRuntimeBackend;
-  mode: SandboxMode;
-  scope: SandboxScope;
-  defaultImage: string;
-  network: SandboxNetworkPolicy;
-  workspaceAccess: SandboxWorkspaceAccess;
-  workRoot: string;
-  artifactRoot: string;
-  auditLogPath: string;
-  requireRuntime: boolean;
-  mock: {
-    enabled: boolean;
-  };
-  egressProxy: SandboxEgressProxyConfig;
-}
-
-export interface SandboxSession {
-  id: string;
-  sessionId?: string;
-  createdAt: string;
-  scope: SandboxScope;
-  backend: SandboxRuntimeBackend;
-  image: string;
-  workspaceDir: string;
-  artifactDir: string;
-  workspaceAccess: SandboxWorkspaceAccess;
-}
-
-export interface SandboxInputFile {
-  path: string;
-  content: string | Buffer;
-  encoding?: BufferEncoding;
-}
-
-export interface SandboxExecRequest {
-  sessionId?: string;
-  toolCallId: string;
+export interface SandboxRequest {
+  sessionId: string;
+  agentId?: string;
+  profileName: string;
   toolName: string;
-  command: string;
-  args: string[];
+  command?: string;
   cwd?: string;
+  projectRoot: string;
   env?: Record<string, string>;
-  inputFiles?: SandboxInputFile[];
-  timeoutMs?: number;
-  network?: SandboxNetworkPolicy;
-  image?: string;
-  workspaceAccess?: SandboxWorkspaceAccess;
-  riskLevel?: ToolRiskLevel;
+  stdin?: string;
 }
 
-export interface SandboxArtifact {
-  path: string;
-  absolutePath: string;
-  size: number;
-}
-
-export interface SandboxExecResult {
+export interface SandboxResult {
   ok: boolean;
-  exitCode: number;
+  exitCode: number | null;
   stdout: string;
   stderr: string;
-  timedOut: boolean;
   durationMs: number;
-  artifacts: SandboxArtifact[];
-  sandboxId: string;
-  auditId: string;
-  decision?: "sandbox" | "mock-sandbox" | "blocked" | "error";
-  blockedReason?: string;
-  error?: string;
-  truncatedStdout?: boolean;
-  truncatedStderr?: boolean;
+  deniedReason?: string;
 }
 
-export interface SandboxAuditEvent {
-  auditId: string;
-  timestamp: string;
-  sessionId?: string;
-  toolCallId: string;
-  toolName: string;
-  riskLevel: ToolRiskLevel;
-  decision: "host" | "sandbox" | "mock-sandbox" | "blocked" | "requireApproval" | "error";
-  backend: SandboxRuntimeBackend;
-  image: string;
-  command: string;
-  args: string[];
-  cwd?: string;
-  envKeys: string[];
-  workspaceAccess: SandboxWorkspaceAccess;
-  network: SandboxNetworkPolicy;
-  mounts: SandboxMountPolicy;
-  timeoutMs: number;
-  memoryLimit: string;
-  cpuLimit: string;
-  pidsLimit: number;
-  exitCode?: number;
-  timedOut?: boolean;
-  durationMs?: number;
-  stdoutBytes?: number;
-  stderrBytes?: number;
-  artifacts: string[];
-  blockedReason?: string;
-  error?: string;
+export interface PolicyDecision {
+  action: PolicyAction;
+  reason: string;
+  matchedRule?: string;
 }
 
-export interface ToolSecurityProfile {
-  riskLevel: ToolRiskLevel;
-  sandboxRequired: boolean;
-  allowNetwork: boolean;
-  allowWrite: boolean;
-  allowHostExecution: boolean;
-  requireApproval: boolean;
+export interface SandboxBackend {
+  name: SandboxBackendName | string;
+  run(req: SandboxRequest, profile: SandboxProfile): Promise<SandboxResult>;
 }
 
-export interface ToolExecutionDecision {
-  action: "host" | "sandbox" | "blocked" | "requireApproval";
-  reason?: string;
-  profile: ToolSecurityProfile;
+export interface SandboxConfig {
+  backend: SandboxBackendName;
+  dockerImage: string;
+  auditLogPath: string;
+  profiles: Record<SandboxProfileName, SandboxProfile>;
+  maxStdoutBytes: number;
+  maxStderrBytes: number;
 }
 
 export interface SandboxAvailability {
@@ -158,9 +65,40 @@ export interface SandboxAvailability {
 export interface SandboxInspectResult {
   config: SandboxConfig;
   availability: SandboxAvailability;
-  activeSessions: SandboxSession[];
+  profiles: SandboxProfile[];
 }
 
-export interface SandboxCleanupResult {
-  removedSessionIds: string[];
+export interface ToolSecurityProfile {
+  riskLevel: "safe" | "low" | "medium" | "high" | "blocked";
+  sandboxRequired: boolean;
+  allowNetwork: boolean;
+  allowWrite: boolean;
+  allowHostExecution: boolean;
+  requireApproval: boolean;
+}
+
+export interface ToolExecutionDecision {
+  action: "host" | "sandbox" | "blocked" | "requireApproval";
+  reason: string;
+  profile: ToolSecurityProfile;
+}
+
+export interface SandboxAuditRecord {
+  time: string;
+  sessionId: string;
+  agentId?: string;
+  toolName: string;
+  profileName: string;
+  decision: PolicyAction | "executed" | "error";
+  reason: string;
+  sandboxed: boolean;
+  backend: string;
+  command?: string;
+  cwd?: string;
+  network: SandboxNetworkMode;
+  timeoutMs: number;
+  exitCode: number | null;
+  durationMs: number;
+  stdoutBytes: number;
+  stderrBytes: number;
 }

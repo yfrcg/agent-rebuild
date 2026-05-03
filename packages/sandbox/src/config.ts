@@ -1,262 +1,77 @@
 import * as path from "node:path";
 
-import type {
-  SandboxConfig,
-  SandboxMode,
-  SandboxNetworkPolicy,
-  SandboxRuntimeBackend,
-  SandboxScope,
-  SandboxWorkspaceAccess,
-} from "./types";
+import { DEFAULT_SANDBOX_PROFILES } from "./policy";
+import type { SandboxBackendName, SandboxConfig } from "./types";
 
 export const DEFAULT_SANDBOX_CONFIG: SandboxConfig = {
-  enabled: true,
   backend: "docker",
-  mode: "untrusted",
-  scope: "call",
-  defaultImage: "node:20-bookworm-slim",
-  network: "none",
-  workspaceAccess: "copy",
-  workRoot: path.resolve(process.cwd(), ".agent-rebuild", "sandboxes"),
-  artifactRoot: path.resolve(process.cwd(), ".agent-rebuild", "artifacts"),
-  timeoutMs: 30_000,
-  memoryLimit: "512m",
-  cpuLimit: "1",
-  pidsLimit: 128,
-  maxOutputBytes: 1_048_576,
-  readOnlyRootfs: false,
+  dockerImage: "agentrebuild-sandbox:latest",
   auditLogPath: path.resolve(process.cwd(), "logs", "sandbox-audit.jsonl"),
-  requireRuntime: false,
-  mock: {
-    enabled: false,
-  },
-  egressProxy: {
-    enabled: false,
-    allowDomains: [],
-    blockPrivateIp: true,
-    logRequests: true,
-  },
+  profiles: DEFAULT_SANDBOX_PROFILES,
+  maxStdoutBytes: 200 * 1024,
+  maxStderrBytes: 200 * 1024,
 };
 
 export function loadSandboxConfig(
   env: NodeJS.ProcessEnv = process.env,
   overrides: Partial<SandboxConfig> = {}
 ): SandboxConfig {
-  const mockEnabled = parseBoolean(
-    env.GATEWAY_SANDBOX_MOCK,
-    overrides.mock?.enabled ?? DEFAULT_SANDBOX_CONFIG.mock.enabled
-  );
-  const backend = parseBackend(
-    env.GATEWAY_SANDBOX_BACKEND,
-    overrides.backend,
-    mockEnabled
-  );
-  const merged: SandboxConfig = {
-    ...DEFAULT_SANDBOX_CONFIG,
-    ...overrides,
-    enabled: parseBoolean(env.GATEWAY_SANDBOX_ENABLED, overrides.enabled ?? DEFAULT_SANDBOX_CONFIG.enabled),
-    backend,
-    mode: parseMode(env.GATEWAY_SANDBOX_MODE, overrides.mode),
-    scope: parseScope(env.GATEWAY_SANDBOX_SCOPE, overrides.scope),
-    defaultImage:
-      env.GATEWAY_SANDBOX_DEFAULT_IMAGE?.trim() ||
-      overrides.defaultImage ||
-      DEFAULT_SANDBOX_CONFIG.defaultImage,
-    network: parseNetwork(env.GATEWAY_SANDBOX_NETWORK, overrides.network),
-    workspaceAccess: parseWorkspaceAccess(
-      env.GATEWAY_SANDBOX_WORKSPACE_ACCESS,
-      overrides.workspaceAccess
+  return {
+    backend: parseBackend(
+      env.GATEWAY_SANDBOX_BACKEND,
+      env.SANDBOX_MODE,
+      overrides.backend
     ),
-    workRoot: resolvePath(env.GATEWAY_SANDBOX_WORK_ROOT, overrides.workRoot, DEFAULT_SANDBOX_CONFIG.workRoot),
-    artifactRoot: resolvePath(
-      env.GATEWAY_SANDBOX_ARTIFACT_ROOT,
-      overrides.artifactRoot,
-      DEFAULT_SANDBOX_CONFIG.artifactRoot
+    dockerImage:
+      env.GATEWAY_SANDBOX_IMAGE?.trim() ||
+      overrides.dockerImage ||
+      DEFAULT_SANDBOX_CONFIG.dockerImage,
+    auditLogPath: path.resolve(
+      process.cwd(),
+      env.GATEWAY_SANDBOX_AUDIT_LOG_PATH?.trim() ||
+        overrides.auditLogPath ||
+        DEFAULT_SANDBOX_CONFIG.auditLogPath
     ),
-    timeoutMs: parsePositiveInteger(
-      env.GATEWAY_SANDBOX_TIMEOUT_MS,
-      overrides.timeoutMs ?? DEFAULT_SANDBOX_CONFIG.timeoutMs
+    profiles: overrides.profiles ?? DEFAULT_SANDBOX_CONFIG.profiles,
+    maxStdoutBytes: parsePositiveInteger(
+      env.GATEWAY_SANDBOX_MAX_STDOUT_BYTES,
+      overrides.maxStdoutBytes ?? DEFAULT_SANDBOX_CONFIG.maxStdoutBytes
     ),
-    memoryLimit:
-      env.GATEWAY_SANDBOX_MEMORY_LIMIT?.trim() ||
-      overrides.memoryLimit ||
-      DEFAULT_SANDBOX_CONFIG.memoryLimit,
-    cpuLimit:
-      env.GATEWAY_SANDBOX_CPU_LIMIT?.trim() ||
-      overrides.cpuLimit ||
-      DEFAULT_SANDBOX_CONFIG.cpuLimit,
-    pidsLimit: parsePositiveInteger(
-      env.GATEWAY_SANDBOX_PIDS_LIMIT,
-      overrides.pidsLimit ?? DEFAULT_SANDBOX_CONFIG.pidsLimit
+    maxStderrBytes: parsePositiveInteger(
+      env.GATEWAY_SANDBOX_MAX_STDERR_BYTES,
+      overrides.maxStderrBytes ?? DEFAULT_SANDBOX_CONFIG.maxStderrBytes
     ),
-    maxOutputBytes: parsePositiveInteger(
-      env.GATEWAY_SANDBOX_MAX_OUTPUT_BYTES,
-      overrides.maxOutputBytes ?? DEFAULT_SANDBOX_CONFIG.maxOutputBytes
-    ),
-    readOnlyRootfs: parseBoolean(
-      env.GATEWAY_SANDBOX_READ_ONLY_ROOTFS,
-      overrides.readOnlyRootfs ?? DEFAULT_SANDBOX_CONFIG.readOnlyRootfs
-    ),
-    auditLogPath: resolvePath(
-      env.GATEWAY_SANDBOX_AUDIT_LOG_PATH,
-      overrides.auditLogPath,
-      DEFAULT_SANDBOX_CONFIG.auditLogPath
-    ),
-    requireRuntime: parseBoolean(
-      env.GATEWAY_SANDBOX_REQUIRE_RUNTIME,
-      overrides.requireRuntime ?? DEFAULT_SANDBOX_CONFIG.requireRuntime
-    ),
-    mock: {
-      enabled: backend === "mock" || mockEnabled,
-    },
-    egressProxy: {
-      enabled: parseBoolean(
-        env.GATEWAY_SANDBOX_EGRESS_PROXY_ENABLED,
-        overrides.egressProxy?.enabled ?? DEFAULT_SANDBOX_CONFIG.egressProxy.enabled
-      ),
-      allowDomains: parseCsv(
-        env.GATEWAY_SANDBOX_EGRESS_PROXY_ALLOW_DOMAINS,
-        overrides.egressProxy?.allowDomains ?? DEFAULT_SANDBOX_CONFIG.egressProxy.allowDomains
-      ),
-      blockPrivateIp: parseBoolean(
-        env.GATEWAY_SANDBOX_EGRESS_PROXY_BLOCK_PRIVATE_IP,
-        overrides.egressProxy?.blockPrivateIp ??
-          DEFAULT_SANDBOX_CONFIG.egressProxy.blockPrivateIp
-      ),
-      logRequests: parseBoolean(
-        env.GATEWAY_SANDBOX_EGRESS_PROXY_LOG_REQUESTS,
-        overrides.egressProxy?.logRequests ?? DEFAULT_SANDBOX_CONFIG.egressProxy.logRequests
-      ),
-    },
   };
-
-  return merged;
 }
 
 function parseBackend(
   value: string | undefined,
-  fallback?: SandboxRuntimeBackend,
-  mockEnabled = false
-): SandboxRuntimeBackend {
-  if (mockEnabled && (!value || value.trim() === "")) {
-    return "mock";
+  sandboxMode: string | undefined,
+  fallback?: SandboxBackendName
+): SandboxBackendName {
+  const normalizedMode = sandboxMode?.trim().toLowerCase();
+  if (normalizedMode === "wsl") {
+    return "remote";
   }
 
-  if (!value?.trim()) {
-    return fallback ?? DEFAULT_SANDBOX_CONFIG.backend;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "docker" || normalized === "podman" || normalized === "mock") {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "docker" ||
+    normalized === "bubblewrap" ||
+    normalized === "nsjail" ||
+    normalized === "remote"
+  ) {
     return normalized;
   }
 
   return fallback ?? DEFAULT_SANDBOX_CONFIG.backend;
 }
 
-function parseMode(value: string | undefined, fallback?: SandboxMode): SandboxMode {
-  if (!value?.trim()) {
-    return fallback ?? DEFAULT_SANDBOX_CONFIG.mode;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "off" || normalized === "untrusted" || normalized === "all") {
-    return normalized;
-  }
-
-  return fallback ?? DEFAULT_SANDBOX_CONFIG.mode;
-}
-
-function parseScope(value: string | undefined, fallback?: SandboxScope): SandboxScope {
-  if (!value?.trim()) {
-    return fallback ?? DEFAULT_SANDBOX_CONFIG.scope;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "session" || normalized === "call") {
-    return normalized;
-  }
-
-  return fallback ?? DEFAULT_SANDBOX_CONFIG.scope;
-}
-
-function parseNetwork(
-  value: string | undefined,
-  fallback?: SandboxNetworkPolicy
-): SandboxNetworkPolicy {
-  if (!value?.trim()) {
-    return fallback ?? DEFAULT_SANDBOX_CONFIG.network;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "none" || normalized === "bridge") {
-    return normalized;
-  }
-
-  return fallback ?? DEFAULT_SANDBOX_CONFIG.network;
-}
-
-function parseWorkspaceAccess(
-  value: string | undefined,
-  fallback?: SandboxWorkspaceAccess
-): SandboxWorkspaceAccess {
-  if (!value?.trim()) {
-    return fallback ?? DEFAULT_SANDBOX_CONFIG.workspaceAccess;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "none" || normalized === "copy" || normalized === "ro" || normalized === "rw") {
-    return normalized;
-  }
-
-  return fallback ?? DEFAULT_SANDBOX_CONFIG.workspaceAccess;
-}
-
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined || value.trim() === "") {
-    return fallback;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on", "y"].includes(normalized)) {
-    return true;
-  }
-  if (["0", "false", "no", "off", "n"].includes(normalized)) {
-    return false;
-  }
-
-  return fallback;
-}
-
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
-  if (value === undefined || value.trim() === "") {
-    return fallback;
-  }
-
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     return fallback;
   }
 
   return parsed;
-}
-
-function parseCsv(value: string | undefined, fallback: string[]): string[] {
-  if (value === undefined || value.trim() === "") {
-    return fallback;
-  }
-
-  return value
-    .split(/[;,]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function resolvePath(
-  value: string | undefined,
-  override: string | undefined,
-  fallback: string
-): string {
-  const raw = value?.trim() || override || fallback;
-  return path.resolve(process.cwd(), raw);
 }

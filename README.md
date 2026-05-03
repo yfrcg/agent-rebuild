@@ -87,6 +87,15 @@
   - 兼容多平台目录约定的 `SKILL.md` 发现机制
   - `:skills / :skills show <name>` 技能查看命令
   - 初版 sandbox，拦截记忆写入和高风险工具执行
+- Gateway v0.9
+  - Windows 主项目 + WSL Sandbox Worker + Docker 沙箱链路完成
+  - Windows Gateway 在 `SANDBOX_MODE=wsl` 下通过 HTTP 调用 `http://127.0.0.1:8765/run`
+  - WSL worker 将 `D:\WorkStation\agent-rebuild` 映射为 `/mnt/d/WorkStation/agent-rebuild`
+  - Docker 容器挂载 `/mnt/d/WorkStation/agent-rebuild:/workspace`
+  - `bash.run / file.read / file.write / file.edit` 统一走沙箱执行
+  - `npm run sandbox:wsl:check` 可检查 `health + node -v` 端到端链路
+  - 自然语言 `帮我运行 node -v` 已可自动触发 `bash.run`
+  - 当前可标记为 `sandbox v0.1 complete`
 
 ## 当前边界
 
@@ -96,7 +105,6 @@
 - WebSocket
 - 前端 UI
 - 插件市场
-- Docker Sandbox
 - 复杂权限 / RBAC
 - 开放式模型自动工具编排
 - Agent planner
@@ -107,6 +115,33 @@
 - 当前仍不做开放式 agent planner、长期自主循环或多 Agent 编排
 
 `packages/memory` 的架构、SQLite 表结构、索引流程、embedding 流程、hybrid search 设计在 Gateway v0.5 中没有改动。
+
+## Sandbox 架构
+
+当前沙箱阶段采用“Windows 主项目 + WSL 外接执行服务”的结构：
+
+```text
+Windows:
+D:\WorkStation\agent-rebuild
+    ↓
+Windows Gateway / Agent
+    ↓ HTTP
+http://127.0.0.1:8765/run
+    ↓
+WSL Sandbox Worker
+    ↓
+Docker / Linux Sandbox
+    ↓
+/mnt/d/WorkStation/agent-rebuild -> /workspace
+```
+
+约束：
+
+- 主项目代码只维护在 Windows：`D:\WorkStation\agent-rebuild`
+- WSL 中只运行独立的 `~/sandbox-worker`
+- Windows Gateway 不直接执行危险 shell 命令
+- 命令执行结果统一返回 `stdout / stderr / exitCode / durationMs`
+- WSL worker 审计日志写入 `~/sandbox-worker/logs/sandbox-audit.jsonl`
 
 ## 目录结构
 
@@ -170,6 +205,7 @@ npm run test
 npm run gateway:check
 npm run gateway:check:live
 npm run gateway:eval:auto-tool
+npm run sandbox:wsl:check
 
 npm run reindex
 npm run backfill:embeddings
@@ -182,6 +218,19 @@ npm run scheduler
 - `npm run gateway:check`：执行离线门禁：`typecheck + build + test + smoke + offline-detect`
 - `npm run gateway:check:live`：在离线门禁基础上追加真实 API 联通验证
 - `npm run gateway:eval:auto-tool`：运行自动工具调用评测脚本
+- `npm run sandbox:wsl:check`：检查 WSL worker `health` 并通过沙箱执行 `node -v`
+
+### WSL worker 启动
+
+```bash
+# WSL
+cd ~/sandbox-worker
+npm run dev
+
+# Windows
+cd D:\WorkStation\agent-rebuild
+npm run dev
+```
 
 ## Gateway CLI
 
@@ -219,7 +268,10 @@ exit
 :skills clear
 :tools
 :tool <name> <json>
+:sh <command>
+:sandbox <command>
 :confirm <token>
+:reject <token>
 ```
 
 ### 开发 / 离线验证
@@ -235,6 +287,10 @@ EMBEDDING_PROVIDER=mock
 - `EMBEDDING_PROVIDER=mock`：使用离线 deterministic embedding
 - `GATEWAY_AUTO_TOOL_LOOP_ENABLED=true`：开启受控自动工具调用
 - `GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS=3`：限制单轮自动工具步数
+- `SANDBOX_MODE=wsl`：启用 WSL 外接沙箱后端
+- `SANDBOX_API_URL=http://127.0.0.1:8765`：WSL worker HTTP 地址
+- `SANDBOX_API_KEY=...`：Windows Gateway 与 WSL worker 共享的 Bearer key
+- `WINDOWS_PROJECT_ROOT=D:\WorkStation\agent-rebuild`：Windows 主项目根目录
 - `GATEWAY_SANDBOX_MODE=workspace-write|read-only|off`：设置 sandbox 模式
 - `GATEWAY_SANDBOX_ALLOWED_ROOTS=workspace,config`：额外设置 sandbox 允许的路径根
 - `GATEWAY_SESSION_AUTO_COMPACT_ENABLED=true`：开启 transcript 自动压缩
@@ -245,6 +301,8 @@ EMBEDDING_PROVIDER=mock
 
 ```text
 :tool memory.search {"query":"Gateway v0.4","topK":5}
+:tool bash.run {"command":"node -v"}
+:sh node -v
 ```
 
 ### MCP 命令
@@ -275,9 +333,12 @@ EMBEDDING_PROVIDER=mock
 - 当前自动可用工具仅限：
   - `memory.search`
   - `mcp.*`
+  - `bash.run`
+  - `file.read`
 - 每次请求最多执行 `GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS` 次工具调用
 - 自动工具调用仍复用现有 `ToolCallExecutor`，因此会保留统一 audit 和 transcript 轨迹
 - 若规划输出非法、工具失败或到达步数上限，Gateway 会退回正常文本回答，不让主流程崩溃
+- 对“帮我运行 … / 运行 … / 执行 …”这类明确 shell 请求，Gateway 会优先直接落到 `bash.run`
 
 ### 工具策略分层（v0.7）
 
@@ -337,6 +398,30 @@ EMBEDDING_PROVIDER=mock
   - 私有 `HOME / USERPROFILE / TMP / TEMP`
   - 可裁剪继承环境变量
   - 独立运行时目录 `workspace/sandbox/mcp/<serverId>`
+
+### WSL + Docker Sandbox（v0.9）
+
+- `SANDBOX_MODE=wsl` 时，Gateway 使用 remote backend，而不是本地 `child_process` 直接执行危险命令
+- 执行链路为：
+  - `ToolCallExecutor`
+  - `SandboxManager`
+  - `WslSandboxBackend`
+  - `WslSandboxClient`
+  - `POST /run`
+  - WSL worker
+  - Docker `node:20`
+- WSL worker 负责：
+  - Bearer token 校验
+  - Windows 路径转 WSL 路径
+  - 根目录约束：只允许 `/mnt/d/WorkStation/agent-rebuild`
+  - 危险命令拦截
+  - timeout / output 限制
+  - Docker 挂载 `/mnt/d/WorkStation/agent-rebuild:/workspace`
+  - audit log 记录
+- 已验证：
+  - `npm run sandbox:wsl:check`
+  - `:sh node -v`
+  - 自然语言 `帮我运行 node -v`
 
 ## MCP Adapter
 
@@ -460,6 +545,7 @@ npm run typecheck
 npm run build
 npm run gateway:check
 npm run gateway:check:live
+npm run sandbox:wsl:check
 ```
 
 - `npm run gateway:check`：不依赖真实模型/embedding API，适合作为日常开发门禁
@@ -470,10 +556,20 @@ Gateway v0.5 还做过一轮真实 MCP 联通验证：
 - 无 `config/mcp.servers.json` 时，Gateway 可正常启动
 - 外部 stdio MCP Server 可被发现、注册、列出、手动调用
 
+Sandbox v0.9 已额外验证：
+
+- WSL worker `GET /health`
+- `POST /run` 执行 `node -v`
+- `D:\WorkStation\agent-rebuild -> /mnt/d/WorkStation/agent-rebuild`
+- Docker `/workspace` 挂载
+- `~/sandbox-worker/logs/sandbox-audit.jsonl` 写入
+
 ## 相关文档
 
 - `ToDo/README_GATEWAY_V0.4.md`
 - `ToDo/README_GATEWAY_V0.5.md`
+- `docs/sandbox.md`
+- `docs/sandbox-v0.1-final-report.md`
 
 ## License
 

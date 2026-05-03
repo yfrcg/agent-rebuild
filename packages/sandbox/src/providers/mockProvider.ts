@@ -1,36 +1,15 @@
-import type { SandboxAvailability } from "../types";
-import type {
-  SandboxRuntimeExecInput,
-  SandboxRuntimeExecOutput,
-  SandboxRuntimeProvider,
-} from "../runtime";
+import type { SandboxProfile, SandboxRequest, SandboxResult } from "../types";
 
-export class MockRuntimeProvider implements SandboxRuntimeProvider {
-  readonly backend = "mock" as const;
+export class MockRuntimeProvider {
+  readonly name = "mock";
 
-  async checkAvailability(): Promise<SandboxAvailability> {
+  async run(req: SandboxRequest, profile: SandboxProfile): Promise<SandboxResult> {
     return {
       ok: true,
-      version: "mock-runtime",
-    };
-  }
-
-  async exec(input: SandboxRuntimeExecInput): Promise<SandboxRuntimeExecOutput> {
-    const startedAt = Date.now();
-    const commandLine = [input.request.command, ...input.request.args].join(" ").trim();
-
-    return {
       exitCode: 0,
-      stdout: [
-        "[mock sandbox] no real container isolation",
-        `backend=mock`,
-        `image=${input.request.image ?? input.session.image}`,
-        `workspaceAccess=${input.session.workspaceAccess}`,
-        `command=${commandLine}`,
-      ].join("\n"),
+      stdout: `[mock sandbox]\nprofile=${profile.name}\ncommand=${req.command ?? ""}`,
       stderr: "",
-      timedOut: false,
-      durationMs: Date.now() - startedAt,
+      durationMs: 0,
     };
   }
 }

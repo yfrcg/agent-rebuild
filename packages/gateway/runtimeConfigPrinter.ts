@@ -15,10 +15,12 @@ export function printRuntimeConfig(config: GatewayRuntimeConfig): void {
   console.log(`- sandboxMode: ${config.sandboxMode}`);
   console.log(`- sandboxAllowedRoots: ${config.sandboxAllowedRoots.join(", ")}`);
   console.log(
-    `- sandbox: enabled=${config.sandbox.enabled}, backend=${config.sandbox.backend}, mode=${config.sandbox.mode}, scope=${config.sandbox.scope}, workspaceAccess=${config.sandbox.workspaceAccess}, network=${config.sandbox.network}, mockEnabled=${config.sandbox.mock.enabled}, requireRuntime=${config.sandbox.requireRuntime}`
+    `- sandbox: backend=${config.sandbox.backend}, image=${config.sandbox.dockerImage}, auditLogPath=${config.sandbox.auditLogPath}`
   );
   console.log(
-    `- sandboxLimits: timeoutMs=${config.sandbox.timeoutMs}, memory=${config.sandbox.memoryLimit}, cpu=${config.sandbox.cpuLimit}, pids=${config.sandbox.pidsLimit}, maxOutputBytes=${config.sandbox.maxOutputBytes}`
+    `- sandboxProfiles: ${Object.values(config.sandbox.profiles)
+      .map((profile) => `${profile.name}[network=${profile.network},workspace=${profile.workspaceAccess},timeoutMs=${profile.timeoutMs}]`)
+      .join("; ")}`
   );
   console.log(`- confirmTokenTtlMs: ${config.confirmTokenTtlMs}`);
   console.log(

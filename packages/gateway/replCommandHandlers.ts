@@ -16,7 +16,6 @@ import {
   writeDailyMemory,
   writeLongTermMemory,
 } from "../memory/src/memoryWriter";
-import { memoryGet } from "../memory/src/memoryGet";
 import { hybridSearch } from "../memory/src/hybridSearch";
 import { upsertFileIndex } from "../memory/src/memoryIndex";
 
@@ -631,6 +630,82 @@ export async function handleBuiltInGatewayCommand(
     };
   }
 
+  if (command.type === "sandbox" || command.type === "sh") {
+    const payload = (command.payload ?? "").trim();
+    if (!payload) {
+      const output =
+        command.type === "sh"
+          ? "[sandbox] usage: :sh <command>"
+          : "[sandbox] usage: :sandbox <command>";
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return {
+        handled: true,
+      };
+    }
+
+    const toolName = "bash.run";
+    const toolInput: Record<string, unknown> = {
+      command: payload,
+    };
+    const tool = context.toolRegistry.get(toolName);
+    const pathDecision = context.sandbox.canUseToolInputPaths(toolInput);
+    if (!pathDecision.allowed) {
+      console.log(pathDecision.reason);
+      recordToCurrentSession("assistant", pathDecision.reason ?? "[sandbox] blocked tool path");
+      return {
+        handled: true,
+      };
+    }
+
+    if (context.sandbox.requiresConfirmation(tool)) {
+      const confirmMessage =
+        tool?.policy?.confirmationMessage ??
+        `[tool] ${toolName} requires confirmation due to its policy`;
+      const token = createApprovalToken();
+      const createdAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + context.confirmTokenTtlMs).toISOString();
+      context.sessionManager.addCurrentSessionApproval({
+        token,
+        toolName,
+        input: toolInput,
+        createdAt,
+        expiresAt,
+        message: confirmMessage,
+      });
+      const output = `[tool] confirmation required for ${toolName}. token=${token}. expiresAt=${expiresAt}. Run :confirm ${token}`;
+      console.log(confirmMessage);
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      await recordAudit("gateway.confirmation.queued", output, {
+        token,
+        toolName,
+        createdAt,
+        expiresAt,
+        automationLevel: tool?.policy?.automationLevel,
+        riskLevel: tool?.policy?.riskLevel,
+      });
+      return {
+        handled: true,
+      };
+    }
+
+    const toolCallRequest = createGatewayToolCallRequest({
+      toolName,
+      input: toolInput,
+      sessionId: context.sessionManager.getCurrentSessionId(),
+    });
+    const toolCallRecord = await context.toolCallExecutor.execute(toolCallRequest);
+    printToolCallRecord(toolCallRecord);
+    recordToCurrentSession(
+      "assistant",
+      `[tool-call] ${toolCallRecord.toolName} ${toolCallRecord.status} (${toolCallRecord.id})`
+    );
+    return {
+      handled: true,
+    };
+  }
+
   if (command.type === "session") {
     const payload = (command.payload ?? "").trim();
 
@@ -907,19 +982,20 @@ export async function handleBuiltInGatewayCommand(
       };
     }
 
-    try {
-      const result = memoryGet(file);
-
-      console.log("\n[file content]");
-      console.log(result.text);
-
-      recordToCurrentSession("assistant", `[file content]\n${result.text}`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-
-      console.error(message);
-      recordToCurrentSession("assistant", `[error] ${message}`);
-    }
+    const toolCallRecord = await context.toolCallExecutor.execute(
+      createGatewayToolCallRequest({
+        toolName: "file.read",
+        input: {
+          path: file,
+        },
+        sessionId: context.sessionManager.getCurrentSessionId(),
+      })
+    );
+    printToolCallRecord(toolCallRecord);
+    recordToCurrentSession(
+      "assistant",
+      `[tool-call] ${toolCallRecord.toolName} ${toolCallRecord.status} (${toolCallRecord.id})`
+    );
 
     return {
       handled: true,

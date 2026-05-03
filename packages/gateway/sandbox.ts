@@ -6,6 +6,7 @@ import { SandboxManager } from "../sandbox/src/manager";
 import {
   resolveToolSecurityProfile,
 } from "../sandbox/src/policy";
+import { assertInsideWorkspace, isDangerousHostPath } from "../sandbox/src/pathGuard";
 import { loadSandboxConfig } from "../sandbox/src/config";
 import type {
   SandboxConfig,
@@ -38,7 +39,7 @@ export class GatewaySandbox {
   ) {
     if (typeof modeOrOptions === "string") {
       this.mode = modeOrOptions;
-      this.allowedRoots = allowedRoots.map(normalizeRoot);
+      this.allowedRoots = allowedRoots.map((root) => path.resolve(root));
       this.containerConfig = loadSandboxConfig();
       this.manager = new SandboxManager({
         config: this.containerConfig,
@@ -47,7 +48,7 @@ export class GatewaySandbox {
     }
 
     this.mode = modeOrOptions.mode ?? "off";
-    this.allowedRoots = (modeOrOptions.allowedRoots ?? []).map(normalizeRoot);
+    this.allowedRoots = (modeOrOptions.allowedRoots ?? []).map((root) => path.resolve(root));
     this.containerConfig = loadSandboxConfig(process.env, modeOrOptions.containerConfig);
     this.manager =
       modeOrOptions.manager ??
@@ -105,12 +106,28 @@ export class GatewaySandbox {
 
     const candidatePaths = collectPathLikeValues(input);
     for (const candidate of candidatePaths) {
-      const normalized = normalizeCandidatePath(candidate);
-      if (!normalized) {
+      const normalized = resolveCandidatePath(candidate);
+      if (!normalized || /^[a-z]+:\/\//i.test(candidate.trim())) {
         continue;
       }
 
-      if (!this.allowedRoots.some((root) => normalized.startsWith(root))) {
+      if (isDangerousHostPath(normalized)) {
+        return {
+          allowed: false,
+          reason: `[sandbox] blocked dangerous path input: ${candidate}`,
+        };
+      }
+
+      const isInsideAnyRoot = this.allowedRoots.some((root) => {
+        try {
+          assertInsideWorkspace(normalized, root);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+
+      if (!isInsideAnyRoot) {
         return {
           allowed: false,
           reason: `[sandbox] blocked path input: ${candidate} is outside allowed roots.`,
@@ -201,27 +218,19 @@ function isPathLikeKey(key: string): boolean {
   return /(path|file|dir|cwd|root|workspace)/i.test(key);
 }
 
-function normalizeCandidatePath(candidate: string): string | undefined {
+function resolveCandidatePath(candidate: string): string | undefined {
   const trimmed = candidate.trim();
   if (!trimmed) {
     return undefined;
   }
 
-  if (trimmed.includes("..")) {
-    return normalizeRoot(path.resolve(process.cwd(), trimmed));
-  }
-
   if (/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith("/") || trimmed.startsWith("\\")) {
-    return normalizeRoot(trimmed);
+    return path.resolve(trimmed);
   }
 
   if (/^[a-z]+:\/\//i.test(trimmed)) {
     return undefined;
   }
 
-  return normalizeRoot(path.resolve(process.cwd(), trimmed));
-}
-
-function normalizeRoot(root: string): string {
-  return root.replace(/[\\/]+/g, "\\").replace(/[\\/]$/, "").toLowerCase();
+  return path.resolve(process.cwd(), trimmed);
 }

@@ -31,11 +31,13 @@ Available commands:
 22. use skill <name>
 23. :tools
 24. :tool <name> <json>
-25. :approvals
-26. :approvals clear
-27. :confirm <token>
-28. :reject <token>
-29. exit
+25. :sandbox <command>
+26. :sh <command>
+27. :approvals
+28. :approvals clear
+29. :confirm <token>
+30. :reject <token>
+31. exit
 
 Tool notes:
 - :mcp / :mcp status shows MCP server connection status
@@ -47,6 +49,10 @@ Tool notes:
 - use skill <name> is a natural-language alias for :skills use <name>
 - :tools lists registered tools
 - :tool memory.search {"query":"Gateway v0.4","topK":5} manually calls a tool
+- :tool bash.run {"command":"node -v"} runs one sandboxed command through ToolCallExecutor
+- :tool sandbox.exec {"command":"node -v"} remains as a compatibility alias
+- :sandbox node -v is the legacy shortcut for sandboxed bash
+- :sh node -v runs the same sandboxed command path with the new v1 syntax
 - :approvals lists pending approval tokens for the current session
 - :approvals clear rejects all pending approval tokens in the current session
 - :confirm <token> executes one queued high-risk tool call after approval

@@ -3,7 +3,7 @@ import {
   resolveToolSecurityProfile,
 } from "../sandbox/src/policy";
 import type {
-  SandboxExecResult,
+  SandboxResult,
   ToolSecurityProfile,
 } from "../sandbox/src/types";
 import type {
@@ -51,7 +51,6 @@ export class ToolCallExecutor {
             legacyPolicy: tool?.policy,
           });
         const executionDecision = decideToolExecution({
-          config: this.sandbox?.containerConfig ?? this.createDisabledSandboxConfig(),
           profile: security,
           hasSandboxSpec: Boolean(tool?.sandboxSpec),
           approved: request.approved,
@@ -146,24 +145,11 @@ export class ToolCallExecutor {
       sessionId: request.sessionId,
       requestId: request.requestId,
     });
-    if (sandboxRequest.network === "bridge" && !profile.allowNetwork) {
-      this.failRecord(
-        record,
-        "tool requested bridge network but its security profile does not allow network access",
-        {
-          decision: "blocked",
-          blockedReason: "bridge network is not allowed for this tool",
-        }
-      );
-      return;
-    }
-
     const result = await this.sandbox.manager.exec({
       ...sandboxRequest,
-      sessionId: request.sessionId,
-      toolCallId: request.id,
+      sessionId: request.sessionId ?? "gateway-session",
       toolName: request.toolName,
-      riskLevel: profile.riskLevel,
+      profileName: sandboxRequest.profileName ?? "safe-dev",
     });
 
     record.output = sandboxResultToToolOutput(result);
@@ -171,7 +157,8 @@ export class ToolCallExecutor {
       record.status = "succeeded";
     } else {
       record.status = "failed";
-      record.error = result.error ?? `sandboxed tool failed with exit code ${result.exitCode}`;
+      record.error =
+        result.deniedReason ?? `sandboxed tool failed with exit code ${result.exitCode ?? "unknown"}`;
     }
   }
 
@@ -186,37 +173,6 @@ export class ToolCallExecutor {
       ok: false,
       error,
       metadata,
-    };
-  }
-
-  private createDisabledSandboxConfig() {
-    return {
-      enabled: false,
-      backend: "docker" as const,
-      mode: "off" as const,
-      scope: "call" as const,
-      defaultImage: "node:20-bookworm-slim",
-      network: "none" as const,
-      workspaceAccess: "copy" as const,
-      workRoot: ".agent-rebuild/sandboxes",
-      artifactRoot: ".agent-rebuild/artifacts",
-      timeoutMs: 30_000,
-      memoryLimit: "512m",
-      cpuLimit: "1",
-      pidsLimit: 128,
-      maxOutputBytes: 1_048_576,
-      readOnlyRootfs: false,
-      auditLogPath: "logs/sandbox-audit.jsonl",
-      requireRuntime: false,
-      mock: {
-        enabled: false,
-      },
-      egressProxy: {
-        enabled: false,
-        allowDomains: [],
-        blockPrivateIp: true,
-        logRequests: true,
-      },
     };
   }
 
@@ -272,25 +228,21 @@ export class ToolCallExecutor {
   }
 }
 
-function sandboxResultToToolOutput(result: SandboxExecResult): GatewayToolOutput {
+function sandboxResultToToolOutput(result: SandboxResult): GatewayToolOutput {
   return {
     ok: result.ok,
     content: {
-      decision: result.decision ?? "sandbox",
-      blockedReason: result.blockedReason,
+      decision: result.deniedReason ? "denied" : "sandbox",
+      blockedReason: result.deniedReason,
       stdout: result.stdout,
       stderr: result.stderr,
       exitCode: result.exitCode,
-      timedOut: result.timedOut,
-      artifacts: result.artifacts,
+      timedOut: result.exitCode === null && !result.deniedReason,
+      artifacts: [],
     },
-    error: result.error,
+    error: result.deniedReason,
     metadata: {
-      sandboxId: result.sandboxId,
-      auditId: result.auditId,
       durationMs: result.durationMs,
-      truncatedStdout: result.truncatedStdout ?? false,
-      truncatedStderr: result.truncatedStderr ?? false,
     },
   };
 }

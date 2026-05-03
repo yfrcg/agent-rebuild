@@ -1,6 +1,8 @@
 import type { MemorySearch } from "./gateway";
 import { createGatewayMemorySearch } from "./memoryAdapter";
 import { createToolSecurityProfile } from "../sandbox/src/policy";
+import { createSandboxedBashTool } from "./tools/sandboxedBash";
+import { createSandboxedFileTools } from "./tools/sandboxedFile";
 import { ToolRegistry } from "./toolRegistry";
 import type { GatewayToolInput, GatewayToolPolicy } from "./toolTypes";
 import type { MemorySearchResult } from "./types";
@@ -14,6 +16,7 @@ import type { MemorySearchResult } from "./types";
 export interface BuiltinToolRegistryOptions {
   memorySearch?: MemorySearch;
   memoryTopK?: number;
+  projectRoot?: string;
 }
 
 /**
@@ -27,6 +30,7 @@ export function createBuiltinToolRegistry(
 ): ToolRegistry {
   const registry = new ToolRegistry();
   const defaultTopK = options.memoryTopK ?? 5;
+  const projectRoot = options.projectRoot ?? process.cwd();
   const memorySearchPolicy: GatewayToolPolicy = {
     automationLevel: "auto",
     riskLevel: "read-only",
@@ -102,131 +106,17 @@ export function createBuiltinToolRegistry(
     },
   });
 
+  const bashTool = createSandboxedBashTool(projectRoot);
+  registry.register(bashTool);
   registry.register({
+    ...bashTool,
     name: "sandbox.exec",
-    description: "Run a command inside an isolated Docker sandbox.",
-    policy: {
-      automationLevel: "auto",
-      riskLevel: "stateful",
-      tags: ["sandbox", "exec", "docker"],
-    },
-    security: createToolSecurityProfile({
-      riskLevel: "medium",
-      sandboxRequired: true,
-      allowNetwork: false,
-      allowWrite: true,
-      allowHostExecution: false,
-      requireApproval: false,
-    }),
-    inputSchema: {
-      type: "object",
-      properties: {
-        command: {
-          type: "string",
-          description: "Shell command to run inside the sandbox",
-        },
-        cwd: {
-          type: "string",
-          description: "Optional working directory relative to the project root",
-        },
-        timeoutMs: {
-          type: "number",
-          description: "Optional timeout in milliseconds",
-        },
-        image: {
-          type: "string",
-          description: "Optional container image override",
-        },
-        env: {
-          type: "object",
-          description: "Optional environment variables to expose inside the sandbox",
-        },
-        inputFiles: {
-          type: "array",
-          description: "Optional files to place into the copied workspace before execution",
-        },
-      },
-      required: ["command"],
-    },
-    sandboxSpec: {
-      resolve(input) {
-        const command = input.command;
-        if (typeof command !== "string" || command.trim().length === 0) {
-          throw new Error("input.command required");
-        }
-
-        const env = normalizeEnvRecord(input.env);
-        const inputFiles = normalizeInputFiles(input.inputFiles);
-
-        return {
-          command: "sh",
-          args: ["-lc", command],
-          cwd: typeof input.cwd === "string" ? input.cwd : process.cwd(),
-          timeoutMs:
-            typeof input.timeoutMs === "number" && Number.isFinite(input.timeoutMs)
-              ? Math.max(1, Math.floor(input.timeoutMs))
-              : undefined,
-          image: typeof input.image === "string" && input.image.trim().length > 0
-            ? input.image.trim()
-            : undefined,
-          env,
-          inputFiles,
-          network: "none",
-          workspaceAccess: "copy",
-        };
-      },
-    },
-    async invoke() {
-      return {
-        ok: false,
-        error: "sandbox.exec must run through the sandbox execution path",
-      };
-    },
+    description: "Compatibility alias for bash.run.",
   });
+
+  for (const tool of createSandboxedFileTools(projectRoot)) {
+    registry.register(tool);
+  }
 
   return registry;
-}
-
-function normalizeEnvRecord(input: unknown): Record<string, string> | undefined {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return undefined;
-  }
-
-  const entries = Object.entries(input as Record<string, unknown>).filter(
-    ([key, value]) => key.trim().length > 0 && typeof value === "string"
-  );
-  if (entries.length === 0) {
-    return undefined;
-  }
-
-  return entries.reduce<Record<string, string>>((acc, [key, value]) => {
-    acc[key] = value as string;
-    return acc;
-  }, {});
-}
-
-function normalizeInputFiles(
-  input: unknown
-): Array<{ path: string; content: string }> | undefined {
-  if (!Array.isArray(input)) {
-    return undefined;
-  }
-
-  const normalized = input.flatMap((item) => {
-    if (!item || typeof item !== "object") {
-      return [];
-    }
-
-    const candidate = item as Record<string, unknown>;
-    return typeof candidate.path === "string" && typeof candidate.content === "string"
-      ? [
-          {
-            path: candidate.path as string,
-            content: candidate.content as string,
-          },
-        ]
-      : [];
-  });
-
-  return normalized.length > 0 ? normalized : undefined;
 }

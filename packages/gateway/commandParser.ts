@@ -21,6 +21,8 @@ export type GatewayCommandType =
   | "reject"
   | "tools"
   | "tool"
+  | "sandbox"
+  | "sh"
   | "chat";
 
 /**
@@ -178,6 +180,22 @@ export function parseGatewayCommand(rawInput: string): ParsedGatewayCommand {
       type: "tool",
       raw,
       payload: raw.replace(/^:tool\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":sandbox" || raw.startsWith(":sandbox ")) {
+    return {
+      type: "sandbox",
+      raw,
+      payload: raw.replace(/^:sandbox\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":sh" || raw.startsWith(":sh ")) {
+    return {
+      type: "sh",
+      raw,
+      payload: raw.replace(/^:sh\s*/, "").trim(),
     };
   }
 

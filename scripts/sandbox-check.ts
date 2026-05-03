@@ -13,14 +13,7 @@ async function main(): Promise<void> {
   console.log("");
   console.log("[sandbox availability]");
   console.log(JSON.stringify(inspection.availability, null, 2));
-
-  if (inspection.config.backend === "mock") {
-    console.log("");
-    console.log("[mock sandbox] no real container isolation");
-    return;
-  }
-
-  if (!inspection.availability.ok && inspection.config.requireRuntime) {
+  if (!inspection.availability.ok) {
     process.exitCode = 1;
   }
 }

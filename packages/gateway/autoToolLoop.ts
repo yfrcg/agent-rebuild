@@ -69,6 +69,7 @@ export function buildAutoToolDecisionMessages(input: {
         "3. Use at most one tool in this decision.",
         "4. Never invent tool names or omit required input fields if a tool is selected.",
         "5. Prefer `memory.search` for local workspace facts before using external MCP tools.",
+        "6. Use `bash.run` only when the user explicitly asks to run a shell command such as `node -v`, `npm test`, or `npm run build`.",
       ].join("\n"),
     },
   ];

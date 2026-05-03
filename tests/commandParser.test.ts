@@ -51,3 +51,24 @@ test("parseGatewayCommand parses reject command", () => {
   assert.equal(parsed.type, "reject");
   assert.equal(parsed.payload, "approve_123");
 });
+
+test("parseGatewayCommand keeps sandbox.exec tool payload intact", () => {
+  const parsed = parseGatewayCommand(':tool sandbox.exec {"command":"node -v"}');
+
+  assert.equal(parsed.type, "tool");
+  assert.equal(parsed.payload, 'sandbox.exec {"command":"node -v"}');
+});
+
+test("parseGatewayCommand parses sandbox shortcut command", () => {
+  const parsed = parseGatewayCommand(":sandbox node -v");
+
+  assert.equal(parsed.type, "sandbox");
+  assert.equal(parsed.payload, "node -v");
+});
+
+test("parseGatewayCommand parses sh shortcut command", () => {
+  const parsed = parseGatewayCommand(":sh npm test");
+
+  assert.equal(parsed.type, "sh");
+  assert.equal(parsed.payload, "npm test");
+});

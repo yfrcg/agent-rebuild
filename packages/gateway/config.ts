@@ -30,6 +30,8 @@ export interface GatewayRuntimeConfig {
 export function loadGatewayConfig(
   env: NodeJS.ProcessEnv = process.env
 ): GatewayRuntimeConfig {
+  const projectRoot = resolveProjectRoot(env.WINDOWS_PROJECT_ROOT);
+
   return {
     model: parseModelName(env.GATEWAY_MODEL),
     memoryTopK: parsePositiveInteger(env.GATEWAY_MEMORY_TOP_K, 5),
@@ -38,7 +40,7 @@ export function loadGatewayConfig(
     sandboxMode: parseLegacySandboxMode(
       env.GATEWAY_SANDBOX_GUARD_MODE ?? env.GATEWAY_SANDBOX_MODE
     ),
-    sandboxAllowedRoots: parseSandboxRoots(env.GATEWAY_SANDBOX_ALLOWED_ROOTS),
+    sandboxAllowedRoots: parseSandboxRoots(env.GATEWAY_SANDBOX_ALLOWED_ROOTS, projectRoot),
     sandbox: loadSandboxConfig(env),
     confirmTokenTtlMs: parsePositiveInteger(env.GATEWAY_CONFIRM_TOKEN_TTL_MS, 300_000),
     autoToolLoopEnabled: parseBoolean(env.GATEWAY_AUTO_TOOL_LOOP_ENABLED, true),
@@ -63,16 +65,18 @@ export function loadGatewayConfig(
   };
 }
 
-function parseSandboxRoots(value: string | undefined): string[] {
+function parseSandboxRoots(value: string | undefined, projectRoot: string): string[] {
   if (value === undefined || value.trim() === "") {
-    return [process.cwd(), path.resolve(process.cwd(), "workspace")];
+    return [projectRoot, path.resolve(projectRoot, "workspace")];
   }
 
   return value
     .split(/[;,]/)
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => path.resolve(process.cwd(), part));
+    .map((part) =>
+      path.isAbsolute(part) ? path.resolve(part) : path.resolve(projectRoot, part)
+    );
 }
 
 function parseLegacySandboxMode(value: string | undefined): GatewaySandboxMode {
@@ -147,4 +151,12 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   }
 
   return fallback;
+}
+
+function resolveProjectRoot(value: string | undefined): string {
+  if (value === undefined || value.trim() === "") {
+    return process.cwd();
+  }
+
+  return path.resolve(value.trim());
 }

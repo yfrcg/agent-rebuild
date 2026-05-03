@@ -1,5 +1,5 @@
 import type {
-  SandboxExecRequest,
+  SandboxRequest,
   ToolSecurityProfile,
 } from "../sandbox/src/types";
 
@@ -35,7 +35,7 @@ export interface GatewayToolSandboxSpec {
   resolve(
     input: GatewayToolInput,
     context?: GatewayToolContext
-  ): Omit<SandboxExecRequest, "sessionId" | "toolCallId" | "toolName">;
+  ): Omit<SandboxRequest, "sessionId" | "toolName">;
 }
 
 export interface GatewayTool {

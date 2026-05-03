@@ -10,7 +10,20 @@ export function askReplInput(
   rl: ReadlineInterface,
   question: string
 ): Promise<string> {
-  return new Promise<string>((resolve) => {
-    rl.question(question, resolve);
+  return new Promise<string>((resolve, reject) => {
+    const handleClose = () => {
+      reject(new Error("readline closed"));
+    };
+
+    rl.once("close", handleClose);
+    try {
+      rl.question(question, (answer) => {
+        rl.off("close", handleClose);
+        resolve(answer);
+      });
+    } catch (error) {
+      rl.off("close", handleClose);
+      reject(error);
+    }
   });
 }

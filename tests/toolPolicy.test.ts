@@ -19,15 +19,32 @@ test("builtin memory.search tool is marked as safe auto-read", () => {
   assert.equal(listed?.policy?.automationLevel, "auto");
 });
 
-test("builtin sandbox.exec tool requires sandbox and forbids host execution", () => {
+test("builtin bash.run tool requires sandbox and forbids host execution", () => {
   const registry = createBuiltinToolRegistry({
     memorySearch: async () => [],
   });
 
-  const tool = registry.get("sandbox.exec");
+  const tool = registry.get("bash.run");
 
   assert.ok(tool);
   assert.equal(tool?.security?.riskLevel, "medium");
+  assert.equal(tool?.security?.sandboxRequired, true);
+  assert.equal(tool?.security?.allowNetwork, false);
+  assert.equal(tool?.security?.allowWrite, true);
+  assert.equal(tool?.security?.allowHostExecution, false);
+  assert.equal(tool?.security?.requireApproval, false);
+  assert.equal(typeof tool?.sandboxSpec?.resolve, "function");
+});
+
+test("builtin file.read tool is sandboxed and forbids host execution", () => {
+  const registry = createBuiltinToolRegistry({
+    memorySearch: async () => [],
+  });
+
+  const tool = registry.get("file.read");
+
+  assert.ok(tool);
+  assert.equal(tool?.policy?.riskLevel, "read-only");
   assert.equal(tool?.security?.sandboxRequired, true);
   assert.equal(tool?.security?.allowHostExecution, false);
   assert.equal(typeof tool?.sandboxSpec?.resolve, "function");

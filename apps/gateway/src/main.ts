@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as readline from "node:readline";
 
 import { FileAuditLogger } from "../../../packages/audit/auditLogger";
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
   // 优先加载本地环境变量，让后续配置读取拥有完整上下文。
   loadEnvFile();
 
+  const projectRoot = resolveProjectRoot(process.env.WINDOWS_PROJECT_ROOT);
   const sessionManager = new SessionManager();
   const config = loadGatewayConfig();
   const sandboxManager = new SandboxManager({
@@ -93,6 +95,7 @@ async function main(): Promise<void> {
   const toolRegistry = createBuiltinToolRegistry({
     memorySearch,
     memoryTopK: config.memoryTopK,
+    projectRoot,
   });
 
   // 先连接 MCP 服务，再把其工具映射进统一工具注册表。
@@ -144,8 +147,23 @@ async function main(): Promise<void> {
 
   try {
     while (true) {
+      let rawInput: string;
+      try {
+        rawInput = await askReplInput(rl, ">>> ");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (
+          message.includes("readline closed") ||
+          message.includes("readline was closed") ||
+          message.includes("ERR_USE_AFTER_CLOSE")
+        ) {
+          break;
+        }
+        throw err;
+      }
+
       // 读取一行输入并去掉首尾空白，空输入直接忽略。
-      const raw = (await askReplInput(rl, ">>> ")).trim();
+      const raw = rawInput.trim();
       if (!raw) continue;
 
       const command = parseGatewayCommand(raw);
@@ -213,3 +231,11 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+function resolveProjectRoot(value: string | undefined): string {
+  if (!value || value.trim() === "") {
+    return process.cwd();
+  }
+
+  return path.resolve(value.trim());
+}

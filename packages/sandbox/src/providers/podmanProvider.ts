@@ -1,12 +1,15 @@
-import { ContainerCliRuntimeProvider } from "../runtime";
+import type { SandboxProfile, SandboxRequest, SandboxResult } from "../types";
 
-export class PodmanSandboxProvider extends ContainerCliRuntimeProvider {
-  readonly backend = "podman" as const;
-  protected readonly command: string;
+export class PodmanSandboxProvider {
+  readonly name = "podman";
 
-  constructor(command = "podman") {
-    super();
-    this.command = command;
+  async run(_req: SandboxRequest, _profile: SandboxProfile): Promise<SandboxResult> {
+    return {
+      ok: false,
+      exitCode: null,
+      stdout: "",
+      stderr: "[sandbox] podman backend is reserved for future work",
+      durationMs: 0,
+    };
   }
 }
-
