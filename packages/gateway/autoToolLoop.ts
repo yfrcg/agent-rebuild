@@ -1,4 +1,5 @@
-import type { ChatMessage } from "../model/types";
+import type { ChatMessage, ModelProvider } from "../model/types";
+import type { ContextCompressor } from "./contextCompressor";
 import type { GatewayToolCallRecord } from "./toolCallTypes";
 import type { GatewayToolListItem } from "./toolTypes";
 import type { MemorySearchResult } from "./types";
@@ -261,4 +262,215 @@ function asRecord(value: unknown): Record<string, unknown> {
   }
 
   return value as Record<string, unknown>;
+}
+
+const DEV_TASK_KEYWORDS = [
+  "fix", "bug", "test", "typecheck", "build", "implement", "feature",
+  "modify", "change", "update", "create", "write", "refactor", "debug",
+  "npm test", "npm run", "pnpm test", "pnpm run", "修复", "测试", "实现",
+  "修改", "重构", "调试", "构建",
+];
+
+export function isDevTask(input: string): boolean {
+  const lower = input.toLowerCase();
+  return DEV_TASK_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+export interface StructuredToolResult {
+  toolName: string;
+  status: "ok" | "error";
+  durationMs?: number;
+  exitCode?: number;
+  stdoutPreview?: string;
+  stderrPreview?: string;
+  timedOut?: boolean;
+  fullOutputPath?: string;
+  error?: string;
+  rawContent: string;
+}
+
+export function extractStructuredResult(
+  toolName: string,
+  result: { content: string; isError?: boolean },
+  durationMs?: number
+): StructuredToolResult {
+  const base: StructuredToolResult = {
+    toolName,
+    status: result.isError ? "error" : "ok",
+    durationMs,
+    rawContent: result.content,
+  };
+
+  try {
+    const parsed = JSON.parse(result.content) as Record<string, unknown>;
+    if (typeof parsed.exitCode === "number") {
+      base.exitCode = parsed.exitCode;
+    }
+    if (typeof parsed.stdout === "string") {
+      base.stdoutPreview = parsed.stdout.slice(0, 2000);
+    }
+    if (typeof parsed.stderr === "string") {
+      base.stderrPreview = parsed.stderr.slice(0, 1000);
+    }
+    if (typeof parsed.timedOut === "boolean") {
+      base.timedOut = parsed.timedOut;
+    }
+    if (typeof parsed.fullOutputPath === "string") {
+      base.fullOutputPath = parsed.fullOutputPath;
+    }
+  } catch {
+    // not JSON — use raw content as-is
+  }
+
+  return base;
+}
+
+export function formatStructuredResultForContext(result: StructuredToolResult): string {
+  const lines: string[] = [`[Tool Result] tool=${result.toolName} status=${result.status}`];
+
+  if (result.exitCode !== undefined) {
+    lines.push(`exitCode=${result.exitCode}`);
+  }
+  if (result.durationMs !== undefined) {
+    lines.push(`durationMs=${result.durationMs}`);
+  }
+  if (result.timedOut) {
+    lines.push("timedOut=true");
+  }
+  if (result.error) {
+    lines.push(`error: ${result.error.slice(0, 500)}`);
+  }
+  if (result.stdoutPreview) {
+    lines.push(`stdout:\n${result.stdoutPreview}`);
+  }
+  if (result.stderrPreview) {
+    lines.push(`stderr:\n${result.stderrPreview}`);
+  }
+  if (result.fullOutputPath) {
+    lines.push(`fullOutput: ${result.fullOutputPath}`);
+  }
+
+  return lines.join("\n");
+}
+
+export interface DevTaskTracker {
+  filesModified: Set<string>;
+  commandsRun: Array<{ toolName: string; input: Record<string, unknown>; exitCode?: number }>;
+  testResults: Array<{ command: string; passed: boolean; summary: string }>;
+  fixRounds: number;
+}
+
+export function createDevTaskTracker(): DevTaskTracker {
+  return {
+    filesModified: new Set(),
+    commandsRun: [],
+    testResults: [],
+    fixRounds: 0,
+  };
+}
+
+export function trackToolCall(
+  tracker: DevTaskTracker,
+  toolName: string,
+  input: Record<string, unknown>,
+  structuredResult: StructuredToolResult
+): void {
+  if (toolName === "file.edit" || toolName === "file.write") {
+    const filePath = typeof input.path === "string" ? input.path : undefined;
+    if (filePath) tracker.filesModified.add(filePath);
+  }
+
+  if (toolName === "bash.run" || toolName === "powershell.run") {
+    const cmd = typeof input.command === "string" ? input.command : "";
+    tracker.commandsRun.push({ toolName, input, exitCode: structuredResult.exitCode });
+
+    const isTestCmd = /(?:npm|pnpm|yarn)\s+(?:test|run\s+(?:test|typecheck|check|lint|build))/.test(cmd);
+    if (isTestCmd) {
+      const passed = structuredResult.exitCode === 0 && structuredResult.status === "ok";
+      const summary = passed
+        ? "passed"
+        : (structuredResult.stderrPreview || structuredResult.stdoutPreview || "failed").slice(0, 500);
+      tracker.testResults.push({ command: cmd, passed, summary });
+      if (!passed) tracker.fixRounds++;
+    }
+  }
+}
+
+export function buildDevTaskSummaryPrompt(tracker: DevTaskTracker): string {
+  const files = [...tracker.filesModified];
+  const commands = tracker.commandsRun.map((c) => {
+    const cmd = typeof c.input.command === "string" ? c.input.command : JSON.stringify(c.input);
+    return `${cmd} (exitCode=${c.exitCode ?? "unknown"})`;
+  });
+  const tests = tracker.testResults.map((t) => `${t.command}: ${t.passed ? "PASSED" : "FAILED"} - ${t.summary}`);
+
+  return [
+    "[DEV_TASK_SUMMARY]",
+    "This development task has completed. Please provide a final summary.",
+    "",
+    "Modified files:",
+    files.length > 0 ? files.map((f) => `  - ${f}`).join("\n") : "  (none)",
+    "",
+    "Commands run:",
+    commands.length > 0 ? commands.map((c) => `  - ${c}`).join("\n") : "  (none)",
+    "",
+    "Test results:",
+    tests.length > 0 ? tests.map((t) => `  - ${t}`).join("\n") : "  (none)",
+    "",
+    "Fix rounds used:",
+    `  ${tracker.fixRounds}`,
+    "",
+    "Please summarize:",
+    "1. What was done",
+    "2. Which files were modified and why",
+    "3. Which commands were run and their results",
+    "4. Whether tests/typecheck passed",
+    "5. If not passed, what are the remaining issues",
+  ].join("\n");
+}
+
+export function buildDevTaskSystemHint(): string {
+  return [
+    "[DEV_TASK_MODE]",
+    "You are in development task mode. Follow this workflow:",
+    "1. Read relevant files first to understand the codebase",
+    "2. Make a brief plan",
+    "3. Modify code as needed",
+    "4. Run typecheck/test to verify",
+    "5. If tests fail, read the error output, fix the code, and re-run",
+    "6. When all checks pass (or max fix rounds reached), provide a final summary",
+    "",
+    "When a command fails, always read the full error output before attempting a fix.",
+    "Do not repeat the same fix if it already failed once.",
+  ].join("\n");
+}
+
+export interface SerializedDevTaskTracker {
+  filesModified: string[];
+  commandsRun: Array<{ toolName: string; input: Record<string, unknown>; exitCode?: number }>;
+  testResults: Array<{ command: string; passed: boolean; summary: string }>;
+  fixRounds: number;
+}
+
+export function serializeDevTaskTracker(tracker: DevTaskTracker): SerializedDevTaskTracker {
+  return {
+    filesModified: [...tracker.filesModified],
+    commandsRun: tracker.commandsRun,
+    testResults: tracker.testResults,
+    fixRounds: tracker.fixRounds,
+  };
+}
+
+export function deserializeDevTaskTracker(data: unknown): DevTaskTracker | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const obj = data as Record<string, unknown>;
+  if (!Array.isArray(obj.filesModified) || !Array.isArray(obj.commandsRun) || !Array.isArray(obj.testResults)) {
+    return undefined;
+  }
+  return {
+    filesModified: new Set(obj.filesModified.filter((f): f is string => typeof f === "string")),
+    commandsRun: obj.commandsRun as DevTaskTracker["commandsRun"],
+    testResults: obj.testResults as DevTaskTracker["testResults"],
+    fixRounds: typeof obj.fixRounds === "number" ? obj.fixRounds : 0,
+  };
 }

@@ -18,6 +18,8 @@ export interface GatewayRuntimeConfig {
   confirmTokenTtlMs: number;
   autoToolLoopEnabled: boolean;
   autoToolLoopMaxSteps: number;
+  devTaskMaxSteps: number;
+  devTaskMaxFixRounds: number;
   sessionAutoCompactEnabled: boolean;
   sessionAutoCompactMaxEntries: number;
   rateLimitMaxRequests: number;
@@ -50,6 +52,8 @@ export function loadGatewayConfig(
     confirmTokenTtlMs: parsePositiveInteger(env.GATEWAY_CONFIRM_TOKEN_TTL_MS, 300_000),
     autoToolLoopEnabled: parseBoolean(env.GATEWAY_AUTO_TOOL_LOOP_ENABLED, true),
     autoToolLoopMaxSteps: parsePositiveInteger(env.GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS, 5),
+    devTaskMaxSteps: parsePositiveInteger(env.GATEWAY_DEV_TASK_MAX_STEPS, 15),
+    devTaskMaxFixRounds: parsePositiveInteger(env.GATEWAY_DEV_TASK_MAX_FIX_ROUNDS, 3),
     sessionAutoCompactEnabled: parseBoolean(
       env.GATEWAY_SESSION_AUTO_COMPACT_ENABLED,
       true

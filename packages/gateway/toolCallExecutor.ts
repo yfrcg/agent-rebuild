@@ -9,6 +9,7 @@ import type {
   GatewayToolCallExecutorOptions,
   GatewayToolCallRecord,
   GatewayToolCallRequest,
+  GatewayProjectBoundary,
 } from "./toolCallTypes";
 import type { GatewayToolOutput, ToolResult } from "./toolTypes";
 
@@ -31,6 +32,7 @@ export class ToolCallExecutor {
     this.projectRoot = options.projectRoot ?? resolveProjectRoot();
     this.permissionPolicy = new PermissionPolicy({
       projectRoot: this.projectRoot,
+      allowBypassPermissions: options.allowBypassPermissions,
     });
     this.fileAccessTracker = new FileAccessTracker();
     this.toolResultDir = path.resolve(process.cwd(), "logs", "tool-results");
@@ -40,7 +42,7 @@ export class ToolCallExecutor {
     const normalizedInput = normalizeToolInput(
       request.toolName,
       request.input,
-      this.projectRoot
+      request.projectBoundary?.commandCwd ?? this.projectRoot
     );
     const tool = this.registry.get(request.toolName);
     const record: GatewayToolCallRecord = {
@@ -74,14 +76,14 @@ export class ToolCallExecutor {
         this.errorRecord(record, `[tools] tool not found: ${request.toolName}`);
       } else {
         const permissionDecision = this.permissionPolicy.evaluate({
-          tool,
-          request: {
-            ...request,
-            input: normalizedInput,
-          },
-          mode: request.permissionMode,
-          plan: request.planState,
-        });
+      tool,
+      request: {
+        ...request,
+        input: normalizedInput,
+      },
+      mode: request.permissionMode,
+      plan: request.planState,
+    });
         record.permissionDecision = permissionDecision;
         if (permissionDecision.action !== "allow") {
           this.denyRecord(
@@ -89,6 +91,10 @@ export class ToolCallExecutor {
             permissionDecision.reason ?? "tool execution denied by policy"
           );
         } else {
+          const boundaryError = this.checkProjectBoundary(request.toolName, normalizedInput, request.projectBoundary);
+          if (boundaryError) {
+            this.denyRecord(record, boundaryError);
+          } else {
           const pathDecision = this.sandbox?.canUseToolInputPaths(normalizedInput);
           if (pathDecision && !pathDecision.allowed) {
             this.denyRecord(
@@ -123,6 +129,7 @@ export class ToolCallExecutor {
               tool
             );
             await this.afterToolExecution(record, request.sessionId, mutationPreflight);
+          }
           }
         }
       }
@@ -266,10 +273,12 @@ export class ToolCallExecutor {
       return;
     }
 
-    const cwd =
-      typeof request.input.cwd === "string" && request.input.cwd.trim() !== ""
+    const cwd = request.projectBoundary?.commandCwd
+      ?? (typeof request.input.cwd === "string" && request.input.cwd.trim() !== ""
         ? request.input.cwd
-        : this.projectRoot;
+        : this.projectRoot);
+
+    const effectiveWorkspaceRoot = request.projectBoundary?.commandCwd ?? this.projectRoot;
 
     const timeoutMs =
       typeof request.input.timeoutMs === "number" ? request.input.timeoutMs : undefined;
@@ -277,7 +286,7 @@ export class ToolCallExecutor {
     try {
       const result = await runLocalCommand(
         { command, cwd, timeoutMs },
-        this.projectRoot
+        effectiveWorkspaceRoot
       );
 
       const ok = result.exitCode === 0 && !result.timedOut;
@@ -593,6 +602,185 @@ export class ToolCallExecutor {
       // audit logging must not break tool execution
     }
   }
+
+  private checkProjectBoundary(
+    toolName: string,
+    input: Record<string, unknown>,
+    boundary: GatewayProjectBoundary | undefined
+  ): string | undefined {
+    if (!boundary) {
+      return undefined;
+    }
+
+    const isFileTool =
+      toolName === "file.read" ||
+      toolName === "file.write" ||
+      toolName === "file.edit";
+    const isShellTool =
+      toolName === "shell.run" ||
+      toolName === "bash.run" ||
+      toolName === "run_test" ||
+      toolName === "npm_test" ||
+      toolName === "build";
+
+    if (!isFileTool && !isShellTool) {
+      return undefined;
+    }
+
+    if (boundary.permission === "chat-only" || !boundary.projectDir) {
+      return `当前 session 未绑定 projectDir，${toolName} 工具不可用。请先使用 :bind <projectDir> 绑定项目目录。`;
+    }
+
+    if (isShellTool) {
+      const command = typeof input.command === "string" ? input.command.trim() : "";
+      if (command) {
+        const dangerousPattern = detectDangerousShellCommand(command);
+        if (dangerousPattern) {
+          return `shell 命令包含危险操作（${dangerousPattern}），已拒绝。shell 只能在 projectDir 内执行安全操作。`;
+        }
+      }
+      return undefined;
+    }
+
+    const rawPath = typeof input.path === "string" ? input.path : undefined;
+    if (!rawPath) {
+      return undefined;
+    }
+
+    if (isSessionMemoryFile(rawPath)) {
+      return `文件 ${rawPath} 是 session 内部记忆文件，只能由 SessionMemoryManager 写入，不允许通过工具修改。`;
+    }
+
+    if (path.isAbsolute(rawPath)) {
+      const resolved = path.resolve(rawPath);
+      const isReadOnlyTool = toolName === "file.read";
+      const isWritableTool = toolName === "file.write" || toolName === "file.edit";
+
+      const isReadable = boundary.allowedReadRoots.some((root) =>
+        isPathUnderRoot(resolved, root)
+      );
+
+      if (isWritableTool) {
+        if (!isReadable) {
+          return `文件路径 ${rawPath} 不在允许读取的目录范围内。`;
+        }
+        const isWritable = boundary.allowedWriteRoots.some((root) =>
+          isPathUnderRoot(resolved, root)
+        );
+        if (!isWritable) {
+          return `文件路径 ${rawPath} 不在允许写入的目录范围内。`;
+        }
+        return undefined;
+      }
+
+      if (isReadable) {
+        return undefined;
+      }
+
+      if (isReadOnlyTool) {
+        if (isSensitivePath(resolved)) {
+          return `文件路径 ${rawPath} 指向敏感系统目录，禁止读取。`;
+        }
+        return undefined;
+      }
+
+      return `文件路径 ${rawPath} 不在允许读取的目录范围内。`;
+    }
+
+    const resolved = path.resolve(boundary.projectDir, rawPath);
+    const normalizedProjectDir = path.resolve(boundary.projectDir);
+    if (!isPathUnderRoot(resolved, normalizedProjectDir)) {
+      return `文件路径 ${rawPath} 试图逃出项目目录，已拒绝。`;
+    }
+
+    const isReadable = boundary.allowedReadRoots.some((root) =>
+      isPathUnderRoot(resolved, root)
+    );
+    if (!isReadable) {
+      return `文件路径 ${rawPath} 解析后不在允许读取的目录范围内。`;
+    }
+
+    if (toolName === "file.write" || toolName === "file.edit") {
+      const isWritable = boundary.allowedWriteRoots.some((root) =>
+        isPathUnderRoot(resolved, root)
+      );
+      if (!isWritable) {
+        return `文件路径 ${rawPath} 解析后不在允许写入的目录范围内。`;
+      }
+    }
+
+    return undefined;
+  }
+}
+
+function isPathUnderRoot(filePath: string, root: string): boolean {
+  const normalizedFile = path.resolve(filePath).toLowerCase().replace(/\//g, "\\");
+  const normalizedRoot = path.resolve(root).toLowerCase().replace(/\//g, "\\");
+  return normalizedFile === normalizedRoot || normalizedFile.startsWith(normalizedRoot + "\\");
+}
+
+const SENSITIVE_PATH_PATTERNS = [
+  "\\.ssh",
+  "\\appdata",
+  "\\programdata",
+  "\\$recycle.bin",
+  "\\system volume information",
+  "cookies",
+  "\\local state",
+  "\\login data",
+];
+
+function isSensitivePath(resolvedPath: string): boolean {
+  const normalized = resolvedPath.toLowerCase().replace(/\//g, "\\");
+  for (const pattern of SENSITIVE_PATH_PATTERNS) {
+    if (normalized.includes(pattern)) {
+      return true;
+    }
+  }
+  const windowsUsersPattern = /^[a-z]:\\users\\/i;
+  if (windowsUsersPattern.test(normalized)) {
+    return true;
+  }
+  const systemRoot = process.env.SystemRoot?.toLowerCase() ?? "c:\\windows";
+  if (normalized.startsWith(systemRoot + "\\") || normalized === systemRoot) {
+    return true;
+  }
+  return false;
+}
+
+const SESSION_MEMORY_FILENAMES = [
+  "working-memory.json",
+  "rolling-summary.md",
+  "open-issues.json",
+  "decisions.jsonl",
+];
+
+function isSessionMemoryFile(filePath: string): boolean {
+  const normalized = filePath.toLowerCase().replace(/\//g, "\\");
+  return SESSION_MEMORY_FILENAMES.some((name) => normalized.endsWith("\\" + name));
+}
+
+const DANGEROUS_SHELL_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\bcd\s+[.]{2}\s*$/i, label: "cd .. 目录逃逸" },
+  { pattern: /\bcd\s+\\\s*$/i, label: "cd \\ 切换根目录" },
+  { pattern: /\bcd\s+[a-z]:\\/i, label: "cd 切换到其他磁盘" },
+  { pattern: /\brm\s+(-[a-z]*r[a-z]*f|--recursive)\b/i, label: "rm -rf 递归删除" },
+  { pattern: /\bdel\s+\/s\b/i, label: "del /s 递归删除" },
+  { pattern: /\brmdir\s+\/s\b/i, label: "rmdir /s 递归删除" },
+  { pattern: /\bformat\s+[a-z]:/i, label: "format 磁盘格式化" },
+  { pattern: /\bpowershell\s+-[eE]ncoded[cC]ommand\b/i, label: "EncodedCommand 编码执行" },
+  { pattern: /\bcurl\s.*\|\s*(ba)?sh\b/i, label: "curl | sh 管道执行" },
+  { pattern: /\bwget\s.*\|\s*(ba)?sh\b/i, label: "wget | sh 管道执行" },
+];
+
+function detectDangerousShellCommand(command: string): string | null {
+  const firstLine = command.split(/[;&|]+/)[0]?.trim() ?? command;
+  for (const { pattern, label } of DANGEROUS_SHELL_PATTERNS) {
+    if (pattern.test(firstLine) || pattern.test(command)) {
+      return label;
+    }
+  }
+  return null;
 }
 
 function resolveExecutionCommand(

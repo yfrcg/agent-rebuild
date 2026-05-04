@@ -72,3 +72,36 @@ test("parseGatewayCommand parses sh shortcut command", () => {
   assert.equal(parsed.type, "sh");
   assert.equal(parsed.payload, "npm test");
 });
+
+test("parseGatewayCommand parses /name as skills invoke", () => {
+  const parsed = parseGatewayCommand("/commit");
+
+  assert.equal(parsed.type, "skills");
+  assert.equal(parsed.payload, "invoke commit");
+});
+
+test("parseGatewayCommand parses /name with args", () => {
+  const parsed = parseGatewayCommand("/review fix auth.ts");
+
+  assert.equal(parsed.type, "skills");
+  assert.equal(parsed.payload, "invoke review fix auth.ts");
+});
+
+test("parseGatewayCommand parses /name with hyphens and slashes", () => {
+  const parsed = parseGatewayCommand("/code-review");
+
+  assert.equal(parsed.type, "skills");
+  assert.equal(parsed.payload, "invoke code-review");
+});
+
+test("parseGatewayCommand does not parse // as skill", () => {
+  const parsed = parseGatewayCommand("//not-a-skill");
+
+  assert.notEqual(parsed.type, "skills");
+});
+
+test("parseGatewayCommand does not parse / with only special chars as skill", () => {
+  const parsed = parseGatewayCommand("/!@#$");
+
+  assert.notEqual(parsed.type, "skills");
+});

@@ -1,4 +1,5 @@
 import type { GatewayToolCallRecord } from "./toolCallTypes";
+import type { GatewayProjectBoundary } from "./toolCallTypes";
 import type {
   GatewayPermissionMode,
   GatewayPlanState,
@@ -29,6 +30,7 @@ export interface GatewayRequest {
   permissionMode?: GatewayPermissionMode;
   planState?: GatewayPlanState;
   createdAt: string;
+  projectBoundary?: GatewayProjectBoundary;
 }
 
 /**
@@ -133,6 +135,21 @@ export interface GatewayDebugInfo {
     containerMode?: string;
   };
   metrics?: GatewayMetricsInfo;
+  devTask?: {
+    active: boolean;
+    devTaskMode: boolean;
+    maxSteps: number;
+    currentStep: number;
+    filesModified: string[];
+    commandsRun: number;
+    testsPassed: number;
+    testsFailed: number;
+    testResults: Array<{ command: string; passed: boolean; summary: string }>;
+    fixRounds: number;
+    maxFixRounds: number;
+    finalSummary?: string;
+    status: "running" | "passed" | "failed" | "stopped";
+  };
 }
 
 /**

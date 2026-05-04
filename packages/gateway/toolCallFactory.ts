@@ -34,5 +34,6 @@ export function createGatewayToolCallRequest(
     permissionMode: input.permissionMode,
     planState: input.planState,
     createdAt: new Date().toISOString(),
+    projectBoundary: input.projectBoundary,
   };
 }

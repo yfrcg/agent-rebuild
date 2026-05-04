@@ -7,6 +7,13 @@ import {
   writeLongTermMemory,
 } from "../memory/src/memoryWriter";
 import { resolveProjectRoot } from "../core/src/config";
+import {
+  discoverSkills,
+  getSkillByName,
+  resolveSkillPrompt,
+  buildSkillDescriptions,
+} from "../core/src/skills";
+import type { SkillDefinition } from "../core/src/skills";
 import { createToolSecurityProfile } from "./toolSecurityProfile";
 import { createGatewayMemorySearch } from "./memoryAdapter";
 import type { MemorySearch } from "./gateway";
@@ -57,6 +64,8 @@ export function createBuiltinToolRegistry(
   for (const tool of createSandboxedFileTools(projectRoot)) {
     registry.register(tool);
   }
+
+  registry.register(createSkillTool());
 
   return registry;
 }
@@ -219,6 +228,102 @@ function createMemoryWriteTool(): GatewayTool {
       riskLevel: "medium",
       sandboxRequired: false,
       allowWrite: true,
+      allowHostExecution: true,
+      requireApproval: false,
+    }),
+    execute,
+    async invoke(input, context) {
+      const result = await execute(input, context);
+      return {
+        ok: result.ok,
+        content: result.result,
+        error: result.error,
+      };
+    },
+  };
+}
+
+function createSkillTool(): GatewayTool {
+  const schema = {
+    type: "object",
+    properties: {
+      skill_name: {
+        type: "string",
+        description: "The name of the skill to invoke",
+      },
+      args: {
+        type: "string",
+        description: "Optional arguments to pass to the skill template",
+      },
+    },
+    required: ["skill_name"],
+  } satisfies Record<string, unknown>;
+
+  const execute = async (
+    args: unknown,
+    context?: GatewayToolContext
+  ): Promise<ToolResult> => {
+    const input = asToolInput(args);
+    const skillName =
+      typeof input.skill_name === "string" ? input.skill_name.trim() : "";
+    if (!skillName) {
+      return failToolResult(context, "input.skill_name required");
+    }
+
+    const skillArgs =
+      typeof input.args === "string" ? input.args : "";
+
+    const allSkills = discoverSkills().skills;
+    const skill = getSkillByName(skillName, allSkills);
+
+    if (!skill) {
+      const available = allSkills
+        .filter((s) => s.userInvocable)
+        .map((s) => s.name)
+        .slice(0, 20);
+      return failToolResult(
+        context,
+        `Skill "${skillName}" not found. Available: ${available.join(", ") || "(none)"}`
+      );
+    }
+
+    const resolvedPrompt = resolveSkillPrompt(skill, skillArgs);
+
+    return {
+      toolCallId: context?.requestId ?? "",
+      ok: true,
+      result: {
+        skill: skill.name,
+        context: skill.context,
+        allowedTools: skill.allowedTools,
+        prompt: resolvedPrompt,
+        source: skill.source,
+        platform: skill.platform,
+      },
+    };
+  };
+
+  return {
+    name: "skill",
+    description:
+      "Invoke a registered skill by name. Skills are prompt templates loaded from skill directories. Returns the skill's resolved prompt to follow.",
+    schema,
+    inputSchema: schema,
+    riskLevel: "safe",
+    permissionLevel: "read",
+    readOnly: true,
+    sideEffect: false,
+    requiresSandbox: false,
+    policy: {
+      automationLevel: "auto",
+      riskLevel: "read-only",
+      tags: ["skill", "prompt", "local"],
+    },
+    security: createToolSecurityProfile({
+      riskLevel: "safe",
+      sandboxRequired: false,
+      allowNetwork: false,
+      allowWrite: false,
       allowHostExecution: true,
       requireApproval: false,
     }),

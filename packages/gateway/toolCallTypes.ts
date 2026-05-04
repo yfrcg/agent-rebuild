@@ -22,6 +22,14 @@ export type GatewayToolCallStatus =
 
 export type GatewayToolCallId = string;
 
+export interface GatewayProjectBoundary {
+  projectDir: string | null;
+  permission: "chat-only" | "project-write";
+  allowedReadRoots: string[];
+  allowedWriteRoots: string[];
+  commandCwd: string | null;
+}
+
 export interface GatewayToolCallRequest extends ToolCall {
   toolName: string;
   input: Record<string, unknown>;
@@ -31,6 +39,7 @@ export interface GatewayToolCallRequest extends ToolCall {
   permissionMode?: GatewayPermissionMode;
   planState?: GatewayPlanState;
   createdAt: string;
+  projectBoundary?: GatewayProjectBoundary;
 }
 
 export interface GatewayToolCallRecord {
@@ -69,6 +78,7 @@ export interface GatewayToolCallCreateInput {
   approved?: boolean;
   permissionMode?: GatewayPermissionMode;
   planState?: GatewayPlanState;
+  projectBoundary?: GatewayProjectBoundary;
 }
 
 export interface GatewayToolCallExecutorOptions {
@@ -76,4 +86,5 @@ export interface GatewayToolCallExecutorOptions {
   auditLogger?: unknown;
   sandbox?: GatewaySandbox;
   projectRoot?: string;
+  allowBypassPermissions?: boolean;
 }

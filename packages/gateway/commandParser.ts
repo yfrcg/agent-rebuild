@@ -14,6 +14,9 @@ export type GatewayCommandType =
   | "search-memory"
   | "read-file"
   | "session"
+  | "new-chat"
+  | "new-session"
+  | "bind"
   | "mcp"
   | "skills"
   | "plan"
@@ -120,12 +123,51 @@ export function parseGatewayCommand(rawInput: string): ParsedGatewayCommand {
     };
   }
 
+  if (raw.startsWith("/") && raw.length > 1 && !raw.startsWith("//")) {
+    const slashBody = raw.slice(1).trim();
+    const spaceIdx = slashBody.indexOf(" ");
+    const skillName = spaceIdx === -1 ? slashBody : slashBody.slice(0, spaceIdx);
+    const skillArgs = spaceIdx === -1 ? "" : slashBody.slice(spaceIdx + 1).trim();
+
+    if (skillName && /^[a-zA-Z0-9._/-]+$/.test(skillName)) {
+      return {
+        type: "skills",
+        raw,
+        payload: `invoke ${skillName}${skillArgs ? ` ${skillArgs}` : ""}`,
+      };
+    }
+  }
+
   // 以下是以冒号开头的运维型命令。
   if (raw === ":session" || raw.startsWith(":session ")) {
     return {
       type: "session",
       raw,
       payload: raw.replace(/^:session\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":new-chat" || raw.startsWith(":new-chat ")) {
+    return {
+      type: "new-chat",
+      raw,
+      payload: raw.replace(/^:new-chat\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":bind" || raw.startsWith(":bind ")) {
+    return {
+      type: "bind",
+      raw,
+      payload: raw.replace(/^:bind\s*/, "").trim(),
+    };
+  }
+
+  if (raw.startsWith(":new ") || raw === ":new") {
+    return {
+      type: "new-session",
+      raw,
+      payload: raw.replace(/^:new\s*/, "").trim(),
     };
   }
 

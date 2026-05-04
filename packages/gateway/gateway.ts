@@ -1,10 +1,15 @@
 import { AgentRunner } from "./agentRunner";
 import { ContextBuilder } from "./contextBuilder";
 import type { BuiltGatewayContext } from "./contextBuilder";
+import { ContextCompressor } from "./contextCompressor";
 import type { GatewaySandbox } from "./sandbox";
+import type { SessionManager } from "./sessionManager";
+import { SessionMemoryManager } from "./sessionMemoryManager";
 import type { ToolCallExecutor } from "./toolCallExecutor";
 import type { GatewayToolCallRecord } from "./toolCallTypes";
+import type { GatewayProjectBoundary } from "./toolCallTypes";
 import type { ToolRegistry } from "./toolRegistry";
+import type { GatewayMcpManager } from "./mcpManager";
 import type {
   GatewayDebugInfo,
   GatewayRequest,
@@ -12,6 +17,9 @@ import type {
   MemorySearchResult,
 } from "./types";
 import type { ModelProvider } from "../model/types";
+import { extractProjectBoundary } from "./sessionTypes";
+import { MemoryAutoWriter } from "./memoryAutoWriter";
+import type { MemoryAutoWriterConfig } from "./memoryAutoWriter";
 
 type GatewayMemorySearch = (query: string) => Promise<MemorySearchResult[]>;
 export type MemorySearch = GatewayMemorySearch;
@@ -30,6 +38,11 @@ export interface GatewayOptions {
   sandbox?: GatewaySandbox;
   autoToolLoopEnabled?: boolean;
   autoToolLoopMaxSteps?: number;
+  devTaskMaxSteps?: number;
+  devTaskMaxFixRounds?: number;
+  sessionManager?: SessionManager;
+  memoryAutoWriterConfig?: Partial<MemoryAutoWriterConfig>;
+  mcpManager?: GatewayMcpManager;
 }
 
 interface RateLimitResult {
@@ -73,6 +86,11 @@ export class Gateway {
   private readonly metricsCollector?: unknown;
   private readonly sandbox?: GatewaySandbox;
   private readonly agentRunner: AgentRunner;
+  private readonly sessionManager?: SessionManager;
+  private readonly memoryAutoWriter: MemoryAutoWriter;
+  private readonly mcpManager?: GatewayMcpManager;
+  private readonly toolRegistry?: ToolRegistry;
+  private mcpInitialized = false;
 
   constructor(options: GatewayOptions) {
     const contextBuilder = options.contextBuilder ?? new ContextBuilder();
@@ -86,6 +104,13 @@ export class Gateway {
     this.circuitBreaker = options.circuitBreaker;
     this.metricsCollector = options.metricsCollector;
     this.sandbox = options.sandbox;
+    this.sessionManager = options.sessionManager;
+    this.mcpManager = options.mcpManager;
+    this.toolRegistry = options.toolRegistry;
+    this.memoryAutoWriter = new MemoryAutoWriter({
+      modelProvider: this.modelProvider,
+      ...options.memoryAutoWriterConfig,
+    });
     this.agentRunner = new AgentRunner({
       memorySearch: this.memorySearch,
       modelProvider: this.modelProvider,
@@ -95,10 +120,13 @@ export class Gateway {
         options.autoToolLoopEnabled === false ? undefined : options.toolCallExecutor,
       auditLogger: this.auditLogger,
       maxToolCalls: autoToolLoopMaxSteps,
+      devTaskMaxSteps: options.devTaskMaxSteps,
+      devTaskMaxFixRounds: options.devTaskMaxFixRounds,
     });
   }
 
   async handle(request: GatewayRequest): Promise<GatewayResponse> {
+    await this.ensureMcpInitialized();
     const startedAt = Date.now();
     const requestId = this.getRequestId(request);
     const input = this.getRequestInput(request);
@@ -111,6 +139,7 @@ export class Gateway {
     let circuitInfo: CircuitState | undefined;
     let toolCalls: GatewayToolCallRecord[] = [];
     let autoToolLoopInfo: GatewayDebugInfo["autoToolLoop"];
+    let devTaskInfo: GatewayDebugInfo["devTask"];
     let builtContext: BuiltGatewayContext | undefined;
 
     try {
@@ -208,11 +237,16 @@ export class Gateway {
       }
 
       try {
-        const result = await this.agentRunner.run(request);
+        const requestWithBoundary: GatewayRequest = {
+          ...request,
+          projectBoundary: this.resolveProjectBoundary(request.sessionId),
+        };
+        const result = await this.agentRunner.run(requestWithBoundary);
         responseText = result.text;
         memoryResults = result.memoryResults;
         toolCalls = result.toolCalls;
         autoToolLoopInfo = result.autoToolLoop;
+        devTaskInfo = result.devTask;
         builtContext = result.builtContext;
         this.recordCircuitSuccess();
       } catch (err) {
@@ -280,6 +314,73 @@ export class Gateway {
         errorMessage,
       });
 
+      if (this.sessionManager && devTaskInfo?.active) {
+        try {
+          const testCommands = (devTaskInfo.testResults ?? []).map((r) => r.command);
+          const lastFailure = (devTaskInfo.testResults ?? [])
+            .filter((r) => !r.passed)
+            .slice(-1)[0];
+          this.sessionManager.setCurrentSessionDevTaskState({
+            isDevTask: true,
+            startedAt: new Date(startedAt).toISOString(),
+            updatedAt: new Date().toISOString(),
+            filesTouched: devTaskInfo.filesModified ?? [],
+            commandsRun: devTaskInfo.commandsRun ?? 0,
+            testCommands,
+            lastFailureSummary: lastFailure?.summary,
+            finalSummary: devTaskInfo.finalSummary,
+            fixRounds: devTaskInfo.fixRounds ?? 0,
+            status: devTaskInfo.status ?? "running",
+          });
+        } catch {
+          // session persistence is best-effort
+        }
+      }
+
+      if (this.sessionManager && !hasError) {
+        try {
+          const sessionId = request.sessionId ?? this.sessionManager.getCurrentSessionId();
+          const smm = new SessionMemoryManager(sessionId);
+
+          const allMessages = builtContext?.messages ?? [];
+          const patch = ContextCompressor.extractSessionMemoryPatch(allMessages);
+          patch.goal = input.slice(0, 200);
+          if (devTaskInfo?.finalSummary) {
+            patch.failures = [...(patch.failures ?? []), devTaskInfo.finalSummary.slice(0, 200)];
+          }
+          smm.applyPatch(patch);
+
+          const currentSummary = smm.readRollingSummary();
+          const turnSummary = [
+            currentSummary,
+            "",
+            `## Turn ${new Date().toISOString().slice(0, 16)}`,
+            `- User: ${input.slice(0, 150).replace(/\n/g, " ")}`,
+            `- Response: ${responseText.slice(0, 150).replace(/\n/g, " ")}`,
+            patch.filesTouched?.length ? `- Files: ${patch.filesTouched.join(", ")}` : "",
+            patch.failures?.length ? `- Failures: ${patch.failures.join("; ")}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          const trimmedSummary = turnSummary.length > 4000
+            ? turnSummary.slice(turnSummary.length - 4000)
+            : turnSummary;
+          smm.writeRollingSummary(trimmedSummary);
+
+          if (!hasError && input.trim().length > 0) {
+            this.memoryAutoWriter.evaluateAndWrite(
+              input,
+              responseText,
+              toolCalls,
+              patch
+            );
+          }
+        } catch {
+          // session memory update is best-effort
+        }
+      }
+
       return this.createResponse({
         requestId,
         text: responseText,
@@ -291,6 +392,7 @@ export class Gateway {
         errorMessage,
         skillSelection: builtContext?.skillSelection,
         autoToolLoop: autoToolLoopInfo,
+        devTask: devTaskInfo,
         rateLimit: rateLimitInfo,
         circuit: this.getCircuitState(),
         permissionMode: request.permissionMode,
@@ -330,11 +432,27 @@ export class Gateway {
         errorMessage: fatalMessage,
         skillSelection: builtContext?.skillSelection,
         autoToolLoop: autoToolLoopInfo,
+        devTask: devTaskInfo,
         rateLimit: rateLimitInfo,
         circuit: circuitInfo,
         permissionMode: request.permissionMode,
         planState: request.planState,
       });
+    }
+  }
+
+  private async ensureMcpInitialized(): Promise<void> {
+    if (this.mcpInitialized || !this.mcpManager) {
+      return;
+    }
+    this.mcpInitialized = true;
+    try {
+      await this.mcpManager.connectEnabledServers();
+      if (this.toolRegistry) {
+        await this.mcpManager.registerTools(this.toolRegistry);
+      }
+    } catch {
+      // MCP init failure is non-fatal
     }
   }
 
@@ -589,6 +707,7 @@ export class Gateway {
     errorMessage?: string;
     skillSelection?: GatewayDebugInfo["skillSelection"];
     autoToolLoop?: GatewayDebugInfo["autoToolLoop"];
+    devTask?: GatewayDebugInfo["devTask"];
     rateLimit?: RateLimitResult;
     circuit?: CircuitState;
     permissionMode?: GatewayRequest["permissionMode"];
@@ -601,6 +720,7 @@ export class Gateway {
       hasError: input.hasError,
       errorMessage: input.errorMessage,
       autoToolLoop: input.autoToolLoop,
+      devTask: input.devTask,
       memorySelection: {
         hitCount: input.memoryUsed.length,
         sourceBreakdown: summarizeMemorySources(input.memoryUsed),
@@ -705,6 +825,24 @@ export class Gateway {
       return JSON.stringify(err);
     } catch {
       return "Unknown error";
+    }
+  }
+
+  private resolveProjectBoundary(
+    sessionId: string | undefined
+  ): GatewayProjectBoundary | undefined {
+    if (!this.sessionManager || !sessionId) {
+      return undefined;
+    }
+
+    try {
+      const session = this.sessionManager.listSessions().find((s) => s.id === sessionId);
+      if (!session) {
+        return undefined;
+      }
+      return extractProjectBoundary(session);
+    } catch {
+      return undefined;
     }
   }
 }

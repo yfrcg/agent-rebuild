@@ -7,23 +7,36 @@ AI Agent Gateway - Windows 本地版。Gateway 是控制层，所有工具调用
 ## 架构
 
 ```
-用户输入 --> Gateway（Agent Loop + 权限策略 + 记忆 + 会话）
-                |
-                +---> file.*         本地文件读写（cwd 约束）
-                +---> shell.*        PowerShell 本地执行（cwd 约束 + 危险命令拦截）
-                +---> web.*          需要 LLM_BASE_URL + LLM_API_KEY
-                +---> app.chat       需要 TAVILY_API_KEY（流式输出）
+用户输入 --> REPL 命令解析
+              |
+              +---> 内建命令（会话管理、记忆、MCP、工具手动调用）
+              +---> Gateway.handle()
+                      |
+                      +---> AgentRunner（LLM 循环 + 工具调用 + DevTask）
+                      |       +---> ContextBuilder（系统提示 + 记忆 + 技能 + 会话记忆）
+                      |       +---> ContextCompressor（4-tier 上下文压缩）
+                      |       +---> ModelProvider（DeepSeek / Mock）
+                      |       +---> ToolCallExecutor -> ToolRegistry
+                      |             +---> file.*    本地文件读写（cwd 约束）
+                      |             +---> shell.*   PowerShell 执行（危险命令拦截）
+                      |             +---> memory.*  记忆检索
+                      |             +---> skill     技能调用
+                      |             +---> mcp.*     MCP 插件工具
+                      |
+                      +---> MemoryAutoWriter（自动记忆写入 + 压缩）
+                      +---> SessionMemoryManager（工作记忆 + 滚动摘要）
 ```
 
-Gateway 在 `src/gateway.ts` 的 `runAgentLoop()` 中驱动 LLM 循环：发送消息到 LLM，解析 tool_calls，通过 PermissionPolicy 权限检查后执行工具，结果返回 LLM 继续推理，直到无 tool_calls 或达到最大轮次（10 轮）。
+Gateway 在 `packages/gateway/gateway.ts` 的 `handle()` 中驱动完整链路：构建上下文 → 调用 LLM → 解析工具调用 → 权限检查 → 执行 → 结果返回 LLM，直到模型给出最终回复或达到最大轮次。
+
+系统内置 **4-tier 上下文压缩管线**、**流式响应处理**、**自动记忆写入**、**会话工作记忆**和 **DevTask 自动修复循环**。
 
 ## 环境准备
 
 - Windows 10/11
 - Node.js >= 18
-- 包管理器：npm、pnpm 或 yarn
-- OpenAI API Key（用于 LLM 推理，可选）
-- Tavily API Key（用于 app.chat 搜索功能，可选）
+- DeepSeek API Key（用于 LLM 推理）
+- 阿里云 DashScope API Key（可选，用于向量检索）
 
 ## 快速开始
 
@@ -33,56 +46,99 @@ git clone https://github.com/yfrcg/agent-rebuild.git
 cd agent-rebuild
 
 # 安装依赖
-pnpm install
+npm install
 
 # 配置（复制模板后填写你的 API Key）
 copy .env.example .env
-# 编辑 .env 文件，填写 LLM_API_KEY
-
-# 初始化工作区目录
-node scripts\init-workspace.js
+# 编辑 .env 文件，填写 DEEPSEEK_API_KEY
 
 # 启动 Gateway
-pnpm gateway              # 简写模式（推荐）
-pnpm gateway:direct       # 等价于 tsx apps/gateway/src/main.ts
+npm run gateway             # tsx apps/gateway/src/main.ts
 ```
 
-启动后 Gateway 监听 `http://localhost:18081`，输出 `Registered tools: N tools (M families)`。
-
-Gateway 支持两种运行方式：
-- **REPL 模式**：直接输入问题，LLM 会调用工具执行（默认）
-- **HTTP API 模式**：发送请求到 `http://localhost:18081/v1/responses`
+启动后进入 REPL 交互模式，直接输入问题即可与 Agent 对话。Agent 会自动调用工具执行文件操作、命令运行、记忆检索等任务。
 
 ## 可用工具
 
-Gateway 启动时会输出 `Registered tools: N tools (M families)`，工具按 family 分组。
+工具按 family 分组，包括内建工具和 MCP 插件工具：
 
 | 类型 | 工具 | 说明 |
 |------|------|------|
 | file | file.read / file.write / file.edit / file.delete / file.mkdir / file.list | 读取、写入、编辑、删除文件，创建目录，列目录 |
-| terminal | shell.exec / shell.run | 通过 PowerShell 在本地执行命令，cwd 必须在工作区内 |
-| terminal | npm_test / npm_install / npm_build | npm 专用快捷工具 |
-| web | web.fetch_html / web.fetch_json / web.search_page | 抓取网页、JSON、搜索页面（需 API Key） |
-| app | app.chat | 流式搜索对话（需 Tavily API Key，流式输出逐步显示） |
+| terminal | shell.run / bash.run | 通过 PowerShell 在本地执行命令，cwd 必须在工作区内 |
+| terminal | npm_test / npm_install / npm_build / build | npm 专用快捷工具 |
+| memory | memory.search / memory.get | 记忆检索（FTS + 向量混合搜索） |
+| skill | skill | 调用已注册的 Skill 技能 |
+| mcp | mcp.* | MCP 插件工具（动态发现，运行时注册） |
 
-## 关键文件
+## 项目结构
 
-| 文件 | 作用 | 是否需要修改 |
-|------|------|:------------:|
-| src/gateway.ts | 主入口，runAgentLoop()、注册工具、处理用户输入、流式输出 | 可选 |
-| src/agentRunner.ts | LLM 交互、工具循环、MCP 客户端管理 | 可选 |
-| src/agentClient.ts | LiteLLM 代理客户端 | 可选 |
-| src/config.ts | 配置管理，加载 .env、DEFAULT_WORKSPACE_PATH | 可选 |
-| src/permissionPolicy.ts | 权限策略，阻止危险操作 | 可选 |
-| src/sandbox.ts | 执行策略守卫，调用 toolSecurityProfile 评估工具安全性 | 可选 |
-| src/toolRegistry.ts | 工具注册中心，管理所有已注册工具 | 否 |
-| src/toolTypes.ts | 工具 schema 定义 | 否 |
-| src/localCommandRunner.ts | 本地命令执行器，通过 PowerShell 执行 | 可选 |
-| src/toolCallExecutor.ts | 工具调用执行器 | 可选 |
-| src/main.ts | Gateway 启动入口 | 否 |
-| src/mcp*.ts | MCP 插件适配器（浏览器自动化等） | 否 |
-| scripts/init-workspace.js | 工作区初始化脚本 | 否 |
-| tests/*.test.ts | 测试文件（49 个测试，0 跳过） | 否 |
+```
+agent-rebuild/
+├── apps/gateway/src/
+│   ├── main.ts                    # Gateway 启动入口（REPL 主循环）
+│   └── agent/agentRunner.ts       # re-export
+├── packages/
+│   ├── gateway/                   # 核心网关层
+│   │   ├── gateway.ts             # Gateway 主类（handle 入口）
+│   │   ├── agentRunner.ts         # LLM 交互 + 工具循环 + DevTask
+│   │   ├── contextBuilder.ts      # 系统提示 + 记忆 + 技能 + 会话记忆构建
+│   │   ├── contextCompressor.ts   # 4-tier 上下文压缩管线
+│   │   ├── streamProcessor.ts     # 流式响应处理器
+│   │   ├── memoryAutoWriter.ts    # 自动记忆写入（重要性评分 + 压缩）
+│   │   ├── sessionMemoryManager.ts # 会话工作记忆 + 滚动摘要
+│   │   ├── sessionManager.ts      # 会话管理（创建、切换、绑定项目）
+│   │   ├── sessionStore.ts        # 会话持久化（JSON 快照）
+│   │   ├── toolCallExecutor.ts    # 工具调用执行器（4 层安全校验）
+│   │   ├── toolRegistry.ts        # 工具注册中心
+│   │   ├── builtinTools.ts        # 内建工具注册（file/shell/memory/skill）
+│   │   ├── permissionPolicy.ts    # 权限策略（plan mode + 危险操作拦截）
+│   │   ├── sandbox.ts             # 策略守卫（文件路径 + 命令安全）
+│   │   ├── pathGuard.ts           # 路径守卫（阻止系统目录访问）
+│   │   ├── toolSecurityProfile.ts # 工具安全分类（risk level）
+│   │   ├── config.ts              # 运行时配置加载
+│   │   ├── mcpManager.ts          # MCP 服务器管理（懒连接 + 重连）
+│   │   ├── mcpConfig.ts           # MCP 多源配置加载
+│   │   ├── mcpClient.ts           # MCP stdio 客户端
+│   │   ├── mcpToolAdapter.ts      # MCP 工具映射适配
+│   │   ├── commandParser.ts       # REPL 命令解析（:cmd / /skill）
+│   │   ├── replCommandHandlers.ts # REPL 内建命令处理
+│   │   ├── autoToolLoop.ts        # DevTask 自动修复循环
+│   │   ├── modelProviderFactory.ts # 模型提供商工厂
+│   │   ├── localCommandRunner.ts  # 本地命令执行器（PowerShell）
+│   │   └── ...
+│   ├── core/src/
+│   │   ├── skills.ts              # Skill 系统（发现、解析、模板变量）
+│   │   ├── config.ts              # 项目根目录解析
+│   │   └── types.ts               # 通用类型定义
+│   ├── model/
+│   │   ├── deepseekProvider.ts    # DeepSeek 模型提供商（支持流式）
+│   │   ├── mockProvider.ts        # Mock 模型（测试用）
+│   │   └── types.ts               # ModelProvider 接口
+│   ├── memory/src/
+│   │   ├── hybridSearch.ts        # 混合检索（FTS + 向量 + RRF 融合）
+│   │   ├── memoryWriter.ts        # 记忆写入（daily / long-term）
+│   │   ├── memoryIndex.ts         # 记忆索引管理
+│   │   ├── vectorSearch.ts        # 向量检索
+│   │   └── ...
+│   ├── session/src/
+│   │   ├── transcript.ts          # 会话记录（append-only JSONL）
+│   │   ├── compaction.ts          # 会话压缩
+│   │   └── summary.ts             # 会话摘要
+│   ├── storage/src/
+│   │   └── db.ts                  # SQLite 数据库（FTS5 + 向量表）
+│   └── audit/
+│       └── auditLogger.ts         # 审计日志
+├── tests/                         # 196 个测试，0 失败
+├── workspace/                     # 工作区（记忆、技能、配置）
+│   ├── memory/                    # 日常记忆文件
+│   ├── skills/                    # 项目级 Skill
+│   ├── MEMORY.md                  # 长期记忆
+│   └── AGENTS.md                  # Agent 行为规则
+├── config/                        # 配置模板
+├── logs/                          # 运行时日志
+└── scripts/                       # 辅助脚本
+```
 
 ## 配置参数
 
@@ -90,74 +146,139 @@ Gateway 启动时会输出 `Registered tools: N tools (M families)`，工具按 
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| LLM_BASE_URL | LiteLLM 代理地址 | http://127.0.0.1:4000 |
-| LLM_API_KEY | LLM API Key | sk-test |
-| LLM_MODEL | 使用的模型 | gpt-4.1-nano |
-| TAVILY_API_KEY | Tavily 搜索 API Key | 可选 |
-| GATEWAY_PORT | Gateway 服务器端口 | 18081 |
-| GATEWAY_BIND | Gateway 绑定地址 | 127.0.0.1 |
-| DEFAULT_WORKSPACE_PATH | 工作区路径 | D:\WorkStation\agent-rebuild\workspace |
-| ENABLE_WORKSPACE_MEMORY | 启用工作区记忆 | true |
-| ENABLE_SESSION_PERSISTENCE | 启用会话持久化 | true |
-| ENABLE_LLM_PROXY_DETECTION | 启用 LLM 代理自动检测 | true |
-| GATEWAY_TOOL_TIMEOUT | 工具执行超时时间 | 30000 |
-| GATEWAY_AUTH_TOKEN | Gateway 认证 Token | 123456 |
-| GATEWAY_DISABLE_LOCAL_EXECUTION | 禁用本地命令执行（1 禁用，0 启用） | 0 |
-| GATEWAY_LOG_LEVEL | 日志等级 | info |
-| GATEWAY_AUDIT_LOG | 审计日志路径 | logs/audit/gateway-audit.jsonl |
-| GATEWAY_TRANSPORT_MODE | 传输模式 | auto |
-| GATEWAY_TOOL_READ_MAX_BYTES | 工具读取最大字节数 | 524288 |
-| GATEWAY_TOOL_READ_TAIL_MAX_BYTES | 尾部读取最大字节数 | 204800 |
+| GATEWAY_MODEL | 模型类型（deepseek / mock） | deepseek |
+| DEEPSEEK_API_KEY | DeepSeek API Key | （必填） |
+| DEEPSEEK_BASE_URL | DeepSeek API 地址 | https://api.deepseek.com/v1 |
+| DEEPSEEK_MODEL | DeepSeek 模型名称 | deepseek-chat |
+| DEEPSEEK_MAX_TOKENS | 最大生成 token 数 | 1024 |
+| DEEPSEEK_TEMPERATURE | 生成温度 | 0.7 |
+| DEEPSEEK_TIMEOUT_MS | API 超时时间（ms） | 30000 |
+| WINDOWS_PROJECT_ROOT | 项目根目录 | （自动检测） |
+| WORKSPACE_ROOT | 工作区路径 | （项目根目录/workspace） |
+| GATEWAY_SANDBOX_ALLOWED_ROOTS | 沙箱白名单目录（分号分隔） | 项目根 + 工作区 |
+| GATEWAY_MEMORY_TOP_K | 记忆检索返回数量 | 5 |
+| GATEWAY_AUDIT_LOG_PATH | 审计日志路径 | logs/audit/gateway-audit.jsonl |
+| GATEWAY_DEBUG | 调试模式 | false |
+| GATEWAY_AUTO_TOOL_LOOP_ENABLED | 启用自动工具循环 | true |
+| GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS | 自动工具循环最大步数 | 5 |
+| GATEWAY_DEV_TASK_MAX_STEPS | DevTask 最大步数 | 15 |
+| GATEWAY_DEV_TASK_MAX_FIX_ROUNDS | DevTask 最大修复轮次 | 3 |
+| GATEWAY_SESSION_AUTO_COMPACT_ENABLED | 会话自动压缩 | true |
+| GATEWAY_SESSION_AUTO_COMPACT_MAX_ENTRIES | 自动压缩阈值（条数） | 80 |
+| GATEWAY_RATE_LIMIT_MAX_REQUESTS | 限流最大请求数 | 30 |
+| GATEWAY_RATE_LIMIT_WINDOW_MS | 限流窗口（ms） | 60000 |
+| GATEWAY_CONFIRM_TOKEN_TTL_MS | 审批令牌有效期（ms） | 300000 |
+| DASHSCOPE_API_KEY | 阿里云 DashScope API Key（向量检索用） | 可选 |
+| DASHSCOPE_EMBED_MODEL | 向量模型名称 | text-embedding-v4 |
+| DASHSCOPE_EMBED_DIMENSIONS | 向量维度 | 1024 |
 
 修改 `.env` 后需要重启 Gateway 才能生效。
 
 ## 常用命令
 
 ```bash
-# Gateway 服务器
-pnpm gateway                # 启动 Gateway
-pnpm gw:watch               # 热重载启动
-pnpm gateway:dev            # 开发模式启动
+# Gateway
+pnpm gateway                # 启动 Gateway（REPL 模式）
+npm run typecheck           # TypeScript 类型检查
+npm test                    # 运行全部测试（196 个测试，0 失败）
+npm run build               # 构建项目
 
-# 测试
-pnpm test                   # 运行全部测试（49 个测试，0 跳过）
-pnpm test:e2e               # 端到端测试
-
-# 静态检查
-pnpm lint                   # ESLint
-pnpm format                 # Prettier 格式化
-pnpm typecheck              # TypeScript 类型检查
-
-# 构建
-pnpm build                  # 构建项目
-pnpm package:win            # 打包 Windows 可执行文件
-
-# 脚本
-npx tsx scripts\smoke-gateway.ts
-npx tsx scripts\smoke-gateway-stream.ts
+# 辅助脚本
+npx tsx scripts/smoke-gateway.ts           # 冒烟测试
+npx tsx scripts/smoke-gateway-all.ts       # 全量冒烟测试
+npx tsx scripts/system-detect-offline.ts   # 离线环境检测
 ```
 
 ## 技术设计
 
-### 权限策略（三层保护）
+### 安全体系（4 层校验）
 
-| 层级 | 机制 | 说明 |
-|------|------|------|
-| Plan Mode 拦截 | permissionPolicy.ts | plan mode 下强制拒绝所有修改、执行、网络请求 |
-| 工具分类检查 | toolSecurityProfile.ts | 将工具分为 file / terminal / network / exec，按策略决定是否允许 |
-| cwd 约束 | pathGuard.ts | 文件操作和命令执行的 cwd 必须在工作区目录内，阻止 C:\、D:\ 等危险路径 |
+工具调用经过 4 层安全校验，从外到内逐层收紧：
 
-### pathGuard 路径守卫
+| 层级 | 机制 | 文件 | 说明 |
+|------|------|------|------|
+| 1 | 路径守卫 | pathGuard.ts | 阻止访问系统目录（Windows、Program Files、.ssh 等） |
+| 2 | 沙箱策略 | sandbox.ts | 验证工具是否允许执行、文件路径是否在白名单内 |
+| 3 | 权限策略 | permissionPolicy.ts | plan mode 拦截、敏感路径检测、工作区外路径检测 |
+| 4 | 工具执行 | toolCallExecutor.ts | 会话边界检查（allowedReadRoots / allowedWriteRoots）、read-before-edit、mtime 防覆盖 |
 
-验证 cwd 是否在工作区目录内，拦截以下危险路径：
+会话级别的安全边界：
+- `allowedReadRoots` / `allowedWriteRoots`：限制文件操作范围
+- `permission`：`chat-only`（仅聊天）或 `project-write`（允许项目文件修改）
+- MCP 和 Skill 目录自动加入白名单，支持完整的文件管理操作
 
-- 根目录：C:\、D:\、/、~
-- 系统目录：Windows、Program Files、System32
-- 用户敏感目录：AppData、.ssh、Documents and Settings
+## 子系统
 
-### 审计日志
+### MCP 插件
 
-所有工具调用自动写入 `logs/audit/gateway-audit.jsonl`，每行一条 JSON 记录，包含时间戳、工具名、参数、结果。
+MCP（Model Context Protocol）支持多源配置，按优先级合并：
+
+1. `~/.agent-rebuild/mcp.servers.json`（用户全局）
+2. `config/mcp.servers.json`（项目级）
+3. `.mcp.json`（项目根目录）
+
+支持懒连接模式（`mcpLazy: true`），首次 `handle()` 调用时才连接 MCP 服务器，减少启动时间。单个 MCP 服务器连接失败不影响其他服务器和主流程。
+
+### Skill 技能系统
+
+Skill 是可复用的提示词模板，存储为 `SKILL.md` 文件：
+
+- **项目级**：`workspace/skills/<name>/SKILL.md`
+- **用户全局**：`~/.agent-rebuild/skills/`、`~/.claude/skills/`
+
+SKILL.md 支持 frontmatter 元数据（`when-to-use`、`allowed-tools`、`context`、`user-invocable`）和模板变量（`$ARGUMENTS`、`${SKILL_DIR}`）。
+
+用户可通过 `/skillname args` 语法直接调用技能，LLM 也可通过 `skill` 工具程序化调用。
+
+### 记忆系统
+
+**检索**：SQLite FTS5 全文检索 + 向量检索，通过 Reciprocal Rank Fusion (RRF) 融合排序，支持时间衰减加权。
+
+**自动写入**：`MemoryAutoWriter` 在每次对话后自动评估重要性（启发式评分），高分内容写入长期记忆（`MEMORY.md`），普通内容写入日常记忆（`memory/YYYY-MM-DD.md`）。`MEMORY.md` 超过阈值时自动触发压缩去重。
+
+### 会话工作记忆
+
+`SessionMemoryManager` 为每个会话维护：
+
+- `working-memory.json`：当前会话的文件修改、命令执行、决策记录
+- `rolling-summary.md`：滚动摘要，每次对话后追加更新
+- `open-issues.json` / `decisions.jsonl`：待解决问题和决策日志
+
+上下文构建时自动注入会话记忆，确保 Agent 在长会话中保持连贯性。
+
+### DevTask 自动修复模式
+
+当用户请求涉及测试、构建、修复等开发任务时，自动进入 DevTask 模式：
+
+- 自动检测测试命令并运行
+- 失败时分析错误并尝试修复
+- 指数退避重试（500ms → 8s），最多 3 轮修复
+- 追踪文件修改、命令执行、测试结果
+- 会话持久化 DevTask 状态，支持跨会话恢复
+
+### 上下文管理（4-tier 压缩管线）
+
+`ContextCompressor` 在每次 LLM 调用前自动运行，防止上下文窗口溢出：
+
+| Tier | 名称 | 触发条件 | 行为 |
+|------|------|---------|------|
+| 1 | Budget Truncation | 上下文利用率 > 50% | 大工具结果截断到 30K/15K 字符 |
+| 2 | Stale Snip | 上下文利用率 > 60% | 同一文件的重复读取替换为占位符 |
+| 3 | Microcompact | 空闲 > 5 分钟 | 清理旧工具结果，仅保留最近 2 条 |
+| 4 | Auto-compact | 上下文利用率 > 85% | LLM 总结历史，替换为摘要 |
+
+大工具结果（>30KB）自动持久化到 `logs/tool-results/`，上下文仅保留预览。
+
+### 流式响应处理
+
+`StreamProcessor` 提供实时流式输出能力：
+
+- **StreamChunk 事件**：text_delta / tool_start / tool_end / error / done
+- **事件回调**：onTextDelta / onToolStart / onToolEnd / onError / onDone
+- **全局截断**：超过 20K 字符的响应自动截断（保留头部 10K + 尾部 8K）
+- **大结果持久化**：超过 30KB 的流式结果自动写入磁盘
+
+`StreamingModelProvider` 接口扩展了 `ModelProvider`，新增 `generateStream()` 方法返回 `AsyncIterable<string>`。DeepSeek 和 Mock 模型均已实现此接口。
 
 ### 本地命令执行
 
@@ -169,62 +290,89 @@ npx tsx scripts\smoke-gateway-stream.ts
 - 超时自动 kill 子进程
 - 可通过 `GATEWAY_DISABLE_LOCAL_EXECUTION=1` 完全禁用本地执行
 
-## 高级用法
+### 审计日志
 
-### MCP 插件（可选）
+所有工具调用自动写入 `logs/audit/gateway-audit.jsonl`，每行一条 JSON 记录，包含时间戳、工具名、参数、结果、风险等级、耗时。
 
-MCP 客户端管理在 `src/mcpClientManager.ts`，需要在 `~/.codex/config.json` 中配置 MCP 服务器地址。配置后 Gateway 启动时会自动连接并注册插件工具。
+### 会话管理
 
-### 记忆系统
-
-Gateway 启动时自动加载历史记忆，构建 LLM 系统提示，对话过程中提取关键信息自动保存。记忆文件存储在工作区的记忆目录中。
-
-启用/禁用：设置 `.env` 中的 `ENABLE_WORKSPACE_MEMORY=true/false`。
-
-### 会话持久化
-
-启用后会话数据自动保存，下次启动可恢复上下文。禁用后会话数据仅在内存中。
-
-启用/禁用：设置 `.env` 中的 `ENABLE_SESSION_PERSISTENCE=true/false`。
-
-### 流式输出和中断
-
-Gateway 支持两种输出模式：
-- **非流式模式**：LLM 返回完整文本后一次性输出（默认）
-- **流式模式**：LLM 返回 token 时实时输出（支持 Ctrl+C 中断）
-
-流式模式下工具调用时会自动切换到非流式模式，工具执行完成后恢复流式输出。
-
-输入 `help` 查看内置命令列表。
+- 会话持久化为 JSON 快照（`SessionStore`）
+- 支持创建、切换、列出会话
+- 项目绑定：`bindProjectDir` 将会话绑定到特定项目目录
+- 自动压缩：超过阈值时自动压缩旧会话记录
+- Plan Mode：会话级别的计划模式，阻止修改操作
 
 ## FAQ
 
 | 问题 | 解决方案 |
 |------|---------|
-| Gateway 启动后立即退出 | 检查端口 18081 是否被占用，或 LLM 代理地址是否正确 |
-| 网络请求报错 | 检查 TAVILY_API_KEY 或 LLM_API_KEY 是否配置正确 |
+| Gateway 启动后立即退出 | 检查 Node.js 版本是否 >= 18，或 LLM API Key 是否配置正确 |
 | 工具执行超时 | 调整 GATEWAY_TOOL_TIMEOUT 值，或检查网络连接 |
-| npm_test 执行失败 | 检查 npm 是否已安装，以及 cwd 是否在工作区内 |
-| shell.exec 命令被拒绝 | 检查 cwd 是否在工作区目录内，或命令是否被危险命令拦截 |
-| Sandbox unavailable 错误 | 检查 GATEWAY_SANDBOX_MODE 是否设置为 off（默认值） |
+| shell.run 命令被拒绝 | 检查 cwd 是否在工作区目录内，或命令是否被危险命令拦截 |
+| MCP 服务器连接失败 | 检查 MCP 配置文件路径和服务器命令是否正确，单个失败不影响主流程 |
+| 记忆检索无结果 | 运行 `npx tsx scripts/reindex.ts` 重建索引 |
+| 会话上下文丢失 | 检查 ENABLE_SESSION_PERSISTENCE 是否为 true |
 
 ## 更新日志
 
-### 2026-05-04
+### 2026-05-05（MCP/Skill 优化 + 安全白名单 + 记忆自动写入）
+
+**MCP 系统优化：**
+- 多源配置加载（用户全局 / 项目级 / 项目根目录），按优先级合并
+- 懒连接模式（`mcpLazy`），首次 handle() 时才连接 MCP 服务器
+- `ensureServerConnected()` 按需连接单个服务器
+
+**Skill 技能系统：**
+- SkillDefinition 增强：`whenToUse`、`allowedTools`、`context`（inline/fork）、`userInvocable`、`source`、`skillDir`
+- 模板变量支持：`$ARGUMENTS`、`${SKILL_DIR}`
+- 用户级 Skill 源：`~/.agent-rebuild/skills/`、`~/.claude/skills/`
+- `/name` 命令解析：`/commit fix types` → 调用 commit 技能
+- `skill` LLM 工具：模型可程序化调用技能
+- `buildSkillDescriptions()` 注入系统提示
+
+**安全白名单：**
+- MCP 和 Skill 目录自动加入 `sandboxAllowedRoots`
+- `SessionStore` 支持 `defaultAllowedReadRoots` / `defaultAllowedWriteRoots` / `defaultPermission`
+- 新会话默认 `project-write` 权限，白名单目录可完整操作
+
+**记忆自动写入（MemoryAutoWriter）：**
+- 启发式重要性评分（长期模式 +15、决策模式 +10、错误修复 +12 等）
+- 候选内容提取（用户输入、模型回复、工具调用、diff 补丁）
+- 高分写入 `MEMORY.md`，普通写入 `memory/YYYY-MM-DD.md`
+- `MEMORY.md` 超过 8KB 自动压缩去重
+
+**会话工作记忆（SessionMemoryManager）：**
+- `working-memory.json`：追踪文件修改、命令执行、测试结果
+- `rolling-summary.md`：滚动摘要，每次对话后追加
+- `open-issues.json` / `decisions.jsonl`：待解决问题和决策日志
+- 敏感内容自动脱敏
+
+**DevTask 自动修复模式：**
+- 自动检测开发任务（测试、构建、修复）
+- 测试失败 → 分析错误 → 修复 → 重试，最多 3 轮
+- 指数退避（500ms → 8s）
+- DevTask 状态跨会话持久化
+
+**其他：**
+- 测试：196 个通过，0 失败，0 跳过
+- 类型检查：通过
+- 代码审查：无 TODO/FIXME/HACK 残留
+
+### 2026-05-04（上下文管理 + 流式优化）
+
+- ContextCompressor（4-tier 上下文压缩管线）
+- StreamProcessor（流式响应处理器）
+- StreamingModelProvider 接口，DeepSeek 和 Mock 模型实现 generateStream()
+- 大工具结果（>30KB）自动持久化到 logs/tool-results/
+- 测试：75 个通过
+
+### 2026-05-04（Windows 本地化）
 
 - 移除 WSL / Docker / sandbox-client / sandbox-worker 全部依赖
 - Gateway 改为 Windows 原生本地执行，通过 PowerShell 执行命令
-- GatewaySandbox 改为纯策略守卫，不依赖外部 sandbox 包
-- 新增 toolSecurityProfile.ts（工具分类检查）和 pathGuard.ts（路径守卫）
-- 新增 localCommandRunner.ts（本地命令执行器，PowerShell + spawn）
-- 新增 GATEWAY_DISABLE_LOCAL_EXECUTION 环境变量（完全禁用本地执行）
-- 默认 sandbox 模式改为 off（所有工具可直接执行）
-- 删除 packages/sandbox/（18 个文件）和 packages/sandbox-client/（3 个文件）
-- 删除 5 个 sandbox 脚本和 5 个 sandbox 测试
-- 统一日志目录结构：logs/audit/、logs/tool-results/、logs/test-results/、logs/runtime/、logs/errors/
-- 移除 docs/personal-agent-education-ppt.html（162KB 临时文件）
-- 测试：49 个通过，0 失败，0 跳过
-- 类型检查：通过
+- GatewaySandbox 改为纯策略守卫
+- 新增 toolSecurityProfile.ts、pathGuard.ts、localCommandRunner.ts
+- 测试：49 个通过
 
 ### 2026-05-03
 

@@ -1,7 +1,7 @@
 import * as path from "node:path";
 
 import type { GatewayPlanState, GatewayPermissionDecision, GatewayPermissionMode } from "./permissionTypes";
-import type { GatewayToolCallRequest } from "./toolCallTypes";
+import type { GatewayToolCallRequest, GatewayProjectBoundary } from "./toolCallTypes";
 import type { GatewayTool } from "./toolTypes";
 
 export interface PermissionPolicyOptions {
@@ -35,7 +35,11 @@ export class PermissionPolicy {
       return deny(mode, requiresSandbox, `sensitive path access blocked: ${sensitivePath}`, "sensitive-path");
     }
 
-    const outsideWorkspacePath = this.findOutsideWorkspacePath(input.request.input);
+    const outsideWorkspacePath = this.findOutsideWorkspacePath(
+      input.request.input,
+      input.request.projectBoundary,
+      tool?.readOnly ?? false
+    );
     if (outsideWorkspacePath) {
       return deny(mode, requiresSandbox, `path escapes workspace: ${outsideWorkspacePath}`, "workspace-boundary");
     }
@@ -142,14 +146,41 @@ export class PermissionPolicy {
     return collectPaths(input).find((candidate) => SENSITIVE_PATH_PATTERN.test(candidate));
   }
 
-  private findOutsideWorkspacePath(input: Record<string, unknown>): string | undefined {
+  private findOutsideWorkspacePath(
+    input: Record<string, unknown>,
+    boundary?: GatewayProjectBoundary,
+    toolReadOnly?: boolean
+  ): string | undefined {
+    const effectiveRoots: string[] = [];
+    if (boundary?.permission === "project-write" && boundary.projectDir) {
+      effectiveRoots.push(path.resolve(boundary.projectDir));
+      for (const root of boundary.allowedReadRoots) {
+        const resolved = path.resolve(root);
+        if (!effectiveRoots.includes(resolved)) {
+          effectiveRoots.push(resolved);
+        }
+      }
+    }
+    if (effectiveRoots.length === 0) {
+      effectiveRoots.push(this.projectRoot);
+    }
+
     for (const candidate of collectPaths(input)) {
       if (!looksLikeLocalPath(candidate)) {
         continue;
       }
 
       const resolved = path.resolve(this.projectRoot, candidate);
-      if (!resolved.startsWith(this.projectRoot)) {
+      const isInsideAnyRoot = effectiveRoots.some(
+        (root) => resolved === root || resolved.startsWith(root + path.sep)
+      );
+      if (!isInsideAnyRoot) {
+        if (toolReadOnly && boundary?.permission === "project-write") {
+          if (SENSITIVE_PATH_PATTERN.test(candidate)) {
+            return candidate;
+          }
+          continue;
+        }
         return candidate;
       }
     }

@@ -16,11 +16,18 @@ import type { ToolRegistry } from "./toolRegistry";
  * - 批量连接所有启用的服务
  * - 把远端工具注册进 Gateway 统一工具表
  */
+export interface GatewayMcpManagerOptions {
+  lazy?: boolean;
+}
+
 export class GatewayMcpManager {
   private readonly configs: GatewayMcpServerConfig[];
   private readonly clients = new Map<string, GatewayMcpClient>();
   private readonly statuses = new Map<string, GatewayMcpServerStatus>();
   private readonly tools = new Map<string, GatewayMcpToolInfo[]>();
+  private readonly lazy: boolean;
+  private connecting = new Map<string, Promise<void>>();
+  private initialized = false;
 
   /**
    * 根据配置初始化所有服务的基础状态。
@@ -30,9 +37,11 @@ export class GatewayMcpManager {
    */
   constructor(
     configs: GatewayMcpServerConfig[],
-    private readonly sandbox?: GatewaySandbox
+    private readonly sandbox?: GatewaySandbox,
+    options?: GatewayMcpManagerOptions
   ) {
     this.configs = configs;
+    this.lazy = options?.lazy ?? false;
 
     for (const config of this.configs) {
       this.statuses.set(config.id, {
@@ -62,65 +71,110 @@ export class GatewayMcpManager {
   }
 
   /**
+   * 确保指定服务已连接（懒加载模式下使用）。
+   *
+   * 如果服务尚未连接，则触发连接；如果正在连接中，则等待已有连接完成。
+   * 非懒加载模式下直接返回（connectEnabledServers 已处理）。
+   */
+  async ensureServerConnected(serverId: string): Promise<void> {
+    if (!this.lazy) {
+      return;
+    }
+
+    const existing = this.clients.get(serverId);
+    if (existing && existing.getStatus().connected) {
+      return;
+    }
+
+    const ongoing = this.connecting.get(serverId);
+    if (ongoing) {
+      return ongoing;
+    }
+
+    const config = this.configs.find((c) => c.id === serverId);
+    if (!config || !config.enabled) {
+      return;
+    }
+
+    const promise = this.connectSingleServer(config);
+    this.connecting.set(serverId, promise);
+
+    try {
+      await promise;
+    } finally {
+      this.connecting.delete(serverId);
+    }
+  }
+
+  /**
    * 连接所有启用状态的 MCP 服务。
    *
+   * 懒加载模式下跳过（由 ensureServerConnected 按需连接）。
    * 某一台连接失败不会影响其他服务继续连接，
    * 失败信息会被记录进各自状态中供后续查看。
    */
   async connectEnabledServers(): Promise<void> {
+    if (this.lazy) {
+      this.initialized = true;
+      return;
+    }
     for (const config of this.configs) {
-      if (!config.enabled) {
-        this.statuses.set(config.id, {
+      await this.connectSingleServer(config);
+    }
+  }
+
+  private async connectSingleServer(config: GatewayMcpServerConfig): Promise<void> {
+    if (!config.enabled) {
+      this.statuses.set(config.id, {
+        id: config.id,
+        name: config.name,
+        enabled: false,
+        connected: false,
+        toolCount: 0,
+        launchMode:
+          config.isolation?.enabled && config.isolation.mode === "restricted"
+            ? "managed-runner"
+            : "direct",
+        isolationMode: !config.isolation?.enabled ? "off" : config.isolation.mode,
+        runtimeRoot: config.isolation?.runtimeRoot,
+        cwd: config.cwd,
+        command: config.command,
+        phase: "disabled",
+      });
+      return;
+    }
+
+    const sandboxDecision = this.sandbox?.canConnectMcpServer(config);
+    if (sandboxDecision && !sandboxDecision.allowed) {
+      this.statuses.set(config.id, {
+        ...(this.statuses.get(config.id) ?? {
           id: config.id,
           name: config.name,
-          enabled: false,
+          enabled: config.enabled,
           connected: false,
           toolCount: 0,
-          launchMode:
-            config.isolation?.enabled && config.isolation.mode === "restricted"
-              ? "managed-runner"
-              : "direct",
-          isolationMode: !config.isolation?.enabled ? "off" : config.isolation.mode,
-          runtimeRoot: config.isolation?.runtimeRoot,
-          cwd: config.cwd,
-          command: config.command,
-          phase: "disabled",
-        });
-        continue;
-      }
+        }),
+        connected: false,
+        phase: "blocked",
+        error: sandboxDecision.reason,
+      });
+      return;
+    }
 
-      const sandboxDecision = this.sandbox?.canConnectMcpServer(config);
-      if (sandboxDecision && !sandboxDecision.allowed) {
-        this.statuses.set(config.id, {
-          ...(this.statuses.get(config.id) ?? {
-            id: config.id,
-            name: config.name,
-            enabled: config.enabled,
-            connected: false,
-            toolCount: 0,
-          }),
-          connected: false,
-          phase: "blocked",
-          error: sandboxDecision.reason,
-        });
-        continue;
-      }
+    const client = new GatewayMcpClient(config);
+    this.clients.set(config.id, client);
 
-      const client = new GatewayMcpClient(config);
-      this.clients.set(config.id, client);
-
-      try {
-        await client.connect();
-        this.statuses.set(config.id, client.getStatus());
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const status = client.getStatus();
-        this.statuses.set(config.id, {
-          ...status,
-          connected: false,
-          error: message,
-        });
-      }
+    try {
+      await client.connect();
+      this.statuses.set(config.id, client.getStatus());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = client.getStatus();
+      this.statuses.set(config.id, {
+        ...status,
+        connected: false,
+        error: message,
+      });
     }
   }
 

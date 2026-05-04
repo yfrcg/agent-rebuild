@@ -1,4 +1,4 @@
-import type { ChatMessage, ModelProvider, ModelResponse } from "./types";
+import type { ChatMessage, ModelProvider, ModelResponse, StreamingModelProvider } from "./types";
 
 /**
  * DeepSeek 提供商的可选构造参数。
@@ -36,13 +36,22 @@ interface DeepSeekChatCompletionResponse {
   };
 }
 
+interface DeepSeekStreamChunk {
+  choices?: Array<{
+    delta?: {
+      content?: string;
+    };
+    finish_reason?: string;
+  }>;
+}
+
 /**
  * DeepSeek 模型提供商实现。
  *
  * 这个类负责把 Gateway 的统一消息协议，转换成 DeepSeek HTTP API 需要的请求格式，
  * 再把返回结果清洗成 Gateway 能消费的统一文本输出。
  */
-export class DeepSeekProvider implements ModelProvider {
+export class DeepSeekProvider implements StreamingModelProvider {
   readonly name = "deepseek";
 
   private readonly apiKey?: string;
@@ -103,6 +112,95 @@ export class DeepSeekProvider implements ModelProvider {
    */
   async invoke(messages: ChatMessage[]): Promise<string> {
     return this.chat(messages);
+  }
+
+  async *generateStream(
+    messages: ChatMessage[],
+    options?: { signal?: AbortSignal }
+  ): AsyncIterable<string> {
+    this.assertConfig();
+
+    const endpoint = this.resolveEndpoint(this.baseUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    if (options?.signal) {
+      options.signal.addEventListener("abort", () => controller.abort());
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: this.normalizeMessages(messages),
+          max_tokens: this.maxTokens,
+          temperature: this.temperature,
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          this.buildHttpErrorMessage(response.status, response.statusText, errorText)
+        );
+      }
+
+      const body = response.body;
+      if (!body) {
+        throw new Error("DeepSeek streaming response body is null");
+      }
+
+      const reader = body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith("data: ")) continue;
+
+            const data = trimmed.slice(6);
+            if (data === "[DONE]") return;
+
+            try {
+              const parsed = JSON.parse(data) as DeepSeekStreamChunk;
+              const delta = parsed.choices?.[0]?.delta?.content;
+              if (delta) {
+                yield delta;
+              }
+            } catch {
+              // skip malformed SSE lines
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (err) {
+      if (this.isAbortError(err)) {
+        throw new Error(
+          `DeepSeek streaming request timed out after ${this.timeoutMs}ms`
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   /**

@@ -29,6 +29,7 @@ import { SessionManager } from "./sessionManager";
 import type { GatewaySandbox } from "./sandbox";
 import { GatewayMcpManager } from "./mcpManager";
 import { createGatewayToolCallRequest } from "./toolCallFactory";
+import { extractProjectBoundary } from "./sessionTypes";
 import { ToolCallExecutor } from "./toolCallExecutor";
 import { printToolCallRecord } from "./toolCallPrinter";
 import { ToolRegistry } from "./toolRegistry";
@@ -505,6 +506,7 @@ export async function handleBuiltInGatewayCommand(
       permissionMode:
         context.sessionManager.getCurrentSession().permissionMode ?? "default",
       planState: context.sessionManager.getCurrentSession().planState,
+      projectBoundary: extractProjectBoundary(context.sessionManager.getCurrentSession()),
     });
     const toolCallRecord = await context.toolCallExecutor.execute(toolCallRequest);
     printToolCallRecord(toolCallRecord);
@@ -744,6 +746,7 @@ export async function handleBuiltInGatewayCommand(
       permissionMode:
         context.sessionManager.getCurrentSession().permissionMode ?? "default",
       planState: context.sessionManager.getCurrentSession().planState,
+      projectBoundary: extractProjectBoundary(context.sessionManager.getCurrentSession()),
     });
     const toolCallRecord = await context.toolCallExecutor.execute(toolCallRequest);
     printToolCallRecord(toolCallRecord);
@@ -823,6 +826,7 @@ export async function handleBuiltInGatewayCommand(
       permissionMode:
         context.sessionManager.getCurrentSession().permissionMode ?? "default",
       planState: context.sessionManager.getCurrentSession().planState,
+      projectBoundary: extractProjectBoundary(context.sessionManager.getCurrentSession()),
     });
     const toolCallRecord = await context.toolCallExecutor.execute(toolCallRequest);
     printToolCallRecord(toolCallRecord);
@@ -850,7 +854,14 @@ export async function handleBuiltInGatewayCommand(
         current.planState?.active || current.planState?.status
           ? ` plan=${current.planState?.status ?? "inactive"}`
           : "";
-      const output = `[session] current: ${current.id} (${current.name}) messages=${current.messageCount}${activeSkills} approvals=${approvals} mode=${mode}${plan}`;
+      const displayNameInfo = current.displayName ? ` displayName="${current.displayName}"` : "";
+      const projectInfo = current.projectBound && current.projectDir
+        ? ` projectDir=${current.projectDir} permission=${current.permission} projectBound=true`
+        : " projectDir=none permission=chat-only projectBound=false";
+      const devTaskInfo = current.devTaskState
+        ? ` devTask=${current.devTaskState.status} fixRounds=${current.devTaskState.fixRounds}`
+        : "";
+      const output = `[session] current: ${current.id} (${current.name})${displayNameInfo} messages=${current.messageCount}${activeSkills} approvals=${approvals} mode=${mode}${plan}${projectInfo}${devTaskInfo}`;
       console.log(output);
       recordToCurrentSession("assistant", output);
       return {
@@ -865,6 +876,7 @@ export async function handleBuiltInGatewayCommand(
       console.log("[session] list");
       sessions.forEach((session) => {
         const currentFlag = session.id === currentId ? "*" : " ";
+        const displayLabel = session.displayName ?? session.name;
         const skillSuffix =
           session.activeSkills && session.activeSkills.length > 0
             ? ` | skills=${session.activeSkills.join(",")}`
@@ -872,8 +884,11 @@ export async function handleBuiltInGatewayCommand(
         const approvalSuffix = ` | approvals=${session.pendingApprovals?.length ?? 0}`;
         const modeSuffix = ` | mode=${session.permissionMode ?? "default"}`;
         const planSuffix = session.planState ? ` | plan=${session.planState.status}` : "";
+        const projectSuffix = session.projectBound && session.projectDir
+          ? ` | bound=${session.projectDir}`
+          : "";
         console.log(
-          `${currentFlag} ${session.id} | ${session.name} | messages=${session.messageCount}${skillSuffix}${approvalSuffix}${modeSuffix}${planSuffix}`
+          `${currentFlag} ${session.id} | ${displayLabel} | messages=${session.messageCount}${skillSuffix}${approvalSuffix}${modeSuffix}${planSuffix}${projectSuffix}`
         );
       });
 
@@ -952,6 +967,128 @@ export async function handleBuiltInGatewayCommand(
       "[session] unknown subcommand. usage: :session | :session current | :session list | :session new [name] | :session switch <sessionId> | :session rename <name>";
     console.log(fallback);
     recordToCurrentSession("assistant", fallback);
+
+    return {
+      handled: true,
+    };
+  }
+
+  if (command.type === "new-chat") {
+    const name = (command.payload ?? "").trim() || undefined;
+    context.sessionManager.summarizeSession();
+    const created = context.sessionManager.createSession(name);
+    const output = `[new-chat] created session: ${created.id} (${created.name})\n  permission: ${created.permission}\n  projectBound: ${created.projectBound}\n  projectDir: ${created.projectDir ?? "none"}`;
+    console.log(output);
+    return {
+      handled: true,
+    };
+  }
+
+  if (command.type === "new-session") {
+    const projectDir = (command.payload ?? "").trim();
+
+    context.sessionManager.summarizeSession();
+    const created = context.sessionManager.createSession();
+
+    if (!projectDir) {
+      const output = `[new-session] created session: ${created.id} (${created.name})\n  permission: chat-only\n  projectDir: none\n  hint: use :bind <projectDir> to bind a project`;
+      console.log(output);
+      return {
+        handled: true,
+      };
+    }
+
+    try {
+      const { session, scan } = context.sessionManager.bindProjectDir(created.id, projectDir);
+      const lines = [
+        `[new-session] created and bound:`,
+        `  sessionId: ${session.id}`,
+        `  displayName: ${session.displayName ?? session.name}`,
+        `  projectDir: ${session.projectDir}`,
+        `  permission: ${session.permission}`,
+        `  projectBound: ${session.projectBound}`,
+        `  commandCwd: ${session.commandCwd}`,
+        `  allowedReadRoots: ${session.allowedReadRoots.join(", ")}`,
+        `  allowedWriteRoots: ${session.allowedWriteRoots.join(", ")}`,
+        `  scan:`,
+        `    .git: ${scan.hasGit}${scan.gitBranch ? ` (${scan.gitBranch})` : ""}${scan.gitClean !== undefined ? ` clean=${scan.gitClean}` : ""}`,
+        `    package.json: ${scan.hasPackageJson}`,
+        `    pyproject.toml: ${scan.hasPyprojectToml}`,
+        `    pom.xml: ${scan.hasPomXml}`,
+        `    build.gradle: ${scan.hasBuildGradle}`,
+        `    oh-package.json5: ${scan.hasOhPackageJson5}`,
+        `    CMakeLists.txt: ${scan.hasCmakeLists}`,
+      ];
+      if (scan.possibleTestCommand) {
+        lines.push(`    test command: ${scan.possibleTestCommand}`);
+      }
+      if (scan.possibleBuildCommand) {
+        lines.push(`    build command: ${scan.possibleBuildCommand}`);
+      }
+      console.log(lines.join("\n"));
+    } catch (err) {
+      const output = `[new-session] created session ${created.id} but bind failed: ${err instanceof Error ? err.message : String(err)}`;
+      console.log(output);
+    }
+
+    return {
+      handled: true,
+    };
+  }
+
+  if (command.type === "bind") {
+    const projectDir = (command.payload ?? "").trim();
+    if (!projectDir) {
+      const output = "[bind] missing projectDir. usage: :bind <projectDir>";
+      console.log(output);
+      return {
+        handled: true,
+      };
+    }
+
+    try {
+      const currentSessionId = context.sessionManager.getCurrentSessionId();
+      const { session, scan } = context.sessionManager.bindProjectDir(currentSessionId, projectDir);
+      const lines = [
+        `[bind] project bound successfully:`,
+        `  sessionId: ${session.id}`,
+        `  displayName: ${session.displayName ?? session.name}`,
+        `  projectDir: ${session.projectDir}`,
+        `  permission: ${session.permission}`,
+        `  projectBound: ${session.projectBound}`,
+        `  commandCwd: ${session.commandCwd}`,
+        `  allowedReadRoots: ${session.allowedReadRoots.join(", ")}`,
+        `  allowedWriteRoots: ${session.allowedWriteRoots.join(", ")}`,
+        `  scan:`,
+        `    .git: ${scan.hasGit}${scan.gitBranch ? ` (${scan.gitBranch})` : ""}${scan.gitClean !== undefined ? ` clean=${scan.gitClean}` : ""}`,
+        `    package.json: ${scan.hasPackageJson}`,
+        `    pyproject.toml: ${scan.hasPyprojectToml}`,
+        `    pom.xml: ${scan.hasPomXml}`,
+        `    build.gradle: ${scan.hasBuildGradle}`,
+        `    oh-package.json5: ${scan.hasOhPackageJson5}`,
+        `    CMakeLists.txt: ${scan.hasCmakeLists}`,
+      ];
+      if (scan.possibleTestCommand) {
+        lines.push(`    test command: ${scan.possibleTestCommand}`);
+      }
+      if (scan.possibleBuildCommand) {
+        lines.push(`    build command: ${scan.possibleBuildCommand}`);
+      }
+      const output = lines.join("\n");
+      console.log(output);
+    } catch (err) {
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      try {
+        const conflict = JSON.parse(rawMessage);
+        if (conflict.code === "PROJECT_DIR_CONFLICT") {
+          const output = `[bind] PROJECT_DIR_CONFLICT\n  ${conflict.message}\n  hint: ${conflict.suggestion}`;
+          console.log(output);
+          return { handled: true };
+        }
+      } catch { /* not JSON, fall through */ }
+      const output = `[bind] failed: ${rawMessage}`;
+      console.log(output);
+    }
 
     return {
       handled: true,
@@ -1128,6 +1265,7 @@ export async function handleBuiltInGatewayCommand(
         permissionMode:
           context.sessionManager.getCurrentSession().permissionMode ?? "default",
         planState: context.sessionManager.getCurrentSession().planState,
+        projectBoundary: extractProjectBoundary(context.sessionManager.getCurrentSession()),
       })
     );
     printToolCallRecord(toolCallRecord);

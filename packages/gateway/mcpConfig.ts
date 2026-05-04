@@ -1,66 +1,102 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 import type { GatewayMcpServerConfig } from "./mcpTypes";
 
-/**
- * MCP 服务器配置文件的固定位置。
- *
- * 这里使用项目根目录下的 `config/mcp.servers.json`，
- * 方便把可共享的服务器配置独立于代码维护。
- */
 const MCP_CONFIG_FILE_PATH = path.resolve(
   process.cwd(),
   "config",
   "mcp.servers.json"
 );
 
+function getHomeDir(): string {
+  return process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
+}
+
+const MCP_CONFIG_SOURCES: string[] = [
+  path.join(getHomeDir(), ".agent-rebuild", "mcp.servers.json"),
+  MCP_CONFIG_FILE_PATH,
+  path.resolve(process.cwd(), ".mcp.json"),
+];
+
 interface GatewayMcpConfigFile {
   servers?: unknown;
+}
+
+function readJsonFile(filePath: string): unknown | undefined {
+  if (!fs.existsSync(filePath)) {
+    return undefined;
+  }
+
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function extractServersFromParsed(parsed: unknown): unknown[] {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return [];
+  }
+
+  const obj = parsed as Record<string, unknown>;
+
+  if (Array.isArray(obj.servers)) {
+    return obj.servers;
+  }
+
+  if (obj.mcpServers && typeof obj.mcpServers === "object" && !Array.isArray(obj.mcpServers)) {
+    const mcpServers = obj.mcpServers as Record<string, unknown>;
+    return Object.entries(mcpServers).map(([name, config]) => {
+      if (config && typeof config === "object" && !Array.isArray(config)) {
+        return { id: name, name, ...(config as Record<string, unknown>) };
+      }
+      return config;
+    });
+  }
+
+  return [];
 }
 
 /**
  * 读取并解析 MCP 服务器配置列表。
  *
- * 解析过程分为三步：
- * 1. 读文件。
- * 2. 解析 JSON。
- * 3. 逐条校验每个服务项的字段合法性。
+ * 从多个配置源加载并合并，后加载的同名配置覆盖先前的：
+ * 1. ~/.agent-rebuild/mcp.servers.json (用户级)
+ * 2. config/mcp.servers.json (项目级)
+ * 3. .mcp.json (项目级兼容格式)
  */
 export function loadGatewayMcpServerConfigs(): GatewayMcpServerConfig[] {
-  if (!fs.existsSync(MCP_CONFIG_FILE_PATH)) {
-    return [];
+  const merged = new Map<string, GatewayMcpServerConfig>();
+
+  for (const configPath of MCP_CONFIG_SOURCES) {
+    const parsed = readJsonFile(configPath);
+    if (parsed === undefined) {
+      continue;
+    }
+
+    const serverEntries = extractServersFromParsed(parsed);
+    for (let index = 0; index < serverEntries.length; index++) {
+      try {
+        const config = parseServerConfig(serverEntries[index], index);
+        merged.set(config.id, config);
+      } catch {
+        // skip malformed entries silently
+      }
+    }
   }
 
-  let rawText = "";
-  try {
-    rawText = fs.readFileSync(MCP_CONFIG_FILE_PATH, "utf8");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`[mcp] failed to read config file: ${MCP_CONFIG_FILE_PATH}. ${message}`);
-  }
+  return Array.from(merged.values());
+}
 
-  let parsed: GatewayMcpConfigFile;
-  try {
-    parsed = JSON.parse(rawText) as GatewayMcpConfigFile;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`[mcp] invalid JSON in ${MCP_CONFIG_FILE_PATH}. ${message}`);
-  }
-
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error(`[mcp] invalid config shape in ${MCP_CONFIG_FILE_PATH}`);
-  }
-
-  if (parsed.servers === undefined) {
-    return [];
-  }
-
-  if (!Array.isArray(parsed.servers)) {
-    throw new Error(`[mcp] "servers" must be an array in ${MCP_CONFIG_FILE_PATH}`);
-  }
-
-  return parsed.servers.map((server, index) => parseServerConfig(server, index));
+/**
+ * 获取所有配置源路径（用于诊断/测试）。
+ */
+export function getMcpConfigSources(): string[] {
+  return [...MCP_CONFIG_SOURCES];
 }
 
 /**

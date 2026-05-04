@@ -1,7 +1,10 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 
 import { ROOT_DIR, WORKSPACE_DIR } from "./config";
+
+export type SkillContext = "inline" | "fork";
 
 export interface SkillDefinition {
   name: string;
@@ -14,11 +17,18 @@ export interface SkillDefinition {
   aliases: string[];
   priority: number;
   conflicts: string[];
+  whenToUse?: string;
+  allowedTools?: string[];
+  userInvocable: boolean;
+  context: SkillContext;
+  source: "project" | "user";
+  skillDir: string;
 }
 
 interface SkillSource {
   platform: string;
   root: string;
+  source: "project" | "user";
 }
 
 export interface SkillDiscoveryResult {
@@ -38,26 +48,46 @@ export interface SkillSelectionResult {
 
 const SKILL_FILE_NAME = "SKILL.md";
 const MAX_SKILL_CONTENT_CHARS = 4000;
+
+function getHomeDir(): string {
+  return process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
+}
+
 const DEFAULT_SKILL_SOURCES: SkillSource[] = [
+  {
+    platform: "user-global",
+    root: path.join(getHomeDir(), ".agent-rebuild", "skills"),
+    source: "user",
+  },
+  {
+    platform: "user-claude",
+    root: path.join(getHomeDir(), ".claude", "skills"),
+    source: "user",
+  },
   {
     platform: "workspace",
     root: path.join(WORKSPACE_DIR, "skills"),
+    source: "project",
   },
   {
     platform: "repo",
     root: path.join(ROOT_DIR, "skills"),
+    source: "project",
   },
   {
     platform: "codex",
     root: path.join(ROOT_DIR, ".codex", "skills"),
+    source: "project",
   },
   {
     platform: "trae",
     root: path.join(ROOT_DIR, ".trae", "skills"),
+    source: "project",
   },
   {
     platform: "claude",
     root: path.join(ROOT_DIR, ".claude", "skills"),
+    source: "project",
   },
 ];
 
@@ -165,6 +195,64 @@ export function renderSkillInventory(skills: SkillDefinition[]): string {
   ].join("\n");
 }
 
+export function getSkillByName(
+  name: string,
+  skills?: SkillDefinition[]
+): SkillDefinition | undefined {
+  const list = skills ?? discoverSkills().skills;
+  const normalized = normalizeSkillName(name);
+  return list.find(
+    (skill) =>
+      skill.name === normalized ||
+      skill.aliases.includes(normalized)
+  );
+}
+
+export function resolveSkillPrompt(skill: SkillDefinition, args: string): string {
+  let prompt = skill.content;
+  prompt = prompt.replace(/\$ARGUMENTS|\$\{ARGUMENTS\}/g, args);
+  prompt = prompt.replace(/\$\{SKILL_DIR\}/g, skill.skillDir);
+  return prompt;
+}
+
+export function buildSkillDescriptions(skills: SkillDefinition[]): string {
+  if (skills.length === 0) {
+    return "";
+  }
+
+  const lines: string[] = ["# Available Skills", ""];
+  const invocable = skills.filter((s) => s.userInvocable);
+  const autoOnly = skills.filter((s) => !s.userInvocable);
+
+  if (invocable.length > 0) {
+    lines.push("User-invocable skills (user types /<name> to invoke):");
+    for (const s of invocable) {
+      lines.push(`- **/${s.name}**: ${s.description}`);
+      if (s.whenToUse) {
+        lines.push(`  When to use: ${s.whenToUse}`);
+      }
+    }
+    lines.push("");
+  }
+
+  if (autoOnly.length > 0) {
+    lines.push("Auto-invocable skills (use the `skill` tool when appropriate):");
+    for (const s of autoOnly) {
+      lines.push(`- **${s.name}**: ${s.description}`);
+      if (s.whenToUse) {
+        lines.push(`  When to use: ${s.whenToUse}`);
+      }
+    }
+    lines.push("");
+  }
+
+  lines.push(
+    "To invoke a skill programmatically, use the `skill` tool with the skill name and optional arguments."
+  );
+
+  return lines.join("\n");
+}
+
 function findSkillFiles(root: string): string[] {
   const result: string[] = [];
   const stack = [root];
@@ -204,7 +292,8 @@ function readSkillFile(source: SkillSource, filePath: string): SkillDefinition {
   const title = extractSkillTitle(metadata.body, filePath);
   const description = extractSkillDescription(metadata.body);
   const relativePath = path.relative(ROOT_DIR, filePath).replace(/\\/g, "/");
-  const directoryName = path.basename(path.dirname(filePath));
+  const skillDir = path.dirname(filePath);
+  const directoryName = path.basename(skillDir);
   const name = normalizeSkillName(directoryName || title);
   const aliases = collectAliases(name, title, description, metadata.aliases);
 
@@ -219,6 +308,12 @@ function readSkillFile(source: SkillSource, filePath: string): SkillDefinition {
     aliases,
     priority: metadata.priority,
     conflicts: metadata.conflicts.map(normalizeSkillName),
+    whenToUse: metadata.whenToUse,
+    allowedTools: metadata.allowedTools,
+    userInvocable: metadata.userInvocable,
+    context: metadata.context,
+    source: source.source,
+    skillDir,
   };
 }
 
@@ -421,6 +516,10 @@ function extractSkillMetadata(content: string): {
   priority: number;
   conflicts: string[];
   aliases: string[];
+  whenToUse?: string;
+  allowedTools?: string[];
+  userInvocable: boolean;
+  context: SkillContext;
 } {
   const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
   if (!frontmatterMatch) {
@@ -429,10 +528,30 @@ function extractSkillMetadata(content: string): {
       priority: 0,
       conflicts: [],
       aliases: [],
+      userInvocable: true,
+      context: "inline",
     };
   }
 
   const metadata = parseFrontmatter(frontmatterMatch[1]);
+  const contextRaw = typeof metadata.context === "string" ? metadata.context.trim().toLowerCase() : "";
+  const context: SkillContext = contextRaw === "fork" ? "fork" : "inline";
+  const userInvocable = metadata["user-invocable"] !== "false" && metadata["user_invocable"] !== "false";
+
+  let allowedTools: string[] | undefined;
+  const allowedToolsRaw = metadata["allowed-tools"] ?? metadata["allowed_tools"];
+  if (typeof allowedToolsRaw === "string" && allowedToolsRaw.trim()) {
+    allowedTools = allowedToolsRaw
+      .replace(/^\[/, "").replace(/\]$/, "")
+      .split(",")
+      .map((s: string) => s.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+  } else if (Array.isArray(allowedToolsRaw)) {
+    allowedTools = allowedToolsRaw.filter((t): t is string => typeof t === "string" && t.trim() !== "");
+  }
+
+  const whenToUse = (metadata["when-to-use"] ?? metadata["when_to_use"]) as string | undefined;
+
   return {
     body: content.slice(frontmatterMatch[0].length),
     priority:
@@ -441,6 +560,10 @@ function extractSkillMetadata(content: string): {
         : 0,
     conflicts: normalizeStringList(metadata.conflicts),
     aliases: normalizeStringList(metadata.aliases),
+    whenToUse: typeof whenToUse === "string" && whenToUse.trim() ? whenToUse.trim() : undefined,
+    allowedTools: allowedTools && allowedTools.length > 0 ? allowedTools : undefined,
+    userInvocable,
+    context,
   };
 }
 

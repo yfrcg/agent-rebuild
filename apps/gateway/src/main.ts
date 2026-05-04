@@ -28,6 +28,7 @@ import { printRuntimeConfig } from "../../../packages/gateway/runtimeConfigPrint
 import { GatewaySandbox } from "../../../packages/gateway/sandbox";
 import { maybeAutoCompactSession } from "../../../packages/gateway/sessionAutoCompaction";
 import { SessionManager } from "../../../packages/gateway/sessionManager";
+import { SessionStore } from "../../../packages/gateway/sessionStore";
 import { ToolCallExecutor } from "../../../packages/gateway/toolCallExecutor";
 import { recordTranscript } from "../../../packages/gateway/transcriptRecorder";
 
@@ -46,8 +47,13 @@ async function main(): Promise<void> {
   loadEnvFile();
 
   const projectRoot = resolveProjectRoot(process.env);
-  const sessionManager = new SessionManager();
   const config = loadGatewayConfig();
+  const sessionStore = new SessionStore({
+    defaultAllowedReadRoots: config.sandboxAllowedRoots,
+    defaultAllowedWriteRoots: config.sandboxAllowedRoots,
+    defaultPermission: "project-write",
+  });
+  const sessionManager = new SessionManager(sessionStore);
   const sandbox = new GatewaySandbox({
     mode: config.sandboxMode,
     allowedRoots: config.sandboxAllowedRoots,
@@ -62,7 +68,8 @@ async function main(): Promise<void> {
     console.error(`[mcp] config load failed, continue without MCP servers. ${message}`);
   }
 
-  const mcpManager = new GatewayMcpManager(mcpConfigs, sandbox);
+  const mcpLazy = Boolean((config as unknown as Record<string, unknown>).mcpLazy);
+  const mcpManager = new GatewayMcpManager(mcpConfigs, sandbox, { lazy: mcpLazy });
   const modelProvider = createModelProvider(config.model);
   const rateLimiter = new GatewayRateLimiter({
     maxRequests: config.rateLimitMaxRequests,
@@ -92,9 +99,12 @@ async function main(): Promise<void> {
     projectRoot,
   });
 
-  // 先连接 MCP 服务，再把其工具映射进统一工具注册表。
-  await mcpManager.connectEnabledServers();
-  await mcpManager.registerTools(toolRegistry);
+  if (mcpLazy) {
+    console.log("[mcp] lazy mode: servers will connect on first handle() call");
+  } else {
+    await mcpManager.connectEnabledServers();
+    await mcpManager.registerTools(toolRegistry);
+  }
 
   const toolCallExecutor = new ToolCallExecutor({
     registry: toolRegistry,
@@ -115,6 +125,10 @@ async function main(): Promise<void> {
     sandbox,
     autoToolLoopEnabled: config.autoToolLoopEnabled,
     autoToolLoopMaxSteps: config.autoToolLoopMaxSteps,
+    devTaskMaxSteps: config.devTaskMaxSteps,
+    devTaskMaxFixRounds: config.devTaskMaxFixRounds,
+    sessionManager,
+    mcpManager: mcpLazy ? mcpManager : undefined,
   });
 
   const rl = readline.createInterface({

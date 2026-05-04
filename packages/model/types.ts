@@ -26,3 +26,16 @@ export interface ModelProvider {
   name: string;
   generate(messages: ChatMessage[]): Promise<ModelResponse>;
 }
+
+/**
+ * 流式模型提供商扩展接口。
+ *
+ * 继承 ModelProvider，额外提供 generateStream 方法，
+ * 返回 AsyncIterable 逐块输出文本，适用于需要实时显示的场景。
+ */
+export interface StreamingModelProvider extends ModelProvider {
+  generateStream(
+    messages: ChatMessage[],
+    options?: { signal?: AbortSignal }
+  ): AsyncIterable<string>;
+}

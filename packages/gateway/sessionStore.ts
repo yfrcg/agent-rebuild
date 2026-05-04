@@ -5,11 +5,14 @@ import { resolveWorkspacePath } from "../core/src/config";
 
 import type {
   GatewayPendingApproval,
+  GatewayProjectBindingSource,
   GatewaySession,
   GatewaySessionApprovalConsumeResult,
   GatewaySessionApprovalCreateInput,
   GatewaySessionCreateInput,
+  GatewaySessionDevTaskState,
   GatewaySessionId,
+  GatewaySessionProjectPermission,
   GatewaySessionRenameInput,
   GatewaySessionSkillInput,
   GatewaySessionStoreSnapshot,
@@ -48,10 +51,34 @@ function nowIso(): string {
  * 这个类只管理会话列表、名称、时间戳和消息数量等轻量信息，
  * 不负责真正的消息逐行写入，那部分由 transcript 模块单独处理。
  */
+export interface SessionStoreOptions {
+  snapshotPath?: string;
+  defaultAllowedReadRoots?: string[];
+  defaultAllowedWriteRoots?: string[];
+  defaultPermission?: GatewaySessionProjectPermission;
+}
+
 export class SessionStore {
-  constructor(private readonly snapshotPath = DEFAULT_SNAPSHOT_PATH) {
+  private readonly defaultAllowedReadRoots: string[];
+  private readonly defaultAllowedWriteRoots: string[];
+  private readonly defaultPermission: GatewaySessionProjectPermission;
+
+  constructor(optionsOrPath?: string | SessionStoreOptions) {
+    if (typeof optionsOrPath === "string") {
+      this.snapshotPath = optionsOrPath;
+      this.defaultAllowedReadRoots = [];
+      this.defaultAllowedWriteRoots = [];
+      this.defaultPermission = "chat-only";
+    } else {
+      this.snapshotPath = optionsOrPath?.snapshotPath ?? DEFAULT_SNAPSHOT_PATH;
+      this.defaultAllowedReadRoots = optionsOrPath?.defaultAllowedReadRoots ?? [];
+      this.defaultAllowedWriteRoots = optionsOrPath?.defaultAllowedWriteRoots ?? [];
+      this.defaultPermission = optionsOrPath?.defaultPermission ?? "chat-only";
+    }
     this.ensureSnapshotFile();
   }
+
+  private readonly snapshotPath: string;
 
   /**
    * 加载全部会话，并按最近更新时间倒序排列。
@@ -97,6 +124,12 @@ export class SessionStore {
       activeSkills: [],
       pendingApprovals: [],
       permissionMode: "default",
+      projectDir: null,
+      permission: this.defaultPermission,
+      projectBound: false,
+      allowedReadRoots: [...this.defaultAllowedReadRoots],
+      allowedWriteRoots: [...this.defaultAllowedWriteRoots],
+      commandCwd: null,
     };
 
     sessions.push(session);
@@ -271,6 +304,58 @@ export class SessionStore {
     return approvals;
   }
 
+  setDevTaskState(
+    id: GatewaySessionId,
+    devTaskState: GatewaySessionDevTaskState | undefined
+  ): GatewaySession | undefined {
+    const sessions = this.loadSessions();
+    const target = sessions.find((session) => session.id === id);
+
+    if (!target) {
+      return undefined;
+    }
+
+    target.devTaskState = devTaskState;
+    target.updatedAt = nowIso();
+    this.saveSessions(sessions);
+    return target;
+  }
+
+  setProjectBinding(
+    id: GatewaySessionId,
+    binding: {
+      projectDir: string;
+      permission: GatewaySessionProjectPermission;
+      allowedReadRoots: string[];
+      allowedWriteRoots: string[];
+      commandCwd: string;
+      bindingSource?: GatewayProjectBindingSource;
+      displayName?: string;
+    }
+  ): GatewaySession | undefined {
+    const sessions = this.loadSessions();
+    const target = sessions.find((session) => session.id === id);
+
+    if (!target) {
+      return undefined;
+    }
+
+    target.projectDir = binding.projectDir;
+    target.permission = binding.permission;
+    target.projectBound = true;
+    target.projectBoundAt = nowIso();
+    target.projectBindingSource = binding.bindingSource ?? "repl";
+    target.allowedReadRoots = [...binding.allowedReadRoots];
+    target.allowedWriteRoots = [...binding.allowedWriteRoots];
+    target.commandCwd = binding.commandCwd;
+    if (binding.displayName) {
+      target.displayName = binding.displayName;
+    }
+    target.updatedAt = nowIso();
+    this.saveSessions(sessions);
+    return target;
+  }
+
   /**
    * 只刷新会话更新时间，不改其他字段。
    */
@@ -375,6 +460,44 @@ export class SessionStore {
             session.planState && typeof session.planState === "object"
               ? session.planState
               : undefined,
+          displayName:
+            typeof session.displayName === "string"
+              ? session.displayName
+              : undefined,
+          title:
+            typeof session.title === "string"
+              ? session.title
+              : undefined,
+          projectDir:
+            typeof session.projectDir === "string"
+              ? session.projectDir
+              : null,
+          permission:
+            session.permission === "chat-only" || session.permission === "project-write"
+              ? session.permission
+              : "chat-only",
+          projectBound:
+            typeof session.projectBound === "boolean"
+              ? session.projectBound
+              : (typeof session.projectDir === "string" && session.projectDir !== null),
+          projectBoundAt:
+            typeof session.projectBoundAt === "string"
+              ? session.projectBoundAt
+              : undefined,
+          projectBindingSource:
+            typeof session.projectBindingSource === "string"
+              ? session.projectBindingSource as GatewayProjectBindingSource
+              : undefined,
+          allowedReadRoots: Array.isArray(session.allowedReadRoots)
+            ? session.allowedReadRoots.filter((r): r is string => typeof r === "string")
+            : [],
+          allowedWriteRoots: Array.isArray(session.allowedWriteRoots)
+            ? session.allowedWriteRoots.filter((r): r is string => typeof r === "string")
+            : [],
+          commandCwd:
+            typeof session.commandCwd === "string"
+              ? session.commandCwd
+              : null,
         })),
       };
     } catch {
@@ -406,6 +529,14 @@ export class SessionStore {
       ...session,
       pendingApprovals: this.pruneExpiredApprovals(session.pendingApprovals ?? []),
       permissionMode: session.permissionMode ?? "default",
+      projectDir: session.projectDir ?? null,
+      permission: session.permission ?? "chat-only",
+      projectBound: session.projectBound ?? (typeof session.projectDir === "string" && session.projectDir !== null),
+      projectBoundAt: session.projectBoundAt ?? undefined,
+      projectBindingSource: session.projectBindingSource ?? undefined,
+      allowedReadRoots: session.allowedReadRoots ?? [],
+      allowedWriteRoots: session.allowedWriteRoots ?? [],
+      commandCwd: session.commandCwd ?? null,
     };
   }
 

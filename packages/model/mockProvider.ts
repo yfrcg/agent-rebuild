@@ -1,4 +1,4 @@
-import type { ChatMessage, ModelProvider, ModelResponse } from "./types";
+import type { ChatMessage, ModelProvider, ModelResponse, StreamingModelProvider } from "./types";
 
 export interface MockModelProviderOptions {
   prefix?: string;
@@ -10,7 +10,7 @@ export interface MockModelProviderOptions {
  * 主要用于本地开发、单元测试和离线门禁，
  * 避免日常验证依赖真实模型 API。
  */
-export class MockModelProvider implements ModelProvider {
+export class MockModelProvider implements StreamingModelProvider {
   readonly name = "mock";
 
   private readonly prefix: string;
@@ -45,6 +45,20 @@ export class MockModelProvider implements ModelProvider {
         messageCount: messages.length,
       },
     };
+  }
+
+  async *generateStream(messages: ChatMessage[]): AsyncIterable<string> {
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "user")?.content;
+
+    const text = lastUserMessage?.includes("[AUTO_TOOL_DECISION]")
+      ? JSON.stringify({ action: "respond", reason: "Mock stream response." })
+      : `${this.prefix} ${lastUserMessage ?? "no user message"}`.trim();
+
+    for (let i = 0; i < text.length; i += 10) {
+      yield text.slice(i, i + 10);
+    }
   }
 }
 
