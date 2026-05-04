@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const gateway = new Gateway({
     memorySearch: smokeMemorySearch,
     modelProvider: new MockModelProvider(),
-    auditLogger: new FileAuditLogger("logs/gateway-smoke-test.jsonl"),
+    auditLogger: new FileAuditLogger("logs/test-results/gateway-smoke-test.jsonl"),
     debug: true,
   });
 

@@ -3,7 +3,6 @@ import * as path from "path";
 
 export const DEFAULT_WINDOWS_PROJECT_ROOT = "D:\\WorkStation\\agent-rebuild";
 export const DEFAULT_WINDOWS_WORKSPACE_ROOT = `${DEFAULT_WINDOWS_PROJECT_ROOT}\\workspace`;
-export const DEFAULT_WSL_PROJECT_ROOT = "/mnt/d/WorkStation/agent-rebuild";
 
 export function resolveProjectRoot(
   env: NodeJS.ProcessEnv = process.env

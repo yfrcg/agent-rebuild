@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   const gateway = new Gateway({
     memorySearch: smokeMemorySearch,
     modelProvider: new FailingModelProvider(),
-    auditLogger: new FileAuditLogger("logs/gateway-smoke-model-failure.jsonl"),
+    auditLogger: new FileAuditLogger("logs/test-results/gateway-smoke-model-failure.jsonl"),
     debug: true,
   });
 

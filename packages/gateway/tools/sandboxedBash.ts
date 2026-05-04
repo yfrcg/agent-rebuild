@@ -1,11 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { createToolSecurityProfile } from "../../sandbox/src/policy";
-import type {
-  SandboxNetworkMode,
-  SandboxRequest,
-} from "../../sandbox/src/types";
+import { createToolSecurityProfile } from "../toolSecurityProfile";
 import { resolveProjectRoot } from "../../core/src/config";
 import type { GatewayTool, GatewayToolInput } from "../toolTypes";
 
@@ -19,8 +15,8 @@ interface ExecutionCommandSpec {
   env?: Record<string, string>;
   envAllowlist?: string[];
   workspaceMount?: string;
-  networkPolicy?: SandboxNetworkMode;
-  resourceLimits?: SandboxRequest["resourceLimits"];
+  networkPolicy?: string;
+  resourceLimits?: Record<string, unknown>;
   profileName?: string;
 }
 
@@ -72,10 +68,10 @@ export function createSandboxedBashTool(
   return createSandboxedExecutionTool({
     projectRoot,
     toolName,
-    description: "Run a shell command through the configured sandbox backend.",
+    description: "Run a shell command locally in the project workspace.",
     schema,
     timeoutMs: DEFAULT_EXECUTION_TIMEOUT_MS,
-    policyTags: ["sandbox", "shell"],
+    policyTags: ["execution", "shell"],
     resolveCommand(input, root) {
       const command = requireString(input.command, "input.command required");
       const env = normalizeEnv(input.env);
@@ -120,10 +116,10 @@ export function createSandboxedRunTestTool(
   return createSandboxedExecutionTool({
     projectRoot,
     toolName: "run_test",
-    description: "Run a project test command in the WSL sandbox worker.",
+    description: "Run a project test command locally.",
     schema,
     timeoutMs: 180_000,
-    policyTags: ["sandbox", "test"],
+    policyTags: ["execution", "test"],
     resolveCommand(input, root) {
       const cwd = normalizeShellCwd(input.cwd, root);
       return {
@@ -163,10 +159,10 @@ export function createSandboxedNpmTestTool(
   return createSandboxedExecutionTool({
     projectRoot,
     toolName: "npm_test",
-    description: "Run npm test or a named npm test script in the WSL sandbox worker.",
+    description: "Run npm test or a named npm script locally.",
     schema,
     timeoutMs: 180_000,
-    policyTags: ["sandbox", "test", "npm"],
+    policyTags: ["execution", "test", "npm"],
     resolveCommand(input, root) {
       const cwd = normalizeShellCwd(input.cwd, root);
       const script =
@@ -207,10 +203,10 @@ export function createSandboxedBuildTool(
   return createSandboxedExecutionTool({
     projectRoot,
     toolName: "build",
-    description: "Run the workspace build command in the WSL sandbox worker.",
+    description: "Run the workspace build command locally.",
     schema,
     timeoutMs: 240_000,
-    policyTags: ["sandbox", "build", "npm"],
+    policyTags: ["execution", "build", "npm"],
     resolveCommand(input, root) {
       const cwd = normalizeShellCwd(input.cwd, root);
       return {
@@ -242,19 +238,19 @@ function createSandboxedExecutionTool(
     permissionLevel: "execute",
     readOnly: false,
     sideEffect: true,
-    requiresSandbox: true,
+    requiresSandbox: false,
     timeoutMs: options.timeoutMs,
     policy: {
       automationLevel: "auto",
       riskLevel: "stateful",
-      tags: options.policyTags ?? ["sandbox", "execution"],
+      tags: options.policyTags ?? ["execution"],
     },
     security: createToolSecurityProfile({
       riskLevel: "medium",
-      sandboxRequired: true,
+      sandboxRequired: false,
       allowNetwork: false,
       allowWrite: true,
-      allowHostExecution: false,
+      allowHostExecution: true,
       requireApproval: false,
     }),
     sandboxSpec: {

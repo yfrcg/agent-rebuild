@@ -626,9 +626,9 @@ export class Gateway {
         ? {
             mode: this.sandbox.mode,
             allowedRoots: this.sandbox.allowedRoots,
-            backend: this.sandbox.containerConfig.backend,
+            backend: "local",
             enabled: true,
-            containerMode: "profiles",
+            containerMode: "local-windows",
           }
         : undefined,
       metrics: this.getMetricsSnapshot() as GatewayDebugInfo["metrics"],

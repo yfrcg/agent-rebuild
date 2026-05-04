@@ -19,7 +19,7 @@ test("builtin memory.search tool is marked as safe auto-read", () => {
   assert.equal(listed?.policy?.automationLevel, "auto");
 });
 
-test("builtin bash.run tool requires sandbox and forbids host execution", () => {
+test("builtin bash.run tool allows local host execution", () => {
   const registry = createBuiltinToolRegistry({
     memorySearch: async () => [],
   });
@@ -28,15 +28,15 @@ test("builtin bash.run tool requires sandbox and forbids host execution", () => 
 
   assert.ok(tool);
   assert.equal(tool?.security?.riskLevel, "medium");
-  assert.equal(tool?.security?.sandboxRequired, true);
+  assert.equal(tool?.security?.sandboxRequired, false);
   assert.equal(tool?.security?.allowNetwork, false);
   assert.equal(tool?.security?.allowWrite, true);
-  assert.equal(tool?.security?.allowHostExecution, false);
+  assert.equal(tool?.security?.allowHostExecution, true);
   assert.equal(tool?.security?.requireApproval, false);
   assert.equal(typeof tool?.sandboxSpec?.resolve, "function");
 });
 
-test("builtin file.read tool is sandboxed and forbids host execution", () => {
+test("builtin file.read tool allows local host execution", () => {
   const registry = createBuiltinToolRegistry({
     memorySearch: async () => [],
   });
@@ -45,12 +45,12 @@ test("builtin file.read tool is sandboxed and forbids host execution", () => {
 
   assert.ok(tool);
   assert.equal(tool?.policy?.riskLevel, "read-only");
-  assert.equal(tool?.security?.sandboxRequired, true);
-  assert.equal(tool?.security?.allowHostExecution, false);
+  assert.equal(tool?.security?.sandboxRequired, false);
+  assert.equal(tool?.security?.allowHostExecution, true);
   assert.equal(typeof tool?.sandboxSpec?.resolve, "function");
 });
 
-test("builtin execution tools require sandbox execution", () => {
+test("builtin execution tools allow local host execution", () => {
   const registry = createBuiltinToolRegistry({
     memorySearch: async () => [],
   });
@@ -59,8 +59,8 @@ test("builtin execution tools require sandbox execution", () => {
     const tool = registry.get(toolName);
     assert.ok(tool, `${toolName} should be registered`);
     assert.equal(tool?.permissionLevel, "execute");
-    assert.equal(tool?.requiresSandbox, true);
-    assert.equal(tool?.security?.sandboxRequired, true);
+    assert.equal(tool?.requiresSandbox, false);
+    assert.equal(tool?.security?.sandboxRequired, false);
     assert.equal(typeof tool?.sandboxSpec?.resolve, "function");
   }
 });

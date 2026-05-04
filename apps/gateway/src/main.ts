@@ -30,7 +30,6 @@ import { maybeAutoCompactSession } from "../../../packages/gateway/sessionAutoCo
 import { SessionManager } from "../../../packages/gateway/sessionManager";
 import { ToolCallExecutor } from "../../../packages/gateway/toolCallExecutor";
 import { recordTranscript } from "../../../packages/gateway/transcriptRecorder";
-import { SandboxManager } from "../../../packages/sandbox/src/manager";
 
 /**
  * 启动 Gateway 的命令行主循环。
@@ -49,17 +48,10 @@ async function main(): Promise<void> {
   const projectRoot = resolveProjectRoot(process.env);
   const sessionManager = new SessionManager();
   const config = loadGatewayConfig();
-  const sandboxManager = new SandboxManager({
-    config: config.sandbox,
+  const sandbox = new GatewaySandbox({
+    mode: config.sandboxMode,
+    allowedRoots: config.sandboxAllowedRoots,
   });
-  const sandbox = new GatewaySandbox(
-    {
-      mode: config.sandboxMode,
-      allowedRoots: config.sandboxAllowedRoots,
-      containerConfig: config.sandbox,
-      manager: sandboxManager,
-    }
-  );
   let mcpConfigs: GatewayMcpServerConfig[] = [];
 
   // MCP 配置属于增强能力，读取失败时只降级，不阻断主程序启动。

@@ -247,8 +247,8 @@ test("file mutations include diff summary metadata after a successful write", as
   }
 });
 
-test("shell.run is denied when sandbox is unavailable and the tool requires sandbox", async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-shell-deny-"));
+test("shell.run executes locally when no sandbox is configured", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-shell-local-"));
 
   try {
     const registry = new ToolRegistry();
@@ -262,24 +262,24 @@ test("shell.run is denied when sandbox is unavailable and the tool requires sand
       createGatewayToolCallRequest({
         toolName: "shell.run",
         input: {
-          command: "npm test",
+          command: "echo hello",
         },
         approved: true,
       })
     );
 
-    assert.equal(record.status, "denied");
+    assert.equal(record.status, "success");
     assert.match(
-      record.error ?? "",
-      /Sandbox unavailable: refusing to execute command on host|requires sandbox/i
+      String((record.result?.result as Record<string, unknown>)?.stdoutPreview ?? ""),
+      /hello/
     );
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
 });
 
-test("npm_test is denied when sandbox is unavailable and host fallback is disabled", async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-npm-test-deny-"));
+test("npm_test executes locally when no sandbox is configured", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-npm-test-local-"));
 
   try {
     const registry = createBuiltinToolRegistry({
@@ -299,22 +299,17 @@ test("npm_test is denied when sandbox is unavailable and host fallback is disabl
       })
     );
 
-    assert.equal(record.status, "denied");
-    assert.match(record.error ?? "", /Sandbox unavailable: refusing to execute command on host/i);
+    assert.equal(record.status, "error");
+    assert.match(record.error ?? "", /npm|test|exit code/i);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
 });
 
-test("build is denied when sandbox is unavailable and host fallback is disabled", async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-build-deny-"));
+test("build executes locally when no sandbox is configured", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-build-local-"));
 
   try {
-    fs.writeFileSync(
-      path.join(tempDir, "package.json"),
-      JSON.stringify({ scripts: { build: "tsc -b" } }, null, 2),
-      "utf8"
-    );
     const registry = createBuiltinToolRegistry({
       memorySearch: async () => [],
       projectRoot: tempDir,
@@ -332,8 +327,8 @@ test("build is denied when sandbox is unavailable and host fallback is disabled"
       })
     );
 
-    assert.equal(record.status, "denied");
-    assert.match(record.error ?? "", /Sandbox unavailable: refusing to execute command on host/i);
+    assert.equal(record.status, "error");
+    assert.match(record.error ?? "", /build|exit code/i);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -380,33 +375,23 @@ test("execution tool non-zero exitCode returns structured failure instead of thr
     const executor = new ToolCallExecutor({
       registry,
       projectRoot: tempDir,
-      sandbox: createExecutionSandboxStub({
-        ok: false,
-        exitCode: 2,
-        stdout: "running tests\n",
-        stderr: "2 failing specs\n",
-        durationMs: 55,
-      }),
     });
 
     const record = await executor.execute(
       createGatewayToolCallRequest({
-        toolName: "npm_test",
-        input: {},
+        toolName: "shell.run",
+        input: {
+          command: "node -e \"process.exit(2)\"",
+        },
         approved: true,
       })
     );
 
     assert.equal(record.status, "error");
     assert.equal(record.result?.ok, false);
-    assert.equal(
-      (record.result?.result as Record<string, unknown>)?.exitCode,
-      2
-    );
-    assert.match(
-      String((record.result?.result as Record<string, unknown>)?.stderrPreview ?? ""),
-      /2 failing specs/i
-    );
+    const result = record.result?.result as Record<string, unknown>;
+    assert.ok(typeof result?.exitCode === "number");
+    assert.ok(result?.exitCode !== 0);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -425,19 +410,14 @@ test("large execution output is truncated into logs/tool-results", async () => {
     const executor = new ToolCallExecutor({
       registry,
       projectRoot: tempDir,
-      sandbox: createExecutionSandboxStub({
-        ok: true,
-        exitCode: 0,
-        stdout: "x".repeat(9_000),
-        stderr: "",
-        durationMs: 88,
-      }),
     });
 
     const record = await executor.execute(
       createGatewayToolCallRequest({
-        toolName: "run_test",
-        input: {},
+        toolName: "shell.run",
+        input: {
+          command: "node -e \"console.log('x'.repeat(9000))\"",
+        },
         approved: true,
       })
     );
@@ -453,7 +433,7 @@ test("large execution output is truncated into logs/tool-results", async () => {
   }
 });
 
-test("execution tool audit log includes key sandbox metadata", async () => {
+test("execution tool audit log includes runner=local-windows metadata", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-exec-audit-"));
 
   try {
@@ -470,27 +450,13 @@ test("execution tool audit log includes key sandbox metadata", async () => {
           events.push(event);
         },
       },
-      sandbox: createExecutionSandboxStub({
-        ok: true,
-        exitCode: 0,
-        stdout: "ok\n",
-        stderr: "",
-        durationMs: 42,
-        timedOut: true,
-        artifacts: [
-          {
-            path: path.join(tempDir, "artifacts", "report.txt"),
-            sizeBytes: 10,
-            kind: "txt",
-          },
-        ],
-      }),
     });
 
     await executor.execute(
       createGatewayToolCallRequest({
-        toolName: "npm_test",
+        toolName: "shell.run",
         input: {
+          command: "echo ok",
           cwd: tempDir,
         },
         approved: true,
@@ -499,19 +465,10 @@ test("execution tool audit log includes key sandbox metadata", async () => {
 
     assert.equal(events.length, 1);
     const event = events[0] as Record<string, unknown>;
-    assert.equal(event.toolName, "npm_test");
-    assert.equal(event.sandboxed, true);
-    assert.equal(event.exitCode, 0);
+    assert.equal(event.toolName, "shell.run");
+    assert.equal(event.sandboxed, false);
+    assert.equal(event.runner, "local-windows");
     assert.equal(event.status, "success");
-    assert.equal(event.timedOut, true);
-    assert.deepEqual(event.artifacts, [
-      {
-        path: path.join(tempDir, "artifacts", "report.txt"),
-        sizeBytes: 10,
-        kind: "txt",
-        description: undefined,
-      },
-    ]);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -559,40 +516,4 @@ function createHostWriteTool(projectRoot: string): GatewayTool {
       };
     },
   };
-}
-
-function createExecutionSandboxStub(input: {
-  ok: boolean;
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
-  durationMs: number;
-  timedOut?: boolean;
-  artifacts?: Array<{
-    path: string;
-    sizeBytes?: number;
-    kind?: string;
-    description?: string;
-  }>;
-}) {
-  return {
-    canUseToolInputPaths() {
-      return { allowed: true };
-    },
-    canExecuteTool() {
-      return { allowed: true };
-    },
-    getToolSecurityProfile(tool: GatewayTool | undefined) {
-      return tool?.security;
-    },
-    manager: {
-      async exec() {
-        return {
-          ...input,
-          timedOut: input.timedOut ?? false,
-          artifacts: input.artifacts ?? [],
-        };
-      },
-    },
-  } as never;
 }

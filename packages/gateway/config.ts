@@ -4,8 +4,6 @@ import {
   resolveProjectRoot as resolveConfiguredProjectRoot,
   resolveWorkspaceRoot,
 } from "../core/src/config";
-import { loadSandboxConfig } from "../sandbox/src/config";
-import type { SandboxConfig } from "../sandbox/src/types";
 
 export type GatewayModelName = "mock" | "deepseek";
 export type GatewaySandboxMode = "off" | "workspace-write" | "read-only";
@@ -17,7 +15,6 @@ export interface GatewayRuntimeConfig {
   debug: boolean;
   sandboxMode: GatewaySandboxMode;
   sandboxAllowedRoots: string[];
-  sandbox: SandboxConfig;
   confirmTokenTtlMs: number;
   autoToolLoopEnabled: boolean;
   autoToolLoopMaxSteps: number;
@@ -40,7 +37,7 @@ export function loadGatewayConfig(
   return {
     model: parseModelName(env.GATEWAY_MODEL),
     memoryTopK: parsePositiveInteger(env.GATEWAY_MEMORY_TOP_K, 5),
-    auditLogPath: env.GATEWAY_AUDIT_LOG_PATH ?? "logs/gateway-audit.jsonl",
+    auditLogPath: env.GATEWAY_AUDIT_LOG_PATH ?? "logs/audit/gateway-audit.jsonl",
     debug: parseBoolean(env.GATEWAY_DEBUG, false),
     sandboxMode: parseLegacySandboxMode(
       env.GATEWAY_SANDBOX_GUARD_MODE ?? env.GATEWAY_SANDBOX_MODE
@@ -50,7 +47,6 @@ export function loadGatewayConfig(
       projectRoot,
       workspaceRoot
     ),
-    sandbox: loadSandboxConfig(env),
     confirmTokenTtlMs: parsePositiveInteger(env.GATEWAY_CONFIRM_TOKEN_TTL_MS, 300_000),
     autoToolLoopEnabled: parseBoolean(env.GATEWAY_AUTO_TOOL_LOOP_ENABLED, true),
     autoToolLoopMaxSteps: parsePositiveInteger(env.GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS, 5),
@@ -96,7 +92,7 @@ function parseSandboxRoots(
 
 function parseLegacySandboxMode(value: string | undefined): GatewaySandboxMode {
   if (value === undefined || value.trim() === "") {
-    return "workspace-write";
+    return "off";
   }
 
   const normalized = value.trim().toLowerCase();
@@ -108,7 +104,7 @@ function parseLegacySandboxMode(value: string | undefined): GatewaySandboxMode {
     return normalized;
   }
 
-  return "workspace-write";
+  return "off";
 }
 
 function parseModelName(value: string | undefined): GatewayModelName {

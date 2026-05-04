@@ -7,7 +7,7 @@ import {
   writeLongTermMemory,
 } from "../memory/src/memoryWriter";
 import { resolveProjectRoot } from "../core/src/config";
-import { createToolSecurityProfile } from "../sandbox/src/policy";
+import { createToolSecurityProfile } from "./toolSecurityProfile";
 import { createGatewayMemorySearch } from "./memoryAdapter";
 import type { MemorySearch } from "./gateway";
 import { ToolRegistry } from "./toolRegistry";
@@ -48,11 +48,6 @@ export function createBuiltinToolRegistry(
   registry.register({
     ...shellTool,
     name: "bash.run",
-    description: "Compatibility alias for shell.run.",
-  });
-  registry.register({
-    ...shellTool,
-    name: "sandbox.exec",
     description: "Compatibility alias for shell.run.",
   });
   registry.register(createSandboxedRunTestTool(projectRoot));

@@ -1,7 +1,4 @@
-import type {
-  SandboxRequest,
-  ToolSecurityProfile,
-} from "../sandbox/src/types";
+import type { ToolSecurityProfile } from "./toolSecurityProfile";
 import type { GatewayToolPermissionLevel } from "./permissionTypes";
 
 export type GatewayToolName = string;
@@ -67,7 +64,7 @@ export interface GatewayToolSandboxSpec {
   resolve(
     input: GatewayToolInput,
     context?: GatewayToolContext
-  ): Omit<SandboxRequest, "sessionId" | "toolName">;
+  ): Record<string, unknown>;
 }
 
 export interface GatewayTool {

@@ -402,7 +402,7 @@ function buildAgentMessages(input: {
       "If the user asks to read a file, prefer file.read.",
       "If the user asks to run a command, prefer shell.run.",
       "For shell.run, set cwd to a Windows path such as D:\\WorkStation\\agent-rebuild.",
-      "Do not use /workspace as a tool argument. /workspace exists only inside Docker.",
+      "Do not use /workspace or POSIX-style paths. Always use Windows paths such as D:\\WorkStation\\agent-rebuild\\workspace.",
     ].join("\n"),
   });
 

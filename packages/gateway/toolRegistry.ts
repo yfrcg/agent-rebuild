@@ -1,4 +1,4 @@
-import { createToolSecurityProfile } from "../sandbox/src/policy";
+import { createToolSecurityProfile } from "./toolSecurityProfile";
 import { validateToolArgs } from "./toolSchema";
 import type {
   GatewayTool,

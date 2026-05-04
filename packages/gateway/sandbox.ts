@@ -2,16 +2,9 @@ import * as path from "node:path";
 
 import type { GatewayTool } from "./toolTypes";
 import type { GatewayMcpServerConfig } from "./mcpTypes";
-import { SandboxManager } from "../sandbox/src/manager";
-import {
-  resolveToolSecurityProfile,
-} from "../sandbox/src/policy";
-import { assertInsideWorkspace, isDangerousHostPath } from "../sandbox/src/pathGuard";
-import { loadSandboxConfig } from "../sandbox/src/config";
-import type {
-  SandboxConfig,
-  ToolSecurityProfile,
-} from "../sandbox/src/types";
+import { resolveToolSecurityProfile } from "./toolSecurityProfile";
+import type { ToolSecurityProfile } from "./toolSecurityProfile";
+import { assertInsideWorkspace, isDangerousHostPath } from "./pathGuard";
 
 export type GatewaySandboxMode = "off" | "workspace-write" | "read-only";
 
@@ -23,15 +16,11 @@ export interface GatewaySandboxDecision {
 export interface GatewaySandboxOptions {
   mode?: GatewaySandboxMode;
   allowedRoots?: string[];
-  containerConfig?: Partial<SandboxConfig>;
-  manager?: SandboxManager;
 }
 
 export class GatewaySandbox {
   readonly mode: GatewaySandboxMode;
   readonly allowedRoots: string[];
-  readonly containerConfig: SandboxConfig;
-  readonly manager: SandboxManager;
 
   constructor(
     modeOrOptions: GatewaySandboxMode | GatewaySandboxOptions = "off",
@@ -40,21 +29,11 @@ export class GatewaySandbox {
     if (typeof modeOrOptions === "string") {
       this.mode = modeOrOptions;
       this.allowedRoots = allowedRoots.map((root) => path.resolve(root));
-      this.containerConfig = loadSandboxConfig();
-      this.manager = new SandboxManager({
-        config: this.containerConfig,
-      });
       return;
     }
 
     this.mode = modeOrOptions.mode ?? "off";
     this.allowedRoots = (modeOrOptions.allowedRoots ?? []).map((root) => path.resolve(root));
-    this.containerConfig = loadSandboxConfig(process.env, modeOrOptions.containerConfig);
-    this.manager =
-      modeOrOptions.manager ??
-      new SandboxManager({
-        config: this.containerConfig,
-      });
   }
 
   canWriteMemory(action: string): GatewaySandboxDecision {
@@ -64,7 +43,7 @@ export class GatewaySandbox {
 
     return {
       allowed: false,
-      reason: `[sandbox] blocked ${action}: read-only sandbox forbids memory mutations.`,
+      reason: `[guard] blocked ${action}: read-only mode forbids memory mutations.`,
     };
   }
 
@@ -78,21 +57,21 @@ export class GatewaySandbox {
     if (riskLevel === "destructive") {
       return {
         allowed: false,
-        reason: `[sandbox] blocked tool ${tool.name}: destructive tools require GATEWAY_SANDBOX_MODE=off.`,
+        reason: `[guard] blocked tool ${tool.name}: destructive tools require GATEWAY_SANDBOX_MODE=off.`,
       };
     }
 
     if (this.mode === "read-only" && riskLevel === "stateful") {
       return {
         allowed: false,
-        reason: `[sandbox] blocked tool ${tool.name}: read-only sandbox forbids stateful tools.`,
+        reason: `[guard] blocked tool ${tool.name}: read-only mode forbids stateful tools.`,
       };
     }
 
     if (this.mode === "workspace-write" && riskLevel === "stateful") {
       return {
         allowed: false,
-        reason: `[sandbox] blocked tool ${tool.name}: workspace-write sandbox only allows read-only and external-read tools.`,
+        reason: `[guard] blocked tool ${tool.name}: workspace-write mode only allows read-only and external-read tools.`,
       };
     }
 
@@ -114,7 +93,7 @@ export class GatewaySandbox {
       if (isDangerousHostPath(normalized)) {
         return {
           allowed: false,
-          reason: `[sandbox] blocked dangerous path input: ${candidate}`,
+          reason: `[guard] blocked dangerous path input: ${candidate}`,
         };
       }
 
@@ -130,7 +109,7 @@ export class GatewaySandbox {
       if (!isInsideAnyRoot) {
         return {
           allowed: false,
-          reason: `[sandbox] blocked path input: ${candidate} is outside allowed roots.`,
+          reason: `[guard] blocked path input: ${candidate} is outside allowed roots.`,
         };
       }
     }
@@ -170,7 +149,7 @@ export class GatewaySandbox {
     if (!config.isolation?.enabled || config.isolation.mode !== "restricted") {
       return {
         allowed: false,
-        reason: `[sandbox] blocked MCP server ${config.id}: sandboxed mode requires isolation.enabled=true and isolation.mode=restricted.`,
+        reason: `[guard] blocked MCP server ${config.id}: sandboxed mode requires isolation.enabled=true and isolation.mode=restricted.`,
       };
     }
 
@@ -178,7 +157,7 @@ export class GatewaySandbox {
     if (!runtimeRoot) {
       return {
         allowed: false,
-        reason: `[sandbox] blocked MCP server ${config.id}: restricted isolation requires an explicit runtimeRoot.`,
+        reason: `[guard] blocked MCP server ${config.id}: restricted isolation requires an explicit runtimeRoot.`,
       };
     }
 
@@ -188,7 +167,7 @@ export class GatewaySandbox {
     if (!runtimeDecision.allowed) {
       return {
         allowed: false,
-        reason: `[sandbox] blocked MCP server ${config.id}: runtimeRoot must stay within allowed sandbox roots.`,
+        reason: `[guard] blocked MCP server ${config.id}: runtimeRoot must stay within allowed roots.`,
       };
     }
 

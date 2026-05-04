@@ -6,7 +6,7 @@ conflicts: [memory-architect]
 
 # Gateway Maintainer
 
-Use this skill when the task is about extending `agent-rebuild` itself, especially Gateway bootstrap, tools, sessions, MCP integration, SKILL loading, or sandbox policy.
+Use this skill when the task is about extending `agent-rebuild` itself, especially Gateway bootstrap, tools, sessions, MCP integration, SKILL loading, or permission policy.
 
 ## Scope
 - Prefer minimal, local changes in `packages/gateway`, `packages/core`, and `apps/gateway`.

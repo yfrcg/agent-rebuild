@@ -1,10 +1,47 @@
 node_modules/
 dist/
+build/
+coverage/
 .env
 *.log
-logs/
 
+# Logs - ignore all content but keep directory structure via .gitkeep
+logs/*
+!logs/.gitkeep
+!logs/audit/
+!logs/tool-results/
+!logs/test-results/
+!logs/runtime/
+!logs/errors/
+!logs/archive/
+logs/audit/*
+!logs/audit/.gitkeep
+logs/tool-results/*
+!logs/tool-results/.gitkeep
+logs/test-results/*
+!logs/test-results/.gitkeep
+logs/runtime/*
+!logs/runtime/.gitkeep
+logs/errors/*
+!logs/errors/.gitkeep
+logs/archive/*
+!logs/archive/old-logs/
+logs/archive/old-logs/*
+!logs/archive/old-logs/.gitkeep
+
+# Workspace runtime data
 workspace/index/
 workspace/sessions/
 workspace/logs/
+workspace/plans/
 workspace/skills/.cache/
+
+# Temp and debug
+tmp/
+temp/
+.tmp/
+debug/
+artifacts/
+
+# IDE
+.vscode/settings.json

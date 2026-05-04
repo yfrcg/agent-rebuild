@@ -14,14 +14,6 @@ export function printRuntimeConfig(config: GatewayRuntimeConfig): void {
   console.log(`- debug: ${config.debug}`);
   console.log(`- sandboxMode: ${config.sandboxMode}`);
   console.log(`- sandboxAllowedRoots: ${config.sandboxAllowedRoots.join(", ")}`);
-  console.log(
-    `- sandbox: backend=${config.sandbox.backend}, image=${config.sandbox.dockerImage}, auditLogPath=${config.sandbox.auditLogPath}`
-  );
-  console.log(
-    `- sandboxProfiles: ${Object.values(config.sandbox.profiles)
-      .map((profile) => `${profile.name}[network=${profile.network},workspace=${profile.workspaceAccess},timeoutMs=${profile.timeoutMs}]`)
-      .join("; ")}`
-  );
   console.log(`- confirmTokenTtlMs: ${config.confirmTokenTtlMs}`);
   console.log(
     `- autoToolLoop: enabled=${config.autoToolLoopEnabled}, maxSteps=${config.autoToolLoopMaxSteps}`

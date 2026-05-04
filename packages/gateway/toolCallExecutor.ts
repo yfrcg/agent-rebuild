@@ -1,15 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import {
-  decideToolExecution,
-  resolveToolSecurityProfile,
-} from "../sandbox/src/policy";
-import type {
-  SandboxResult,
-  ToolSecurityProfile,
-} from "../sandbox/src/types";
 import { resolveProjectRoot } from "../core/src/config";
+import { runLocalCommand } from "./localCommandRunner";
 import { FileAccessTracker } from "./fileAccessTracker";
 import { PermissionPolicy } from "./permissionPolicy";
 import type {
@@ -157,52 +150,12 @@ export class ToolCallExecutor {
     request: GatewayToolCallRequest,
     tool: NonNullable<ReturnType<typeof this.registry.get>>
   ): Promise<void> {
-    const security =
-      this.sandbox?.getToolSecurityProfile(tool) ??
-      resolveToolSecurityProfile({
-        security: tool.security,
-        legacyPolicy: tool.policy,
-      });
-    const executionDecision = decideToolExecution({
-      profile: security,
-      hasSandboxSpec: Boolean(tool.sandboxSpec),
-      approved: request.approved,
-    });
-
-    switch (executionDecision.action) {
-      case "blocked":
-        this.denyRecord(
-          record,
-          executionDecision.reason ?? "tool execution blocked by policy"
-        );
-        return;
-      case "requireApproval":
-        this.denyRecord(
-          record,
-          executionDecision.reason ?? "tool execution requires approval"
-        );
-        return;
-      case "sandbox":
-        if (!tool.sandboxSpec || !this.sandbox) {
-          this.denyRecord(
-            record,
-            "Sandbox unavailable: refusing to execute command on host. Start the WSL sandbox worker or enable explicit local dev fallback."
-          );
-          return;
-        }
-        await this.executeInSandbox(record, request, security);
-        return;
-      case "host":
-        if (tool.requiresSandbox) {
-          this.denyRecord(
-            record,
-            "tool requires sandbox execution and host fallback is disabled"
-          );
-          return;
-        }
-        await this.executeOnHost(record, request);
-        return;
+    if (isExecutionTool(request.toolName)) {
+      await this.executeLocally(record, request);
+      return;
     }
+
+    await this.executeOnHost(record, request);
   }
 
   private captureMutationPreflight(
@@ -295,34 +248,83 @@ export class ToolCallExecutor {
     });
   }
 
-  private async executeInSandbox(
+  private async executeLocally(
     record: GatewayToolCallRecord,
-    request: GatewayToolCallRequest,
-    profile: ToolSecurityProfile
+    request: GatewayToolCallRequest
   ): Promise<void> {
-    const tool = this.registry.get(request.toolName);
-    if (!tool?.sandboxSpec || !this.sandbox) {
+    if (process.env.GATEWAY_DISABLE_LOCAL_EXECUTION === "true") {
       this.denyRecord(
         record,
-        "Sandbox unavailable: refusing to execute command on host. Start the WSL sandbox worker or enable explicit local dev fallback."
+        "[local-runner] local execution is disabled by GATEWAY_DISABLE_LOCAL_EXECUTION=true"
       );
       return;
     }
 
-    const sandboxRequest = tool.sandboxSpec.resolve(request.input, {
-      sessionId: request.sessionId,
-      requestId: request.requestId,
-    });
-    const result = await this.sandbox.manager.exec({
-      ...sandboxRequest,
-      sessionId: request.sessionId ?? "gateway-session",
-      toolName: request.toolName,
-      profileName: sandboxRequest.profileName ?? resolveSandboxProfileName(profile),
-    });
+    const command = resolveExecutionCommand(request.toolName, request.input);
+    if (!command) {
+      this.errorRecord(record, `[local-runner] no command for tool: ${request.toolName}`);
+      return;
+    }
 
-    const toolResult = sandboxResultToToolResult(request.id, result);
-    record.output = sandboxResultToToolOutput(result);
-    this.applyToolResult(record, toolResult);
+    const cwd =
+      typeof request.input.cwd === "string" && request.input.cwd.trim() !== ""
+        ? request.input.cwd
+        : this.projectRoot;
+
+    const timeoutMs =
+      typeof request.input.timeoutMs === "number" ? request.input.timeoutMs : undefined;
+
+    try {
+      const result = await runLocalCommand(
+        { command, cwd, timeoutMs },
+        this.projectRoot
+      );
+
+      const ok = result.exitCode === 0 && !result.timedOut;
+      const toolResult: ToolResult = {
+        toolCallId: request.id,
+        ok,
+        result: {
+          stdout: result.stdout,
+          stderr: result.stderr,
+          exitCode: result.exitCode,
+          timedOut: result.timedOut,
+          artifacts: [],
+        },
+        error: ok
+          ? undefined
+          : result.timedOut
+            ? "local command timed out"
+            : `local command failed with exit code ${result.exitCode ?? "unknown"}`,
+        durationMs: result.durationMs,
+      };
+
+      record.output = {
+        ok,
+        content: {
+          decision: "local",
+          stdout: result.stdout,
+          stderr: result.stderr,
+          exitCode: result.exitCode,
+          timedOut: result.timedOut,
+          artifacts: [],
+        },
+        error: toolResult.error,
+        metadata: {
+          durationMs: result.durationMs,
+          exitCode: result.exitCode,
+          timedOut: result.timedOut,
+          artifacts: [],
+          runner: "local-windows",
+        },
+      };
+      this.applyToolResult(record, toolResult);
+    } catch (err) {
+      this.denyRecord(
+        record,
+        err instanceof Error ? err.message : String(err)
+      );
+    }
   }
 
   private applyToolResult(record: GatewayToolCallRecord, result: ToolResult): void {
@@ -480,8 +482,8 @@ export class ToolCallExecutor {
           error:
             record.error ??
             (raw.timedOut
-              ? "sandbox command timed out"
-              : `sandbox command failed with exit code ${raw.exitCode ?? "unknown"}`),
+              ? "command timed out"
+              : `command failed with exit code ${raw.exitCode ?? "unknown"}`),
           stdoutPreview: truncatePreview(raw.stdout),
           stderrPreview: truncatePreview(raw.stderr),
           durationMs: raw.durationMs,
@@ -516,7 +518,8 @@ export class ToolCallExecutor {
           typeof record.input.cwd === "string" && record.input.cwd.trim() !== ""
             ? record.input.cwd
             : this.projectRoot,
-        sandboxed: true,
+        sandboxed: false,
+        runner: "local-windows",
         fullOutputPath,
       } as unknown as Record<string, unknown>,
     };
@@ -561,7 +564,8 @@ export class ToolCallExecutor {
         typeof record.input.cwd === "string" && record.input.cwd.trim() !== ""
           ? record.input.cwd
           : undefined,
-      sandboxed: isExecutionTool(record.toolName),
+      sandboxed: false,
+      runner: "local-windows",
       exitCode: readExecutionMetadataNumber(record.output?.metadata?.exitCode),
       timedOut: record.output?.metadata?.timedOut === true,
       artifacts: Array.isArray(record.output?.metadata?.artifacts)
@@ -591,52 +595,29 @@ export class ToolCallExecutor {
   }
 }
 
-function sandboxResultToToolOutput(result: SandboxResult): GatewayToolOutput {
-  return {
-    ok: result.ok,
-    content: {
-      decision: result.deniedReason ? "denied" : "sandbox",
-      blockedReason: result.deniedReason,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      exitCode: result.exitCode,
-      timedOut: result.timedOut === true || (result.exitCode === null && !result.deniedReason),
-      artifacts: result.artifacts ?? [],
-    },
-    error: result.deniedReason,
-    metadata: {
-      durationMs: result.durationMs,
-      exitCode: result.exitCode,
-      timedOut: result.timedOut === true || (result.exitCode === null && !result.deniedReason),
-      artifacts: result.artifacts ?? [],
-    },
-  };
-}
-
-function sandboxResultToToolResult(toolCallId: string, result: SandboxResult): ToolResult {
-  return {
-    toolCallId,
-    ok: result.ok,
-    result: {
-      stdout: result.stdout,
-      stderr: result.stderr,
-      exitCode: result.exitCode,
-      deniedReason: result.deniedReason,
-      timedOut: result.timedOut === true || (result.exitCode === null && !result.deniedReason),
-      artifacts: result.artifacts ?? [],
-    },
-    error:
-      result.ok
-        ? undefined
-        : result.deniedReason ??
-          (result.stderr.trim() ||
-            `sandboxed tool failed with exit code ${result.exitCode ?? "unknown"}`),
-    durationMs: result.durationMs,
-  };
-}
-
-function resolveSandboxProfileName(profile: ToolSecurityProfile): string {
-  return profile.allowNetwork ? "elevated" : "safe-dev";
+function resolveExecutionCommand(
+  toolName: string,
+  input: Record<string, unknown>
+): string | undefined {
+  switch (toolName) {
+    case "shell.run":
+    case "bash.run":
+      return typeof input.command === "string" && input.command.trim() !== ""
+        ? input.command
+        : undefined;
+    case "run_test":
+      return typeof input.command === "string" && input.command.trim() !== ""
+        ? input.command
+        : "npm test";
+    case "npm_test":
+      return typeof input.command === "string" && input.command.trim() !== ""
+        ? input.command
+        : "npm test";
+    case "build":
+      return "npm run build";
+    default:
+      return undefined;
+  }
 }
 
 function normalizeToolInput(
@@ -647,7 +628,6 @@ function normalizeToolInput(
   if (
     toolName !== "shell.run" &&
     toolName !== "bash.run" &&
-    toolName !== "sandbox.exec" &&
     toolName !== "run_test" &&
     toolName !== "npm_test" &&
     toolName !== "build"
@@ -707,7 +687,6 @@ function isExecutionTool(toolName: string): boolean {
   return (
     toolName === "shell.run" ||
     toolName === "bash.run" ||
-    toolName === "sandbox.exec" ||
     toolName === "run_test" ||
     toolName === "npm_test" ||
     toolName === "build"

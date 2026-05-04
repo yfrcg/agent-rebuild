@@ -194,7 +194,7 @@ export function parseGatewayCommand(rawInput: string): ParsedGatewayCommand {
 
   if (raw === ":sandbox" || raw.startsWith(":sandbox ")) {
     return {
-      type: "sandbox",
+      type: "sh",
       raw,
       payload: raw.replace(/^:sandbox\s*/, "").trim(),
     };

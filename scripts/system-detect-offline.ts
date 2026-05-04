@@ -47,7 +47,7 @@ async function main(): Promise<void> {
     "memory",
     `system-detect-offline-${Date.now()}.md`
   );
-  const auditLogPath = path.join(process.cwd(), "logs", "system-detect-offline-audit.jsonl");
+  const auditLogPath = path.join(process.cwd(), "logs", "runtime", "system-detect-offline-audit.jsonl");
 
   await mkdir(path.dirname(tempMemoryFile), { recursive: true });
   await mkdir(path.dirname(auditLogPath), { recursive: true });

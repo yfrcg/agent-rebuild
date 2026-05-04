@@ -53,7 +53,7 @@ async function main(): Promise<void> {
     "memory",
     `system-detect-${Date.now()}.md`
   );
-  const auditLogPath = path.join(process.cwd(), "logs", "system-detect-audit.jsonl");
+  const auditLogPath = path.join(process.cwd(), "logs", "runtime", "system-detect-audit.jsonl");
 
   await mkdir(path.dirname(tempMemoryFile), { recursive: true });
   await mkdir(path.dirname(auditLogPath), { recursive: true });

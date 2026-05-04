@@ -1,8 +1,8 @@
 import * as path from "node:path";
 
 import { resolveProjectRoot } from "../../core/src/config";
-import { assertInsideWorkspace, isDangerousHostPath } from "../../sandbox/src/pathGuard";
-import { createToolSecurityProfile } from "../../sandbox/src/policy";
+import { assertInsideWorkspace, isDangerousHostPath } from "../pathGuard";
+import { createToolSecurityProfile } from "../toolSecurityProfile";
 import type { GatewayTool, GatewayToolInput, GatewayToolOutput } from "../toolTypes";
 
 export function createSandboxedFileTools(projectRoot = resolveProjectRoot()): GatewayTool[] {
@@ -26,7 +26,7 @@ function createFileReadTool(projectRoot: string): GatewayTool {
     permissionLevel: "read",
     readOnly: true,
     sideEffect: false,
-    requiresSandbox: true,
+    requiresSandbox: false,
     policy: {
       automationLevel: "auto",
       riskLevel: "read-only",
@@ -34,8 +34,8 @@ function createFileReadTool(projectRoot: string): GatewayTool {
     },
     security: createToolSecurityProfile({
       riskLevel: "safe",
-      sandboxRequired: true,
-      allowHostExecution: false,
+      sandboxRequired: false,
+      allowHostExecution: true,
       allowWrite: false,
     }),
     sandboxSpec: {
@@ -91,7 +91,7 @@ function createFileWriteTool(projectRoot: string): GatewayTool {
     permissionLevel: "write",
     readOnly: false,
     sideEffect: true,
-    requiresSandbox: true,
+    requiresSandbox: false,
     policy: {
       automationLevel: "auto",
       riskLevel: "stateful",
@@ -99,9 +99,9 @@ function createFileWriteTool(projectRoot: string): GatewayTool {
     },
     security: createToolSecurityProfile({
       riskLevel: "medium",
-      sandboxRequired: true,
+      sandboxRequired: false,
       allowWrite: true,
-      allowHostExecution: false,
+      allowHostExecution: true,
       requireApproval: false,
     }),
     sandboxSpec: {
@@ -166,7 +166,7 @@ function createFileEditTool(projectRoot: string): GatewayTool {
     permissionLevel: "write",
     readOnly: false,
     sideEffect: true,
-    requiresSandbox: true,
+    requiresSandbox: false,
     policy: {
       automationLevel: "auto",
       riskLevel: "stateful",
@@ -174,9 +174,9 @@ function createFileEditTool(projectRoot: string): GatewayTool {
     },
     security: createToolSecurityProfile({
       riskLevel: "medium",
-      sandboxRequired: true,
+      sandboxRequired: false,
       allowWrite: true,
-      allowHostExecution: false,
+      allowHostExecution: true,
       requireApproval: false,
     }),
     sandboxSpec: {
@@ -233,7 +233,7 @@ function createFileListTool(projectRoot: string): GatewayTool {
     permissionLevel: "read",
     readOnly: true,
     sideEffect: false,
-    requiresSandbox: true,
+    requiresSandbox: false,
     policy: {
       automationLevel: "auto",
       riskLevel: "read-only",
@@ -241,8 +241,8 @@ function createFileListTool(projectRoot: string): GatewayTool {
     },
     security: createToolSecurityProfile({
       riskLevel: "safe",
-      sandboxRequired: true,
-      allowHostExecution: false,
+      sandboxRequired: false,
+      allowHostExecution: true,
       allowWrite: false,
     }),
     sandboxSpec: {

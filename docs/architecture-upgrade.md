@@ -2,186 +2,123 @@
 
 ## Scope
 
-This upgrade moves `agent-rebuild` closer to a Claude Code style agent core without changing the project's core deployment shape:
+This upgrade converts `agent-rebuild` to a Windows-only local execution architecture. All WSL/Docker sandbox execution dependencies have been removed.
 
 ```text
-Windows project directory
+Windows Project Directory
   -> Windows Gateway / Agent Core
-  -> agent loop / tool registry / permission policy / memory / session / audit
-  -> WSL sandbox worker
-  -> Docker or restricted Linux execution
-  -> stdout / stderr / exitCode / artifacts back to Gateway
+  -> ToolExecutor / PermissionPolicy / Memory / Session / Audit
+  -> LocalCommandRunner
+  -> Windows child_process (PowerShell) execution
+  -> stdout / stderr / exitCode / timedOut
 ```
-
-The reference project `claude-code-from-scratch` was used only as an architectural reference. This repo does not copy its file layout or replace the existing memory stack.
 
 ## What Changed
 
-- Added a richer tool protocol:
-  - `permissionLevel`
-  - `readOnly`
-  - `sideEffect`
-  - `requiresSandbox`
-  - `timeoutMs`
-- Added a Gateway permission layer separate from sandbox isolation:
-  - `default`
-  - `plan`
-  - `acceptEdits`
-  - `dontAsk`
-  - `bypassPermissions`
-- Added read-before-edit protection with mtime/hash checks.
-- Added session-level plan mode state and REPL commands:
-  - `:plan on`
-  - `:plan off`
-  - `:plan show`
-  - `:plan approve`
-  - `:plan reject`
-  - `:plan execute_with_context`
-  - `:plan execute_fresh`
-- Extended context building so the model sees permission mode and plan state.
-- Added tool-result truncation to `logs/tool-results/` for oversized outputs.
-- Added first-class execution tools:
-  - `run_test`
-  - `npm_test`
-  - `build`
-- Added lightweight memory rule-layer enhancements:
-  - memory category classification: `user | feedback | project | reference`
-  - freshness metadata on retrieved memory
+- **Desandboxing**: removed all WSL sandbox worker, Docker backend, and SandboxClient dependencies from the execution path.
+- Execution tools (`shell.run`, `bash.run`, `run_test`, `npm_test`, `build`) now run locally via `LocalCommandRunner` using `child_process.spawn` with PowerShell.
+- `GatewaySandbox` is now a pure policy guard (no sandbox manager, no container config).
+- Shared utilities (`createToolSecurityProfile`, `assertInsideWorkspace`, `isDangerousHostPath`) moved from `packages/sandbox/src/` into `packages/gateway/` as local modules.
+- Deleted sandbox scripts: `sandbox-check.ts`, `sandbox-smoke.ts`, `sandbox-worker.ts`, `sandbox-wsl-check.ts`, `sandbox-runtime-check.ts`.
+- Deleted sandbox tests: `sandbox.test.ts`, `sandboxClient.test.ts`, `sandboxDockerRuntime.test.ts`, `sandboxManager.test.ts`, `sandboxWorkerServer.test.ts`.
+- Removed `package.json` sandbox scripts: `sandbox:check`, `sandbox:smoke`, `sandbox:wsl:check`, `sandbox:worker`, `sandbox:image:build`, `sandbox:runtime:check`.
+- Removed `config.sandbox` (SandboxConfig) from `GatewayRuntimeConfig`.
+- Removed `SandboxManager` instantiation from `apps/gateway/src/main.ts`.
+- Tool protocol retains `requiresSandbox: false` for backward compatibility.
 
 ## What Did Not Change
 
-- Primary memory retrieval is still hybrid:
-  - Markdown memory sources
-  - chunking
-  - SQLite FTS / BM25
-  - vector search
-  - hybrid fusion
-- Shell/test/build execution is still expected to go through sandbox boundaries.
-- The Windows project directory remains the source of truth.
-- MCP, skills, and sub-agent support remain incremental extensions instead of a rewrite.
-
-## Permission Gate vs Sandbox
-
-- Permission policy decides whether a tool call should be allowed at all.
-- Sandbox isolation decides where an allowed execution tool may run.
-
-They are intentionally separate:
-
-- A command can be denied before sandbox execution because it is dangerous.
-- A command can be permission-allowed but still denied because no sandbox is available.
+- Agent Loop, Tool Call Protocol, ToolRegistry, ToolExecutor
+- PermissionPolicy (plan mode blocks, cwd restriction, dangerous command interception)
+- read-before-edit / mtime anti-overwrite
+- Audit log
+- Memory (search, get, write)
+- Session management
+- Context builder
+- logs/tool-results output truncation
+- MCP, skills support
 
 ## Execution Tools
 
-`run_test`, `npm_test`, and `build` are registered as execution tools with:
+All execution tools are registered with:
 
 - `permissionLevel: execute`
 - `readOnly: false`
 - `sideEffect: true`
-- `requiresSandbox: true`
-
-They are semantic wrappers around the existing sandboxed command path. They do not execute on the Windows host by default.
+- `requiresSandbox: false`
+- `allowHostExecution: true`
+- `runner: local-windows`
 
 Default behavior:
 
-- `run_test`: runs an explicit test command, or `npm test` when no command is provided.
-- `npm_test`: runs `npm test` by default, or `npm run <script>` when `script` is provided.
-- `build`: runs an explicit command when provided; otherwise it looks for a local `package.json` build script and runs `npm run build`.
+- `shell.run`: runs command via PowerShell locally.
+- `bash.run`: maps to PowerShell on Windows (no WSL/bash required).
+- `run_test`: runs explicit command, or `npm test` when none provided.
+- `npm_test`: runs `npm test` by default, or `npm run <script>`.
+- `build`: runs explicit command, or `npm run build` if `package.json` has `scripts.build`.
 
-## Host Fallback
+## LocalCommandRunner
 
-Execution tools do not silently fall back to the Windows host when:
+`packages/gateway/localCommandRunner.ts` executes commands locally:
 
-- the WSL sandbox worker is down
-- sandbox configuration is missing
-- the remote sandbox request fails
-- the Docker image is unavailable behind the worker
+- Uses `child_process.spawn` with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command`.
+- `cwd` must be inside the Windows workspace (path.win32 normalization).
+- `timeoutMs` enforced via kill timer (default 120s).
+- `stdout` truncated at 256KB, `stderr` at 128KB.
+- Sensitive env vars (TOKEN, SECRET, API_KEY, PASSWORD, CREDENTIAL) filtered.
+- Returns `{ exitCode, stdout, stderr, durationMs, timedOut }`.
 
-Instead, the Gateway returns a clear denial or execution error. This keeps the safety boundary explicit and prevents accidental host execution.
+## Security Boundary
 
-If a local development fallback is added later, it must remain opt-in and disabled by default.
+Local execution is NOT a strong security sandbox. The following protections remain:
 
-## Running The Sandbox
+- **PermissionPolicy**: plan mode blocks execution tools; dangerous commands rejected.
+- **cwd restriction**: commands cannot execute outside workspace.
+- **Path guard**: `.env`, `.ssh`, credential paths blocked (Windows-aware).
+- **Audit log**: every tool call logged with `runner: "local-windows"`.
+- **Output truncation**: large outputs written to `logs/tool-results/`.
+- **Env filtering**: sensitive tokens/keys not passed to child processes.
 
-Start the WSL sandbox worker first, then run the Gateway from Windows:
+## GatewaySandbox (Policy Guard)
+
+`packages/gateway/sandbox.ts` is now a pure policy guard:
+
+- No `SandboxManager` dependency.
+- No `containerConfig` or Docker/WSL references.
+- Provides: `canExecuteTool`, `canUseToolInputPaths`, `canWriteMemory`, `requiresConfirmation`, `canConnectMcpServer`.
+- Used by Gateway, ToolCallExecutor, replCommandHandlers, mcpManager for policy enforcement.
+
+## Deprecated Modules
+
+The following packages have been deleted:
+
+- `packages/sandbox/` - WSL/Docker sandbox runtime (deleted)
+- `packages/sandbox-client/` - SandboxClient (deleted)
+
+Old sandbox documentation archived to `logs/archive/old-logs/`.
+
+## Running
 
 ```text
-WSL:
-cd /mnt/d/WorkStation/agent-rebuild
+npm run typecheck
+npm test
+npm run gateway:smoke:all
+npm run gateway:detect
+```
+
+No longer needed:
+
+```text
 npm run sandbox:worker
-
-Windows:
-cd D:\WorkStation\agent-rebuild
-npm run gateway
-```
-
-Typical execution-tool calls then flow through the worker:
-
-- `:tool run_test {"command":"npm test"}`
-- `:tool npm_test {}`
-- `:tool build {}`
-
-Large stdout/stderr payloads are summarized in context and written to `logs/tool-results/`.
-
-## WSL Worker Contract
-
-The Gateway now sends execution requests through `WslSandboxClient` using a stable `/run` contract:
-
-```json
-{
-  "command": "npm test",
-  "cwd": "D:\\WorkStation\\agent-rebuild",
-  "timeoutMs": 30000,
-  "envAllowlist": ["CI", "NODE_ENV"],
-  "workspaceMount": "D:\\WorkStation\\agent-rebuild",
-  "networkPolicy": "disabled",
-  "resourceLimits": {
-    "memoryMb": 512,
-    "cpus": 1,
-    "pidsLimit": 64,
-    "maxOutputBytes": 65536
-  }
-}
-```
-
-The worker responds with:
-
-```json
-{
-  "exitCode": 0,
-  "stdout": "",
-  "stderr": "",
-  "durationMs": 500,
-  "timedOut": false,
-  "artifacts": []
-}
-```
-
-Current worker-side guarantees:
-
-- `workspaceMount` is required and must exist.
-- `cwd` defaults to `workspaceMount`.
-- `cwd` must remain inside `workspaceMount`.
-- env passthrough is filtered by `envAllowlist`.
-- `disabled` and `limited` network modes fail closed instead of widening access.
-- Docker limits are mapped from `resourceLimits`.
-- `timedOut` and `artifacts` are always present in the execution response shape.
-
-The corresponding Windows-side check is:
-
-```text
+npm run sandbox:image:build
+npm run sandbox:runtime:check
+npm run sandbox:check
+npm run sandbox:smoke
 npm run sandbox:wsl:check
-```
-
-The Docker image used by the runtime can be built with:
-
-```text
-docker build -t agentrebuild-sandbox:latest -f packages/sandbox/Dockerfile .
 ```
 
 ## Current Limits
 
-- Plan mode is implemented as a session state and approval workflow, not a full autonomous planner/executor chain.
-- Memory metadata enhancement is currently rule-layer only. It does not replace the underlying storage schema.
-- Docker runtime smoke tests are environment-sensitive and skip when the sandbox image is unavailable.
-- `networkPolicy=limited` is currently implemented as fail-closed Docker networking instead of a fine-grained egress policy.
-- Artifact collection currently scans `workspace/artifacts` and returns metadata only. It is not yet an upload pipeline.
+- Plan mode is session state + approval workflow, not a full autonomous planner.
+- Local execution provides workspace isolation, not OS-level sandboxing.
+- `bash.run` on Windows maps to PowerShell; native bash commands may need adaptation.

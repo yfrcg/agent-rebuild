@@ -1,5 +1,5 @@
 import type { GatewayMcpClient } from "./mcpClient";
-import { securityProfileFromLegacyPolicy } from "../sandbox/src/policy";
+import { securityProfileFromLegacyPolicy } from "./toolSecurityProfile";
 import type { GatewayTool } from "./toolTypes";
 
 /**
