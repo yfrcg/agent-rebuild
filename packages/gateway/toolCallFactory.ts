@@ -24,11 +24,15 @@ export function createGatewayToolCallRequest(
 ): GatewayToolCallRequest {
   return {
     id: createGatewayToolCallId(),
+    name: input.toolName,
+    args: input.input ?? {},
     toolName: input.toolName,
     input: input.input ?? {},
     sessionId: input.sessionId,
     requestId: input.requestId,
     approved: input.approved,
+    permissionMode: input.permissionMode,
+    planState: input.planState,
     createdAt: new Date().toISOString(),
   };
 }

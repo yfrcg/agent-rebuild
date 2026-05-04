@@ -1,4 +1,8 @@
 import type { GatewayToolCallRecord } from "./toolCallTypes";
+import type {
+  GatewayPermissionMode,
+  GatewayPlanState,
+} from "./permissionTypes";
 
 /**
  * 模型对话消息角色类型。
@@ -22,6 +26,8 @@ export interface GatewayRequest {
   sessionId?: string;
   userId?: string;
   activeSkills?: string[];
+  permissionMode?: GatewayPermissionMode;
+  planState?: GatewayPlanState;
   createdAt: string;
 }
 
@@ -109,6 +115,10 @@ export interface GatewayDebugInfo {
     matchedSkills: string[];
     strategy: "explicit" | "session" | "auto" | "mixed" | "none";
   };
+  permission?: {
+    mode: GatewayPermissionMode;
+  };
+  plan?: GatewayPlanState;
   rateLimit?: GatewayRateLimitInfo;
   circuit?: {
     open: boolean;

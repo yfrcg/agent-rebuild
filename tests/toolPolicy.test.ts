@@ -49,3 +49,18 @@ test("builtin file.read tool is sandboxed and forbids host execution", () => {
   assert.equal(tool?.security?.allowHostExecution, false);
   assert.equal(typeof tool?.sandboxSpec?.resolve, "function");
 });
+
+test("builtin execution tools require sandbox execution", () => {
+  const registry = createBuiltinToolRegistry({
+    memorySearch: async () => [],
+  });
+
+  for (const toolName of ["run_test", "npm_test", "build"] as const) {
+    const tool = registry.get(toolName);
+    assert.ok(tool, `${toolName} should be registered`);
+    assert.equal(tool?.permissionLevel, "execute");
+    assert.equal(tool?.requiresSandbox, true);
+    assert.equal(tool?.security?.sandboxRequired, true);
+    assert.equal(typeof tool?.sandboxSpec?.resolve, "function");
+  }
+});

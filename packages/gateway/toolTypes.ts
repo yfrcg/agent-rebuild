@@ -2,6 +2,7 @@ import type {
   SandboxRequest,
   ToolSecurityProfile,
 } from "../sandbox/src/types";
+import type { GatewayToolPermissionLevel } from "./permissionTypes";
 
 export type GatewayToolName = string;
 export type GatewayToolInput = Record<string, unknown>;
@@ -11,6 +12,21 @@ export type GatewayToolRiskLevel =
   | "external-read"
   | "stateful"
   | "destructive";
+export type ToolRiskLevel = "safe" | "medium" | "dangerous";
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: unknown;
+}
+
+export interface ToolResult {
+  toolCallId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  durationMs?: number;
+}
 
 export interface GatewayToolPolicy {
   automationLevel: GatewayToolAutomationLevel;
@@ -31,6 +47,22 @@ export interface GatewayToolContext {
   requestId?: string;
 }
 
+export interface GatewayToolMetadata {
+  permissionLevel: GatewayToolPermissionLevel;
+  readOnly: boolean;
+  sideEffect: boolean;
+  requiresSandbox: boolean;
+  timeoutMs?: number;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  schema?: Record<string, unknown>;
+  riskLevel: ToolRiskLevel;
+  execute(args: unknown, context?: GatewayToolContext): Promise<ToolResult>;
+}
+
 export interface GatewayToolSandboxSpec {
   resolve(
     input: GatewayToolInput,
@@ -41,11 +73,19 @@ export interface GatewayToolSandboxSpec {
 export interface GatewayTool {
   name: GatewayToolName;
   description: string;
+  schema?: Record<string, unknown>;
+  riskLevel?: ToolRiskLevel;
+  permissionLevel?: GatewayToolPermissionLevel;
+  readOnly?: boolean;
+  sideEffect?: boolean;
+  requiresSandbox?: boolean;
+  timeoutMs?: number;
+  execute?(args: unknown, context?: GatewayToolContext): Promise<ToolResult>;
   inputSchema?: Record<string, unknown>;
   policy?: GatewayToolPolicy;
   security?: ToolSecurityProfile;
   sandboxSpec?: GatewayToolSandboxSpec;
-  invoke(
+  invoke?(
     input: GatewayToolInput,
     context?: GatewayToolContext
   ): Promise<GatewayToolOutput>;
@@ -54,6 +94,13 @@ export interface GatewayTool {
 export interface GatewayToolListItem {
   name: GatewayToolName;
   description: string;
+  schema?: Record<string, unknown>;
+  riskLevel?: ToolRiskLevel;
   inputSchema?: Record<string, unknown>;
   policy?: GatewayToolPolicy;
+  permissionLevel?: GatewayToolPermissionLevel;
+  readOnly?: boolean;
+  sideEffect?: boolean;
+  requiresSandbox?: boolean;
+  timeoutMs?: number;
 }

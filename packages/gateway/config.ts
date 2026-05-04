@@ -1,5 +1,9 @@
 import * as path from "node:path";
 
+import {
+  resolveProjectRoot as resolveConfiguredProjectRoot,
+  resolveWorkspaceRoot,
+} from "../core/src/config";
 import { loadSandboxConfig } from "../sandbox/src/config";
 import type { SandboxConfig } from "../sandbox/src/types";
 
@@ -30,7 +34,8 @@ export interface GatewayRuntimeConfig {
 export function loadGatewayConfig(
   env: NodeJS.ProcessEnv = process.env
 ): GatewayRuntimeConfig {
-  const projectRoot = resolveProjectRoot(env.WINDOWS_PROJECT_ROOT);
+  const projectRoot = resolveConfiguredProjectRoot(env);
+  const workspaceRoot = resolveWorkspaceRoot(env);
 
   return {
     model: parseModelName(env.GATEWAY_MODEL),
@@ -40,11 +45,15 @@ export function loadGatewayConfig(
     sandboxMode: parseLegacySandboxMode(
       env.GATEWAY_SANDBOX_GUARD_MODE ?? env.GATEWAY_SANDBOX_MODE
     ),
-    sandboxAllowedRoots: parseSandboxRoots(env.GATEWAY_SANDBOX_ALLOWED_ROOTS, projectRoot),
+    sandboxAllowedRoots: parseSandboxRoots(
+      env.GATEWAY_SANDBOX_ALLOWED_ROOTS ?? env.SANDBOX_ROOT,
+      projectRoot,
+      workspaceRoot
+    ),
     sandbox: loadSandboxConfig(env),
     confirmTokenTtlMs: parsePositiveInteger(env.GATEWAY_CONFIRM_TOKEN_TTL_MS, 300_000),
     autoToolLoopEnabled: parseBoolean(env.GATEWAY_AUTO_TOOL_LOOP_ENABLED, true),
-    autoToolLoopMaxSteps: parsePositiveInteger(env.GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS, 3),
+    autoToolLoopMaxSteps: parsePositiveInteger(env.GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS, 5),
     sessionAutoCompactEnabled: parseBoolean(
       env.GATEWAY_SESSION_AUTO_COMPACT_ENABLED,
       true
@@ -65,18 +74,24 @@ export function loadGatewayConfig(
   };
 }
 
-function parseSandboxRoots(value: string | undefined, projectRoot: string): string[] {
+function parseSandboxRoots(
+  value: string | undefined,
+  projectRoot: string,
+  workspaceRoot: string
+): string[] {
   if (value === undefined || value.trim() === "") {
-    return [projectRoot, path.resolve(projectRoot, "workspace")];
+    return [projectRoot, workspaceRoot];
   }
 
-  return value
+  const resolved = value
     .split(/[;,]/)
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) =>
       path.isAbsolute(part) ? path.resolve(part) : path.resolve(projectRoot, part)
     );
+
+  return [...new Set([projectRoot, workspaceRoot, ...resolved])];
 }
 
 function parseLegacySandboxMode(value: string | undefined): GatewaySandboxMode {
@@ -151,12 +166,4 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   }
 
   return fallback;
-}
-
-function resolveProjectRoot(value: string | undefined): string {
-  if (value === undefined || value.trim() === "") {
-    return process.cwd();
-  }
-
-  return path.resolve(value.trim());
 }

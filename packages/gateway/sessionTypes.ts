@@ -1,11 +1,10 @@
-/**
- * 会话 ID 类型。
- */
+import type {
+  GatewayPermissionMode,
+  GatewayPlanState,
+} from "./permissionTypes";
+
 export type GatewaySessionId = string;
 
-/**
- * 单个会话的元数据结构。
- */
 export interface GatewaySession {
   id: GatewaySessionId;
   name: string;
@@ -15,6 +14,8 @@ export interface GatewaySession {
   transcriptPath: string;
   activeSkills?: string[];
   pendingApprovals?: GatewayPendingApproval[];
+  permissionMode?: GatewayPermissionMode;
+  planState?: GatewayPlanState;
 }
 
 export interface GatewayPendingApproval {
@@ -31,16 +32,10 @@ export interface GatewaySessionApprovalConsumeResult {
   approval?: GatewayPendingApproval;
 }
 
-/**
- * 创建会话时的输入参数。
- */
 export interface GatewaySessionCreateInput {
   name?: string;
 }
 
-/**
- * 重命名会话时的输入参数。
- */
 export interface GatewaySessionRenameInput {
   id: GatewaySessionId;
   name: string;
@@ -56,9 +51,6 @@ export interface GatewaySessionApprovalCreateInput {
   approval: GatewayPendingApproval;
 }
 
-/**
- * 持久化到磁盘的会话快照结构。
- */
 export interface GatewaySessionStoreSnapshot {
   sessions: GatewaySession[];
 }

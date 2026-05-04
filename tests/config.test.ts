@@ -17,7 +17,11 @@ test("loadGatewayConfig supports mock model, sandbox, and session auto compactio
   assert.equal(config.model, "mock");
   assert.equal(config.memoryTopK, 7);
   assert.equal(config.sandboxMode, "read-only");
-  assert.equal(config.sandboxAllowedRoots.length, 2);
+  assert.deepEqual(config.sandboxAllowedRoots, [
+    "D:\\WorkStation\\agent-rebuild",
+    "D:\\WorkStation\\agent-rebuild\\workspace",
+    "D:\\WorkStation\\agent-rebuild\\config",
+  ]);
   assert.equal(config.confirmTokenTtlMs, 90000);
   assert.equal(config.sessionAutoCompactEnabled, false);
   assert.equal(config.sessionAutoCompactMaxEntries, 42);
@@ -43,4 +47,8 @@ test("loadGatewayConfig maps SANDBOX_MODE=wsl to remote backend and windows root
 
   assert.equal(config.sandbox.backend, "remote");
   assert.equal(config.sandboxAllowedRoots[0], "D:\\WorkStation\\agent-rebuild");
+  assert.equal(
+    config.sandboxAllowedRoots[1],
+    "D:\\WorkStation\\agent-rebuild\\workspace"
+  );
 });

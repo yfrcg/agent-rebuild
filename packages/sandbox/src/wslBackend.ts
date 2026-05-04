@@ -31,11 +31,21 @@ export class WslSandboxBackend implements SandboxBackend {
   }
 
   async run(req: SandboxRequest, profile: SandboxProfile): Promise<SandboxResult> {
+    const timeoutMs = normalizeTimeout(req.timeoutMs, profile.timeoutMs);
     const result = await this.client.run({
       command: req.command?.trim() || "true",
+      cwd: resolveWindowsCwd(req),
       windowsCwd: resolveWindowsCwd(req),
-      timeoutMs: profile.timeoutMs,
+      timeoutMs,
       env: req.env,
+      envAllowlist: req.envAllowlist,
+      workspaceMount: req.workspaceMount ?? req.projectRoot,
+      networkPolicy: req.networkPolicy ?? profile.network,
+      resourceLimits: {
+        memoryMb: req.resourceLimits?.memoryMb ?? profile.memoryMb,
+        cpus: req.resourceLimits?.cpus ?? profile.cpus,
+        pidsLimit: req.resourceLimits?.pidsLimit ?? profile.pidsLimit,
+      },
     });
 
     return {
@@ -44,6 +54,8 @@ export class WslSandboxBackend implements SandboxBackend {
       stdout: result.stdout,
       stderr: result.stderr,
       durationMs: result.durationMs,
+      timedOut: result.timedOut,
+      artifacts: result.artifacts,
     };
   }
 }
@@ -52,4 +64,12 @@ function resolveWindowsCwd(req: SandboxRequest): string {
   const projectRoot = path.resolve(req.projectRoot);
   const cwd = req.cwd ? path.resolve(projectRoot, req.cwd) : projectRoot;
   return cwd;
+}
+
+function normalizeTimeout(requested: number | undefined, fallback: number): number {
+  if (!Number.isFinite(requested) || requested === undefined || requested <= 0) {
+    return fallback;
+  }
+
+  return Math.floor(requested);
 }

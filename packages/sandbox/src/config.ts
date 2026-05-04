@@ -1,12 +1,13 @@
 import * as path from "node:path";
 
+import { resolveProjectRoot } from "../../core/src/config";
 import { DEFAULT_SANDBOX_PROFILES } from "./policy";
 import type { SandboxBackendName, SandboxConfig } from "./types";
 
 export const DEFAULT_SANDBOX_CONFIG: SandboxConfig = {
   backend: "docker",
   dockerImage: "agentrebuild-sandbox:latest",
-  auditLogPath: path.resolve(process.cwd(), "logs", "sandbox-audit.jsonl"),
+  auditLogPath: path.resolve(resolveProjectRoot(), "logs", "sandbox-audit.jsonl"),
   profiles: DEFAULT_SANDBOX_PROFILES,
   maxStdoutBytes: 200 * 1024,
   maxStderrBytes: 200 * 1024,
@@ -16,6 +17,8 @@ export function loadSandboxConfig(
   env: NodeJS.ProcessEnv = process.env,
   overrides: Partial<SandboxConfig> = {}
 ): SandboxConfig {
+  const projectRoot = resolveProjectRoot(env);
+
   return {
     backend: parseBackend(
       env.GATEWAY_SANDBOX_BACKEND,
@@ -27,7 +30,7 @@ export function loadSandboxConfig(
       overrides.dockerImage ||
       DEFAULT_SANDBOX_CONFIG.dockerImage,
     auditLogPath: path.resolve(
-      process.cwd(),
+      projectRoot,
       env.GATEWAY_SANDBOX_AUDIT_LOG_PATH?.trim() ||
         overrides.auditLogPath ||
         DEFAULT_SANDBOX_CONFIG.auditLogPath

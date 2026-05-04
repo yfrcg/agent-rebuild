@@ -1,68 +1,79 @@
-import type { ToolRegistry } from "./toolRegistry";
-import type { GatewayToolOutput } from "./toolTypes";
 import type { GatewaySandbox } from "./sandbox";
+import type {
+  GatewayToolOutput,
+  ToolCall,
+  ToolResult,
+  ToolRiskLevel,
+} from "./toolTypes";
+import type { ToolRegistry } from "./toolRegistry";
+import type {
+  GatewayPermissionDecision,
+  GatewayPermissionMode,
+  GatewayPlanState,
+  GatewayToolPermissionLevel,
+} from "./permissionTypes";
 
-/**
- * 工具调用生命周期状态。
- */
 export type GatewayToolCallStatus =
   | "pending"
   | "running"
-  | "succeeded"
-  | "failed";
+  | "success"
+  | "error"
+  | "denied";
 
-/**
- * 工具调用唯一标识类型。
- */
 export type GatewayToolCallId = string;
 
-/**
- * 进入执行器之前的标准工具调用请求。
- */
-export interface GatewayToolCallRequest {
-  id: GatewayToolCallId;
+export interface GatewayToolCallRequest extends ToolCall {
   toolName: string;
   input: Record<string, unknown>;
   sessionId?: string;
   requestId?: string;
   approved?: boolean;
+  permissionMode?: GatewayPermissionMode;
+  planState?: GatewayPlanState;
   createdAt: string;
 }
 
-/**
- * 工具执行后的完整记录。
- */
 export interface GatewayToolCallRecord {
   id: GatewayToolCallId;
   toolName: string;
   input: Record<string, unknown>;
   status: GatewayToolCallStatus;
+  riskLevel?: ToolRiskLevel;
+  permissionLevel?: GatewayToolPermissionLevel;
+  toolCall?: ToolCall;
+  result?: ToolResult;
   output?: GatewayToolOutput;
   error?: string;
   sessionId?: string;
   requestId?: string;
+  permissionMode?: GatewayPermissionMode;
+  permissionDecision?: GatewayPermissionDecision;
+  planState?: GatewayPlanState;
   createdAt: string;
   startedAt?: string;
-  completedAt?: string;
+  endedAt?: string;
   durationMs?: number;
+  audit?: {
+    truncated?: boolean;
+    artifactPath?: string;
+    fileMutation?: Record<string, unknown>;
+    execution?: Record<string, unknown>;
+  };
 }
 
-/**
- * 创建工具调用请求时的输入结构。
- */
 export interface GatewayToolCallCreateInput {
   toolName: string;
   input?: Record<string, unknown>;
   sessionId?: string;
   requestId?: string;
   approved?: boolean;
+  permissionMode?: GatewayPermissionMode;
+  planState?: GatewayPlanState;
 }
 
-/**
- * 工具调用执行器的依赖项。
- */
 export interface GatewayToolCallExecutorOptions {
   registry: ToolRegistry;
   auditLogger?: unknown;
   sandbox?: GatewaySandbox;
+  projectRoot?: string;
 }

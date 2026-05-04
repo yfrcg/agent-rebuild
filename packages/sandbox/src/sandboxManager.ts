@@ -8,6 +8,7 @@ import type {
   SandboxBackend,
   SandboxConfig,
   SandboxInspectResult,
+  SandboxNetworkMode,
   SandboxProfile,
   SandboxProfileName,
   SandboxRequest,
@@ -48,8 +49,8 @@ export class SandboxManager {
       backend: this.backend.name,
       command: request.command,
       cwd: request.cwd,
-      network: profile.network,
-      timeoutMs: profile.timeoutMs,
+      network: normalizeAuditNetwork(request.networkPolicy, profile.network),
+      timeoutMs: request.timeoutMs ?? profile.timeoutMs,
     } as const;
 
     if (decision.action === "deny") {
@@ -159,6 +160,25 @@ export class SandboxManager {
     }
 
     return profile;
+  }
+}
+
+function normalizeAuditNetwork(
+  requested: SandboxRequest["networkPolicy"],
+  fallback: SandboxNetworkMode
+): SandboxNetworkMode {
+  switch (requested) {
+    case "enabled":
+      return "restricted";
+    case "limited":
+    case "disabled":
+      return "none";
+    case "host":
+    case "restricted":
+    case "none":
+      return requested;
+    default:
+      return fallback;
   }
 }
 

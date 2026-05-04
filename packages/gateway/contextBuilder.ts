@@ -1,5 +1,9 @@
 import { loadBootstrapContext } from "../core/src/bootstrap";
 import type { ChatMessage } from "../model/types";
+import type {
+  GatewayPermissionMode,
+  GatewayPlanState,
+} from "./permissionTypes";
 import type { MemorySearchResult } from "./types";
 
 /**
@@ -109,6 +113,8 @@ export class ContextBuilder {
     memoryResults: MemorySearchResult[] = [],
     options: {
       activeSkillNames?: string[];
+      permissionMode?: GatewayPermissionMode;
+      planState?: GatewayPlanState;
     } = {}
   ): BuiltGatewayContext {
     const messages: ChatMessage[] = [
@@ -123,6 +129,14 @@ export class ContextBuilder {
       messages.push({
         role: "system",
         content: `${DEFAULT_BOOTSTRAP_INTRO}\n\n${bootstrapContext.bootstrapText}`,
+      });
+    }
+
+    const modeContext = buildModeContext(options.permissionMode, options.planState);
+    if (modeContext) {
+      messages.push({
+        role: "system",
+        content: modeContext,
       });
     }
 
@@ -280,6 +294,7 @@ export class ContextBuilder {
       text?: string;
       snippet?: string;
       chunk?: string;
+      metadata?: Record<string, unknown>;
     };
 
     const id = value.id ?? `memory-${index}`;
@@ -289,6 +304,14 @@ export class ContextBuilder {
       typeof value.score === "number" ? value.score.toFixed(4) : "unknown";
     const content =
       value.content ?? value.text ?? value.snippet ?? value.chunk ?? "";
+    const freshness =
+      typeof value.metadata?.freshness === "string"
+        ? value.metadata.freshness
+        : undefined;
+    const freshnessWarning =
+      typeof value.metadata?.freshnessWarning === "string"
+        ? value.metadata.freshnessWarning
+        : undefined;
 
     const truncatedContent = this.truncateText(
       content.trim(),
@@ -302,9 +325,13 @@ export class ContextBuilder {
       `source: ${source}`,
       `section: ${section}`,
       `score: ${score}`,
+      freshness ? `freshness: ${freshness}` : undefined,
+      freshnessWarning ? `warning: ${freshnessWarning}` : undefined,
       "content:",
       truncatedContent || "(empty memory content)",
-    ].join("\n");
+    ]
+      .filter((item): item is string => Boolean(item))
+      .join("\n");
   }
 
   /**
@@ -320,4 +347,25 @@ export class ContextBuilder {
     const safeMax = Math.max(0, maxChars - suffix.length);
     return `${text.slice(0, safeMax)}${suffix}`;
   }
+}
+
+function buildModeContext(
+  permissionMode: GatewayPermissionMode | undefined,
+  planState: GatewayPlanState | undefined
+): string | undefined {
+  const parts: string[] = [];
+  if (permissionMode) {
+    parts.push(`Permission mode: ${permissionMode}`);
+  }
+  if (planState?.active) {
+    parts.push(`Plan mode active: status=${planState.status}`);
+    if (planState.summary) {
+      parts.push(`Current plan summary: ${planState.summary}`);
+    }
+    if (planState.planPath) {
+      parts.push(`Plan file: ${planState.planPath}`);
+    }
+  }
+
+  return parts.length > 0 ? parts.join("\n") : undefined;
 }

@@ -13,6 +13,10 @@ test("workspace-write sandbox blocks stateful tools", async () => {
   registry.register({
     name: "mcp.example.deploy",
     description: "Deploy example app",
+    permissionLevel: "execute",
+    readOnly: false,
+    sideEffect: true,
+    requiresSandbox: false,
     policy: {
       automationLevel: "confirm",
       riskLevel: "stateful",
@@ -34,11 +38,12 @@ test("workspace-write sandbox blocks stateful tools", async () => {
     createGatewayToolCallRequest({
       toolName: "mcp.example.deploy",
       input: {},
+      approved: true,
     })
   );
 
   assert.equal(invoked, false);
-  assert.equal(record.status, "failed");
+  assert.equal(record.status, "denied");
   assert.match(record.error ?? "", /sandbox/i);
 });
 
@@ -84,8 +89,8 @@ test("sandbox blocks tool input paths outside allowed roots", async () => {
   );
 
   assert.equal(invoked, false);
-  assert.equal(record.status, "failed");
-  assert.match(record.error ?? "", /outside allowed roots/i);
+  assert.equal(record.status, "denied");
+  assert.match(record.error ?? "", /(outside allowed roots|path escapes workspace)/i);
 });
 
 test("sandbox marks confirm and manual tools as requiring confirmation", () => {

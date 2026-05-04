@@ -11,7 +11,8 @@
     "dev": "tsx apps/gateway/src/main.ts",
     "reindex": "tsx scripts/reindex.ts",
     "build": "tsc",
-    "test": "node --import tsx --test tests/**/*.test.ts",
+    "test": "tsx scripts/run-tests.ts",
+    "test:smoke": "node --import tsx --test tests/autoToolLoop.test.ts",
     "backfill:embeddings": "tsx scripts/backfill-embeddings.ts",
     "scheduler": "tsx scripts/scheduler.ts",
     "gateway": "tsx apps/gateway/src/main.ts",
@@ -26,6 +27,7 @@
     "sandbox:check": "tsx scripts/sandbox-check.ts",
     "sandbox:smoke": "tsx scripts/sandbox-smoke.ts",
     "sandbox:wsl:check": "tsx scripts/sandbox-wsl-check.ts",
+    "sandbox:worker": "tsx scripts/sandbox-worker.ts",
     "gateway:check": "npm run typecheck && npm run build && npm run test && npm run gateway:smoke:all && npm run gateway:detect",
     "gateway:check:live": "npm run gateway:check && npm run gateway:detect:live"
   },

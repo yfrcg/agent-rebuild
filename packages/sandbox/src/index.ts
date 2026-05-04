@@ -14,6 +14,7 @@ export * from "./config";
 export * from "./dockerBackend";
 export * from "./pathGuard";
 export * from "./policy";
+export * from "./server";
 export * from "./sandboxManager";
 export * from "./types";
 export * from "./wslBackend";

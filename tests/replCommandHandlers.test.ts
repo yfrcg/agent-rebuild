@@ -120,6 +120,57 @@ test("repl read-file command routes through ToolCallExecutor", async () => {
   });
 });
 
+test("repl :plan commands toggle plan mode and approval state", async () => {
+  await withTempWorkspace(async () => {
+    const registry = createBuiltinToolRegistry({
+      memorySearch: async () => [],
+    });
+    const sessionManager = new SessionManager(
+      new SessionStore(path.join(process.cwd(), "logs", "sessions.json"))
+    );
+
+    const planOn = await handleBuiltInGatewayCommand(parseGatewayCommand(":plan on"), {
+      sessionManager,
+      toolRegistry: registry,
+      toolCallExecutor: {
+        async execute() {
+          throw new Error("should not execute tools");
+        },
+      } as unknown as never,
+      memoryTopK: 5,
+      sandbox: createReplSandboxDouble(),
+      confirmTokenTtlMs: 300_000,
+      rl: { close() {} } as never,
+    });
+
+    assert.equal(planOn.handled, true);
+    assert.equal(sessionManager.getCurrentSession().permissionMode, "plan");
+    assert.equal(sessionManager.getCurrentSession().planState?.active, true);
+
+    const planApprove = await handleBuiltInGatewayCommand(
+      parseGatewayCommand(":plan approve"),
+      {
+        sessionManager,
+        toolRegistry: registry,
+        toolCallExecutor: {
+          async execute() {
+            throw new Error("should not execute tools");
+          },
+        } as unknown as never,
+        memoryTopK: 5,
+        sandbox: createReplSandboxDouble(),
+        confirmTokenTtlMs: 300_000,
+        rl: { close() {} } as never,
+      }
+    );
+
+    assert.equal(planApprove.handled, true);
+    assert.equal(sessionManager.getCurrentSession().permissionMode, "default");
+    assert.equal(sessionManager.getCurrentSession().planState?.status, "approved");
+    assert.equal(sessionManager.getCurrentSession().planState?.active, false);
+  });
+});
+
 function createSandboxToolCallRecord(
   request: GatewayToolCallRequest,
   decision: "sandbox" | "mock-sandbox"
@@ -128,7 +179,7 @@ function createSandboxToolCallRecord(
     id: request.id,
     toolName: request.toolName,
     input: request.input,
-    status: "succeeded",
+    status: "success",
     createdAt: request.createdAt,
     durationMs: 1,
     output: {

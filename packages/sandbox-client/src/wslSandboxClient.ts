@@ -47,9 +47,14 @@ export class WslSandboxClient {
         },
         body: JSON.stringify({
           command: request.command,
-          windowsCwd: request.windowsCwd,
+          cwd: request.cwd ?? request.windowsCwd,
+          windowsCwd: request.windowsCwd ?? request.cwd,
           timeoutMs,
           env: request.env,
+          envAllowlist: request.envAllowlist,
+          workspaceMount: request.workspaceMount,
+          networkPolicy: request.networkPolicy,
+          resourceLimits: request.resourceLimits,
         }),
         signal: controller.signal,
       });
@@ -75,6 +80,35 @@ export class WslSandboxClient {
           typeof payload?.durationMs === "number" && Number.isFinite(payload.durationMs)
             ? payload.durationMs
             : Date.now() - startedAt,
+        timedOut: payload?.timedOut === true,
+        artifacts: Array.isArray(payload?.artifacts)
+          ? payload.artifacts.flatMap((artifact) => {
+              if (!artifact || typeof artifact !== "object") {
+                return [];
+              }
+
+              const candidate = artifact as Record<string, unknown>;
+              return typeof candidate.path === "string"
+                ? [
+                    {
+                      path: candidate.path,
+                      sizeBytes:
+                        typeof candidate.sizeBytes === "number"
+                          ? candidate.sizeBytes
+                          : undefined,
+                      kind:
+                        typeof candidate.kind === "string"
+                          ? candidate.kind
+                          : undefined,
+                      description:
+                        typeof candidate.description === "string"
+                          ? candidate.description
+                          : undefined,
+                    },
+                  ]
+                : [];
+            })
+          : [],
       };
     } catch (error) {
       const message =
@@ -136,6 +170,8 @@ function createErrorResult(stderr: string, durationMs = 0): SandboxRunResult {
     stdout: "",
     stderr,
     durationMs,
+    timedOut: false,
+    artifacts: [],
   };
 }
 

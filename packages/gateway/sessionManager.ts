@@ -1,5 +1,9 @@
 import { SessionStore } from "./sessionStore";
 import type { GatewaySession, GatewaySessionId } from "./sessionTypes";
+import type {
+  GatewayPermissionMode,
+  GatewayPlanState,
+} from "./permissionTypes";
 
 /**
  * 会话管理器。
@@ -101,6 +105,36 @@ export class SessionManager {
       id: this.currentSessionId,
       skillNames,
     });
+
+    if (!updated) {
+      throw new Error("Current session not found.");
+    }
+
+    return updated;
+  }
+
+  setCurrentSessionPermissionMode(
+    permissionMode: GatewayPermissionMode
+  ): GatewaySession {
+    const updated = this.sessionStore.setPermissionMode(
+      this.currentSessionId,
+      permissionMode
+    );
+
+    if (!updated) {
+      throw new Error("Current session not found.");
+    }
+
+    return updated;
+  }
+
+  setCurrentSessionPlanState(
+    planState: GatewayPlanState | undefined
+  ): GatewaySession {
+    const updated = this.sessionStore.setPlanState(
+      this.currentSessionId,
+      planState
+    );
 
     if (!updated) {
       throw new Error("Current session not found.");

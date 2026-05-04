@@ -1,17 +1,9 @@
-import {
-  buildAutoToolAnswerMessages,
-  buildAutoToolDecisionMessages,
-  mergeMemoryResults,
-  normalizeMemorySearchResults,
-  parseAutoToolDecision,
-} from "./autoToolLoop";
+import { AgentRunner } from "./agentRunner";
 import { ContextBuilder } from "./contextBuilder";
 import type { BuiltGatewayContext } from "./contextBuilder";
-import { createGatewayToolCallRequest } from "./toolCallFactory";
 import type { GatewaySandbox } from "./sandbox";
 import type { ToolCallExecutor } from "./toolCallExecutor";
 import type { GatewayToolCallRecord } from "./toolCallTypes";
-import type { GatewayToolListItem } from "./toolTypes";
 import type { ToolRegistry } from "./toolRegistry";
 import type {
   GatewayDebugInfo,
@@ -19,7 +11,7 @@ import type {
   GatewayResponse,
   MemorySearchResult,
 } from "./types";
-import type { ChatMessage, ModelProvider, ModelResponse } from "../model/types";
+import type { ModelProvider } from "../model/types";
 
 type GatewayMemorySearch = (query: string) => Promise<MemorySearchResult[]>;
 export type MemorySearch = GatewayMemorySearch;
@@ -74,32 +66,36 @@ interface GatewayAuditEvent {
 export class Gateway {
   private readonly memorySearch: GatewayMemorySearch;
   private readonly modelProvider: ModelProvider;
-  private readonly toolRegistry?: ToolRegistry;
-  private readonly toolCallExecutor?: ToolCallExecutor;
   private readonly auditLogger?: unknown;
   private readonly debug: boolean;
   private readonly rateLimiter?: unknown;
   private readonly circuitBreaker?: unknown;
   private readonly metricsCollector?: unknown;
-  private readonly contextBuilder: ContextBuilder;
   private readonly sandbox?: GatewaySandbox;
-  private readonly autoToolLoopEnabled: boolean;
-  private readonly autoToolLoopMaxSteps: number;
+  private readonly agentRunner: AgentRunner;
 
   constructor(options: GatewayOptions) {
+    const contextBuilder = options.contextBuilder ?? new ContextBuilder();
+    const autoToolLoopMaxSteps = options.autoToolLoopMaxSteps ?? 5;
+
     this.memorySearch = options.memorySearch;
     this.modelProvider = options.modelProvider;
-    this.toolRegistry = options.toolRegistry;
-    this.toolCallExecutor = options.toolCallExecutor;
     this.auditLogger = options.auditLogger;
     this.debug = options.debug ?? false;
     this.rateLimiter = options.rateLimiter;
     this.circuitBreaker = options.circuitBreaker;
     this.metricsCollector = options.metricsCollector;
-    this.contextBuilder = options.contextBuilder ?? new ContextBuilder();
     this.sandbox = options.sandbox;
-    this.autoToolLoopEnabled = options.autoToolLoopEnabled ?? true;
-    this.autoToolLoopMaxSteps = options.autoToolLoopMaxSteps ?? 3;
+    this.agentRunner = new AgentRunner({
+      memorySearch: this.memorySearch,
+      modelProvider: this.modelProvider,
+      contextBuilder,
+      toolRegistry: options.autoToolLoopEnabled === false ? undefined : options.toolRegistry,
+      toolCallExecutor:
+        options.autoToolLoopEnabled === false ? undefined : options.toolCallExecutor,
+      auditLogger: this.auditLogger,
+      maxToolCalls: autoToolLoopMaxSteps,
+    });
   }
 
   async handle(request: GatewayRequest): Promise<GatewayResponse> {
@@ -131,11 +127,9 @@ export class Gateway {
       });
 
       rateLimitInfo = await this.checkRateLimit();
-
       if (!rateLimitInfo.allowed) {
-        responseText = "请求过于频繁，Gateway 已触发限流保护。请稍后再试。";
-
         const durationMs = Date.now() - startedAt;
+        responseText = "请求过于频繁，Gateway 已触发限流保护。请稍后再试。";
 
         await this.recordMetrics({
           durationMs,
@@ -143,23 +137,8 @@ export class Gateway {
           errorMessage: rateLimitInfo.reason ?? "Rate limit exceeded",
           rateLimited: true,
         });
-
         await this.recordAudit({
           type: "gateway.request.rate_limited",
-          timestamp: new Date().toISOString(),
-          requestId,
-          modelProvider: this.modelProvider.name,
-          inputLength: input.length,
-          responseLength: responseText.length,
-          memoryCount: 0,
-          durationMs,
-          success: false,
-          errorMessage: rateLimitInfo.reason ?? "Rate limit exceeded",
-          rateLimited: true,
-        });
-
-        await this.recordAudit({
-          type: "gateway.rate_limited",
           timestamp: new Date().toISOString(),
           requestId,
           modelProvider: this.modelProvider.name,
@@ -182,15 +161,15 @@ export class Gateway {
           hasError: true,
           errorMessage: rateLimitInfo.reason ?? "Rate limit exceeded",
           rateLimit: rateLimitInfo,
+          permissionMode: request.permissionMode,
+          planState: request.planState,
         });
       }
 
       circuitInfo = this.getCircuitState();
-
       if (circuitInfo.open) {
-        responseText = "上游模型暂时不可用，Gateway 熔断器已打开。请稍后再试。";
-
         const durationMs = Date.now() - startedAt;
+        responseText = "上游模型暂时不可用，Gateway 熔断器已打开。请稍后再试。";
 
         await this.recordMetrics({
           durationMs,
@@ -198,23 +177,8 @@ export class Gateway {
           errorMessage: circuitInfo.reason ?? "Circuit breaker is open",
           circuitOpen: true,
         });
-
         await this.recordAudit({
           type: "gateway.request.circuit_open",
-          timestamp: new Date().toISOString(),
-          requestId,
-          modelProvider: this.modelProvider.name,
-          inputLength: input.length,
-          responseLength: responseText.length,
-          memoryCount: 0,
-          durationMs,
-          success: false,
-          errorMessage: circuitInfo.reason ?? "Circuit breaker is open",
-          circuitOpen: true,
-        });
-
-        await this.recordAudit({
-          type: "gateway.circuit.open",
           timestamp: new Date().toISOString(),
           requestId,
           modelProvider: this.modelProvider.name,
@@ -238,15 +202,24 @@ export class Gateway {
           errorMessage: circuitInfo.reason ?? "Circuit breaker is open",
           rateLimit: rateLimitInfo,
           circuit: circuitInfo,
+          permissionMode: request.permissionMode,
+          planState: request.planState,
         });
       }
 
       try {
-        memoryResults = await this.memorySearch(input);
+        const result = await this.agentRunner.run(request);
+        responseText = result.text;
+        memoryResults = result.memoryResults;
+        toolCalls = result.toolCalls;
+        autoToolLoopInfo = result.autoToolLoop;
+        builtContext = result.builtContext;
+        this.recordCircuitSuccess();
       } catch (err) {
         hasError = true;
         errorMessage = this.toErrorMessage(err);
-        memoryResults = [];
+        responseText = "模型调用失败，Gateway 已捕获错误，没有让程序崩溃。";
+        this.recordCircuitFailure(errorMessage);
       }
 
       await this.recordAudit({
@@ -262,11 +235,6 @@ export class Gateway {
         errorMessage,
       });
 
-      builtContext = this.contextBuilder.buildContext(input, memoryResults, {
-        activeSkillNames: request.activeSkills,
-      });
-      const messages = builtContext.messages;
-
       await this.recordAudit({
         type: "context.built",
         timestamp: new Date().toISOString(),
@@ -276,28 +244,9 @@ export class Gateway {
         responseLength: 0,
         memoryCount: memoryResults.length,
         durationMs: Date.now() - startedAt,
-        success: true,
+        success: !hasError,
+        errorMessage,
       });
-
-      try {
-        const toolLoopResult = await this.respondWithOptionalTools({
-          request,
-          requestId,
-          baseMessages: messages,
-          memoryResults,
-        });
-
-        responseText = toolLoopResult.text;
-        memoryResults = toolLoopResult.memoryResults;
-        toolCalls = toolLoopResult.toolCalls;
-        autoToolLoopInfo = toolLoopResult.autoToolLoop;
-        this.recordCircuitSuccess();
-      } catch (err) {
-        hasError = true;
-        errorMessage = this.toErrorMessage(err);
-        responseText = "模型调用失败，Gateway 已捕获错误，没有让程序崩溃。";
-        this.recordCircuitFailure(errorMessage);
-      }
 
       await this.recordAudit({
         type: "model.generate.completed",
@@ -313,13 +262,11 @@ export class Gateway {
       });
 
       const durationMs = Date.now() - startedAt;
-
       await this.recordMetrics({
         durationMs,
         hasError,
         errorMessage,
       });
-
       await this.recordAudit({
         type: "gateway.response.completed",
         timestamp: new Date().toISOString(),
@@ -342,10 +289,12 @@ export class Gateway {
         durationMs,
         hasError,
         errorMessage,
-        skillSelection: builtContext.skillSelection,
+        skillSelection: builtContext?.skillSelection,
         autoToolLoop: autoToolLoopInfo,
         rateLimit: rateLimitInfo,
         circuit: this.getCircuitState(),
+        permissionMode: request.permissionMode,
+        planState: request.planState,
       });
     } catch (err) {
       const fatalMessage = this.toErrorMessage(err);
@@ -357,7 +306,6 @@ export class Gateway {
         hasError: true,
         errorMessage: fatalMessage,
       });
-
       await this.recordAudit({
         type: "gateway.request.fatal_error",
         timestamp: new Date().toISOString(),
@@ -384,283 +332,10 @@ export class Gateway {
         autoToolLoop: autoToolLoopInfo,
         rateLimit: rateLimitInfo,
         circuit: circuitInfo,
+        permissionMode: request.permissionMode,
+        planState: request.planState,
       });
     }
-  }
-
-  private async callModel(messages: ChatMessage[]): Promise<string> {
-    const provider = this.modelProvider as unknown as {
-      generate?: (messages: ChatMessage[]) => Promise<string | ModelResponse>;
-      chat?: (messages: ChatMessage[]) => Promise<string | ModelResponse>;
-      complete?: (messages: ChatMessage[]) => Promise<string | ModelResponse>;
-      invoke?: (messages: ChatMessage[]) => Promise<string | ModelResponse>;
-    };
-
-    if (typeof provider.generate === "function") {
-      return this.extractModelText(await provider.generate(messages));
-    }
-
-    if (typeof provider.chat === "function") {
-      return this.extractModelText(await provider.chat(messages));
-    }
-
-    if (typeof provider.complete === "function") {
-      return this.extractModelText(await provider.complete(messages));
-    }
-
-    if (typeof provider.invoke === "function") {
-      return this.extractModelText(await provider.invoke(messages));
-    }
-
-    throw new Error("ModelProvider does not expose a supported call method.");
-  }
-
-  private async respondWithOptionalTools(input: {
-    request: GatewayRequest;
-    requestId: string;
-    baseMessages: ChatMessage[];
-    memoryResults: MemorySearchResult[];
-  }): Promise<{
-    text: string;
-    memoryResults: MemorySearchResult[];
-    toolCalls: GatewayToolCallRecord[];
-    autoToolLoop: GatewayDebugInfo["autoToolLoop"];
-  }> {
-    const availableTools = this.getAutoRunnableTools();
-    const decisionTrace: NonNullable<
-      GatewayDebugInfo["autoToolLoop"]
-    >["decisionTrace"] = [];
-    const directShellCommand = this.extractDirectShellCommand(
-      input.request.input,
-      availableTools
-    );
-
-    if (
-      !this.autoToolLoopEnabled ||
-      !this.toolRegistry ||
-      !this.toolCallExecutor ||
-      availableTools.length === 0
-    ) {
-      return {
-        text: await this.callModel(input.baseMessages),
-        memoryResults: input.memoryResults,
-        toolCalls: [],
-        autoToolLoop: {
-          enabled: this.autoToolLoopEnabled,
-          attempted: false,
-          toolCallCount: 0,
-          maxSteps: this.autoToolLoopMaxSteps,
-          availableTools: availableTools.map((tool) => ({
-            name: tool.name,
-            automationLevel: tool.policy?.automationLevel,
-            riskLevel: tool.policy?.riskLevel,
-          })),
-          decisionTrace,
-          finishReason: availableTools.length === 0 ? "no-tools-available" : "disabled",
-        },
-      };
-    }
-
-    const toolCalls: GatewayToolCallRecord[] = [];
-    let augmentedMemory = [...input.memoryResults];
-    let plannerError: string | undefined;
-    let finishReason = "respond";
-
-    if (directShellCommand) {
-      const toolCallRequest = createGatewayToolCallRequest({
-        toolName: "bash.run",
-        input: {
-          command: directShellCommand,
-        },
-        sessionId: input.request.sessionId,
-        requestId: input.requestId,
-      });
-      const toolCallRecord = await this.toolCallExecutor.execute(toolCallRequest);
-      toolCalls.push(toolCallRecord);
-      decisionTrace.push({
-        step: 1,
-        action: "tool",
-        toolName: "bash.run",
-        reason: "direct shell command request detected",
-        status: toolCallRecord.status,
-        error: toolCallRecord.error,
-      });
-
-      return {
-        text: this.formatDirectShellAnswer(toolCallRecord),
-        memoryResults: augmentedMemory,
-        toolCalls,
-        autoToolLoop: {
-          enabled: true,
-          attempted: true,
-          toolCallCount: 1,
-          maxSteps: this.autoToolLoopMaxSteps,
-          availableTools: availableTools.map((tool) => ({
-            name: tool.name,
-            automationLevel: tool.policy?.automationLevel,
-            riskLevel: tool.policy?.riskLevel,
-          })),
-          decisionTrace,
-          finishReason: toolCallRecord.output?.ok ? "direct-shell-tool" : "direct-shell-tool-failed",
-        },
-      };
-    }
-
-    for (let step = 0; step < this.autoToolLoopMaxSteps; step += 1) {
-      const decisionMessages = buildAutoToolDecisionMessages({
-        baseMessages: input.baseMessages,
-        tools: availableTools,
-        toolCalls,
-        maxSteps: this.autoToolLoopMaxSteps,
-      });
-
-      const rawDecision = await this.callModel(decisionMessages);
-
-      try {
-        const decision = parseAutoToolDecision(rawDecision);
-
-        await this.recordAudit({
-          type: "gateway.auto_tool.decision",
-          timestamp: new Date().toISOString(),
-          requestId: input.requestId,
-          modelProvider: this.modelProvider.name,
-          inputLength: input.request.input.length,
-          responseLength: rawDecision.length,
-          memoryCount: augmentedMemory.length,
-          durationMs: 0,
-          success: true,
-          metadata: {
-            step: step + 1,
-            action: decision.action,
-            toolName: decision.action === "tool" ? decision.toolName : undefined,
-            reason: decision.reason,
-          },
-        });
-
-        if (decision.action === "respond") {
-          finishReason = toolCalls.length > 0 ? "tool-augmented-respond" : "respond";
-          decisionTrace.push({
-            step: step + 1,
-            action: "respond",
-            reason: decision.reason,
-            status: "completed",
-          });
-
-          const answerMessages = buildAutoToolAnswerMessages({
-            baseMessages: input.baseMessages,
-            toolCalls,
-          });
-
-          return {
-            text: await this.callModel(answerMessages),
-            memoryResults: augmentedMemory,
-            toolCalls,
-            autoToolLoop: {
-              enabled: true,
-              attempted: true,
-              toolCallCount: toolCalls.length,
-              maxSteps: this.autoToolLoopMaxSteps,
-              availableTools: availableTools.map((tool) => ({
-                name: tool.name,
-                automationLevel: tool.policy?.automationLevel,
-                riskLevel: tool.policy?.riskLevel,
-              })),
-              decisionTrace,
-              finishReason,
-            },
-          };
-        }
-
-        if (!availableTools.some((tool) => tool.name === decision.toolName)) {
-          plannerError = `[auto-tool] planner selected unavailable tool: ${decision.toolName}`;
-          finishReason = "planner-invalid-tool";
-          decisionTrace.push({
-            step: step + 1,
-            action: "error",
-            toolName: decision.toolName,
-            reason: decision.reason,
-            error: plannerError,
-          });
-          break;
-        }
-
-        const toolCallRequest = createGatewayToolCallRequest({
-          toolName: decision.toolName,
-          input: decision.input,
-          sessionId: input.request.sessionId,
-          requestId: input.requestId,
-        });
-        const toolCallRecord = await this.toolCallExecutor.execute(toolCallRequest);
-        toolCalls.push(toolCallRecord);
-        decisionTrace.push({
-          step: step + 1,
-          action: "tool",
-          toolName: decision.toolName,
-          reason: decision.reason,
-          status: toolCallRecord.status,
-          error: toolCallRecord.error,
-        });
-
-        if (toolCallRecord.toolName === "memory.search" && toolCallRecord.output?.ok) {
-          const extraMemory = normalizeMemorySearchResults(toolCallRecord.output.content);
-          augmentedMemory = mergeMemoryResults(augmentedMemory, extraMemory);
-        }
-
-        finishReason = toolCallRecord.output?.ok ? "tool-called" : "tool-call-failed";
-      } catch (err) {
-        plannerError = this.toErrorMessage(err);
-        finishReason = "planner-parse-failed";
-
-        await this.recordAudit({
-          type: "gateway.auto_tool.decision",
-          timestamp: new Date().toISOString(),
-          requestId: input.requestId,
-          modelProvider: this.modelProvider.name,
-          inputLength: input.request.input.length,
-          responseLength: rawDecision.length,
-          memoryCount: augmentedMemory.length,
-          durationMs: 0,
-          success: false,
-          errorMessage: plannerError,
-          metadata: {
-            step: step + 1,
-            action: "error",
-            error: plannerError,
-          },
-        });
-        decisionTrace.push({
-          step: step + 1,
-          action: "error",
-          error: plannerError,
-        });
-        break;
-      }
-    }
-
-    const answerMessages = buildAutoToolAnswerMessages({
-      baseMessages: input.baseMessages,
-      toolCalls,
-    });
-
-    return {
-      text: await this.callModel(answerMessages),
-      memoryResults: augmentedMemory,
-      toolCalls,
-      autoToolLoop: {
-        enabled: true,
-        attempted: true,
-        toolCallCount: toolCalls.length,
-        maxSteps: this.autoToolLoopMaxSteps,
-        availableTools: availableTools.map((tool) => ({
-          name: tool.name,
-          automationLevel: tool.policy?.automationLevel,
-          riskLevel: tool.policy?.riskLevel,
-        })),
-        decisionTrace,
-        finishReason: finishReason === "tool-called" ? "tool-budget-exhausted" : finishReason,
-        plannerError,
-      },
-    };
   }
 
   private async checkRateLimit(): Promise<RateLimitResult> {
@@ -788,12 +463,10 @@ export class Gateway {
       breaker.recordSuccess();
       return;
     }
-
     if (typeof breaker.success === "function") {
       breaker.success();
       return;
     }
-
     if (typeof breaker.onSuccess === "function") {
       breaker.onSuccess();
     }
@@ -814,12 +487,10 @@ export class Gateway {
       breaker.recordFailure(errorMessage);
       return;
     }
-
     if (typeof breaker.failure === "function") {
       breaker.failure(errorMessage);
       return;
     }
-
     if (typeof breaker.onFailure === "function") {
       breaker.onFailure(errorMessage);
     }
@@ -846,12 +517,10 @@ export class Gateway {
       await collector.record(input);
       return;
     }
-
     if (typeof collector.observe === "function") {
       await collector.observe(input);
       return;
     }
-
     if (typeof collector.collect === "function") {
       await collector.collect(input);
     }
@@ -893,22 +562,19 @@ export class Gateway {
         await logger.log(normalizedEvent);
         return;
       }
-
       if (typeof logger.record === "function") {
         await logger.record(normalizedEvent);
         return;
       }
-
       if (typeof logger.append === "function") {
         await logger.append(normalizedEvent);
         return;
       }
-
       if (typeof logger.write === "function") {
         await logger.write(normalizedEvent);
       }
     } catch {
-      // 审计是旁路能力，绝不能反向打断主请求。
+      // audit failures must not break the request path
     }
   }
 
@@ -925,6 +591,8 @@ export class Gateway {
     autoToolLoop?: GatewayDebugInfo["autoToolLoop"];
     rateLimit?: RateLimitResult;
     circuit?: CircuitState;
+    permissionMode?: GatewayRequest["permissionMode"];
+    planState?: GatewayRequest["planState"];
   }): GatewayResponse {
     const debugInfo: GatewayDebugInfo = {
       modelProvider: this.modelProvider.name,
@@ -940,6 +608,10 @@ export class Gateway {
         hasRecentMemory: input.memoryUsed.some((item) => isRecentMemoryResult(item)),
       },
       skillSelection: input.skillSelection,
+      permission: {
+        mode: input.permissionMode ?? "default",
+      },
+      plan: input.planState,
       rateLimit: input.rateLimit
         ? {
             allowed: input.rateLimit.allowed,
@@ -973,18 +645,6 @@ export class Gateway {
     };
   }
 
-  private extractModelText(result: string | ModelResponse): string {
-    if (typeof result === "string") {
-      return result;
-    }
-
-    if (result && typeof result.text === "string") {
-      return result.text;
-    }
-
-    throw new Error("ModelProvider returned an unsupported response payload.");
-  }
-
   private getMetricsSnapshot(): unknown {
     if (!this.metricsCollector) {
       return undefined;
@@ -1003,11 +663,9 @@ export class Gateway {
     if (typeof collector.snapshot === "function") {
       return collector.snapshot(circuitState);
     }
-
     if (typeof collector.getSnapshot === "function") {
       return collector.getSnapshot();
     }
-
     if (typeof collector.toJSON === "function") {
       return collector.toJSON();
     }
@@ -1035,85 +693,10 @@ export class Gateway {
     return value.input ?? value.text ?? value.query ?? value.content ?? "";
   }
 
-  private getAutoRunnableTools(): GatewayToolListItem[] {
-    if (!this.toolRegistry) {
-      return [];
-    }
-
-    return this.toolRegistry
-      .list()
-      .filter(
-        (tool) =>
-          tool.name !== "sandbox.exec" &&
-          (tool.policy?.automationLevel ?? "manual") === "auto"
-      );
-  }
-
-  private extractDirectShellCommand(
-    input: string,
-    availableTools: GatewayToolListItem[]
-  ): string | undefined {
-    if (!availableTools.some((tool) => tool.name === "bash.run")) {
-      return undefined;
-    }
-
-    const trimmed = input.trim();
-    if (!trimmed) {
-      return undefined;
-    }
-
-    const explicitPatterns = [
-      /^(?:请)?帮我运行\s+(.+)$/i,
-      /^(?:请)?运行\s+(.+)$/i,
-      /^(?:请)?执行\s+(.+)$/i,
-      /^run\s+(.+)$/i,
-      /^execute\s+(.+)$/i,
-    ];
-
-    for (const pattern of explicitPatterns) {
-      const match = trimmed.match(pattern);
-      if (match?.[1]) {
-        return match[1].trim();
-      }
-    }
-
-    return undefined;
-  }
-
-  private formatDirectShellAnswer(record: GatewayToolCallRecord): string {
-    const content = asSandboxContent(record.output?.content);
-    if (!content) {
-      return record.error
-        ? `命令执行失败：${record.error}`
-        : `命令执行完成，状态：${record.status}`;
-    }
-
-    const lines = [
-      content.exitCode === 0 ? "命令已在沙箱中执行完成。" : "命令已在沙箱中执行，但返回了非零退出码。",
-      `exitCode: ${content.exitCode ?? "null"}`,
-      `durationMs: ${readMetadataNumber(record.output?.metadata?.durationMs) ?? record.durationMs ?? 0}`,
-    ];
-
-    if (content.stdout) {
-      lines.push("", "stdout:", content.stdout.trimEnd());
-    }
-
-    if (content.stderr) {
-      lines.push("", "stderr:", content.stderr.trimEnd());
-    }
-
-    if (content.blockedReason) {
-      lines.push("", `blockedReason: ${content.blockedReason}`);
-    }
-
-    return lines.join("\n");
-  }
-
   private toErrorMessage(err: unknown): string {
     if (err instanceof Error) {
       return err.message;
     }
-
     if (typeof err === "string") {
       return err;
     }
@@ -1135,43 +718,6 @@ function summarizeMemorySources(memoryUsed: MemorySearchResult[]): Record<string
     acc[sourceKind] = (acc[sourceKind] ?? 0) + 1;
     return acc;
   }, {});
-}
-
-function asSandboxContent(
-  value: unknown
-): {
-  blockedReason?: string;
-  stdout: string;
-  stderr: string;
-  exitCode: number | null;
-} | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  if (
-    typeof candidate.stdout !== "string" ||
-    typeof candidate.stderr !== "string" ||
-    !("exitCode" in candidate)
-  ) {
-    return undefined;
-  }
-
-  return {
-    blockedReason:
-      typeof candidate.blockedReason === "string" ? candidate.blockedReason : undefined,
-    stdout: candidate.stdout,
-    stderr: candidate.stderr,
-    exitCode:
-      typeof candidate.exitCode === "number" || candidate.exitCode === null
-        ? (candidate.exitCode as number | null)
-        : null,
-  };
-}
-
-function readMetadataNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function isRecentMemoryResult(item: MemorySearchResult): boolean {

@@ -16,6 +16,7 @@ export type GatewayCommandType =
   | "session"
   | "mcp"
   | "skills"
+  | "plan"
   | "approvals"
   | "confirm"
   | "reject"
@@ -141,6 +142,14 @@ export function parseGatewayCommand(rawInput: string): ParsedGatewayCommand {
       type: "skills",
       raw,
       payload: raw.replace(/^:skills\s*/, "").trim(),
+    };
+  }
+
+  if (raw === ":plan" || raw.startsWith(":plan ")) {
+    return {
+      type: "plan",
+      raw,
+      payload: raw.replace(/^:plan\s*/, "").trim(),
     };
   }
 

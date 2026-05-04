@@ -1,66 +1,74 @@
+import { createToolSecurityProfile } from "../sandbox/src/policy";
+import { validateToolArgs } from "./toolSchema";
 import type {
   GatewayTool,
   GatewayToolContext,
   GatewayToolInput,
   GatewayToolListItem,
+  GatewayToolMetadata,
   GatewayToolName,
   GatewayToolOutput,
+  ToolDefinition,
+  ToolResult,
 } from "./toolTypes";
+import type { GatewayToolPermissionLevel } from "./permissionTypes";
 
-/**
- * Gateway 的统一工具注册表。
- *
- * 所有本地工具和 MCP 映射工具最终都会注册到这里，
- * 这样调用层只需要面对一个统一的查找与执行入口。
- */
+interface NormalizedGatewayTool
+  extends Omit<
+      GatewayTool,
+      keyof GatewayToolMetadata
+    >,
+    ToolDefinition,
+    GatewayToolMetadata {
+  schema?: Record<string, unknown>;
+  riskLevel: ToolDefinition["riskLevel"];
+  execute(args: unknown, context?: GatewayToolContext): Promise<ToolResult>;
+}
+
 export class ToolRegistry {
-  private readonly tools = new Map<GatewayToolName, GatewayTool>();
+  private readonly tools = new Map<GatewayToolName, NormalizedGatewayTool>();
 
-  /**
-   * 注册一个工具。
-   *
-   * 同名工具会直接抛错，避免后注册的工具悄悄覆盖前一个实现。
-   */
   register(tool: GatewayTool): void {
     if (this.tools.has(tool.name)) {
       throw new Error(`[tools] duplicate tool registration: ${tool.name}`);
     }
-    this.tools.set(tool.name, tool);
+
+    this.tools.set(tool.name, normalizeTool(tool));
   }
 
-  /**
-   * 判断指定工具是否已存在。
-   */
   has(name: GatewayToolName): boolean {
     return this.tools.has(name);
   }
 
-  /**
-   * 列出当前所有已注册工具的展示信息。
-   */
   list(): GatewayToolListItem[] {
     return Array.from(this.tools.values()).map((tool) => ({
       name: tool.name,
       description: tool.description,
+      schema: tool.schema,
+      riskLevel: tool.riskLevel,
       inputSchema: tool.inputSchema,
       policy: tool.policy,
+      permissionLevel: tool.permissionLevel,
+      readOnly: tool.readOnly,
+      sideEffect: tool.sideEffect,
+      requiresSandbox: tool.requiresSandbox,
+      timeoutMs: tool.timeoutMs,
     }));
   }
 
-  /**
-   * 获取某个工具的原始定义。
-   */
-  get(name: GatewayToolName): GatewayTool | undefined {
+  get(name: GatewayToolName): NormalizedGatewayTool | undefined {
     return this.tools.get(name);
   }
 
-  /**
-   * 调用指定工具。
-   *
-   * 这里做了两层保护：
-   * 1. 工具不存在时返回标准失败结果。
-   * 2. 工具内部抛错时转换成统一错误输出，而不是把异常继续往上炸。
-   */
+  validate(name: GatewayToolName, input: unknown): string | undefined {
+    const tool = this.tools.get(name);
+    if (!tool) {
+      return `[tools] tool not found: ${name}`;
+    }
+
+    return validateToolArgs(tool.schema, input);
+  }
+
   async invoke(
     name: GatewayToolName,
     input: GatewayToolInput,
@@ -75,7 +83,22 @@ export class ToolRegistry {
     }
 
     try {
-      return await tool.invoke(input, context);
+      if (tool.invoke) {
+        return await tool.invoke(input, context);
+      }
+
+      const result = await tool.execute(input, context);
+      return {
+        ok: result.ok,
+        content: result.result,
+        error: result.error,
+        metadata:
+          result.durationMs === undefined
+            ? undefined
+            : {
+                durationMs: result.durationMs,
+              },
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -83,5 +106,134 @@ export class ToolRegistry {
         error: `[tools] invoke failed: ${name}. ${message}`,
       };
     }
+  }
+}
+
+function normalizeTool(tool: GatewayTool): NormalizedGatewayTool {
+  const schema = tool.schema ?? tool.inputSchema;
+  const riskLevel = tool.riskLevel ?? inferRiskLevel(tool);
+  const metadata = inferToolMetadata(tool);
+
+  const execute =
+    tool.execute ??
+    (async (args: unknown, context?: GatewayToolContext): Promise<ToolResult> => {
+      if (!tool.invoke) {
+        throw new Error(`[tools] ${tool.name} does not define execute() or invoke()`);
+      }
+
+      const output = await tool.invoke(args as GatewayToolInput, context);
+      return {
+        toolCallId: "",
+        ok: output.ok,
+        result: output.content,
+        error: output.error,
+        durationMs:
+          typeof output.metadata?.durationMs === "number"
+            ? output.metadata.durationMs
+            : undefined,
+      };
+    });
+
+  return {
+    ...tool,
+    schema,
+    riskLevel,
+    ...metadata,
+    security: tool.security ?? securityFromRiskLevel(riskLevel),
+    execute,
+  };
+}
+
+function inferToolMetadata(tool: GatewayTool): GatewayToolMetadata {
+  const permissionLevel = tool.permissionLevel ?? inferPermissionLevel(tool);
+  const readOnly = tool.readOnly ?? permissionLevel === "read";
+  const requiresSandbox =
+    tool.requiresSandbox ??
+    Boolean(tool.sandboxSpec || tool.security?.sandboxRequired);
+  const sideEffect = tool.sideEffect ?? !readOnly;
+
+  return {
+    permissionLevel,
+    readOnly,
+    sideEffect,
+    requiresSandbox,
+    timeoutMs: tool.timeoutMs,
+  };
+}
+
+function inferRiskLevel(tool: GatewayTool): ToolDefinition["riskLevel"] {
+  if (tool.policy?.riskLevel === "destructive") {
+    return "dangerous";
+  }
+
+  if (
+    tool.policy?.riskLevel === "stateful" ||
+    tool.security?.riskLevel === "medium" ||
+    tool.security?.riskLevel === "high"
+  ) {
+    return "medium";
+  }
+
+  return "safe";
+}
+
+function inferPermissionLevel(
+  tool: GatewayTool
+): GatewayToolPermissionLevel {
+  if (/^memory\.(search|get)$/.test(tool.name) || /^file\.(read|list)$/.test(tool.name)) {
+    return "read";
+  }
+
+  if (/^memory\.write$/.test(tool.name) || /^file\.(write|edit)$/.test(tool.name)) {
+    return "write";
+  }
+
+  if (
+    /^shell\.run$/.test(tool.name) ||
+    /^bash\.run$/.test(tool.name) ||
+    /^sandbox\.exec$/.test(tool.name) ||
+    /^run_test$/.test(tool.name) ||
+    /^npm_test$/.test(tool.name) ||
+    /^build$/.test(tool.name)
+  ) {
+    return "execute";
+  }
+
+  if (/plan/i.test(tool.name)) {
+    return "plan";
+  }
+
+  return "advanced";
+}
+
+function securityFromRiskLevel(
+  riskLevel: ToolDefinition["riskLevel"]
+): NonNullable<GatewayTool["security"]> {
+  switch (riskLevel) {
+    case "dangerous":
+      return createToolSecurityProfile({
+        riskLevel: "medium",
+        sandboxRequired: true,
+        allowWrite: true,
+        allowHostExecution: false,
+        requireApproval: false,
+      });
+    case "medium":
+      return createToolSecurityProfile({
+        riskLevel: "medium",
+        sandboxRequired: false,
+        allowWrite: true,
+        allowHostExecution: true,
+        requireApproval: false,
+      });
+    case "safe":
+    default:
+      return createToolSecurityProfile({
+        riskLevel: "safe",
+        sandboxRequired: false,
+        allowWrite: false,
+        allowHostExecution: true,
+        requireApproval: false,
+      });
   }
 }

@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { GatewayRequest } from "./types";
+import type {
+  GatewayPermissionMode,
+  GatewayPlanState,
+} from "./permissionTypes";
 
 export interface GatewayRequestCreateOptions {
   sessionId?: string;
   userId?: string;
   activeSkills?: string[];
+  permissionMode?: GatewayPermissionMode;
+  planState?: GatewayPlanState;
 }
 
 /**
@@ -22,6 +28,8 @@ export function createGatewayRequest(
     sessionId: options.sessionId,
     userId: options.userId,
     activeSkills: options.activeSkills,
+    permissionMode: options.permissionMode,
+    planState: options.planState,
     createdAt: new Date().toISOString(),
   };
 }

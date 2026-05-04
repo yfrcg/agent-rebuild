@@ -1,7 +1,9 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
 
 import { FileAuditLogger } from "../../../packages/audit/auditLogger";
+import { resolveProjectRoot } from "../../../packages/core/src/config";
 
 import { printBootstrapStatus } from "../../../packages/gateway/bootstrapPrinter";
 import { createBuiltinToolRegistry } from "../../../packages/gateway/builtinTools";
@@ -44,7 +46,7 @@ async function main(): Promise<void> {
   // 优先加载本地环境变量，让后续配置读取拥有完整上下文。
   loadEnvFile();
 
-  const projectRoot = resolveProjectRoot(process.env.WINDOWS_PROJECT_ROOT);
+  const projectRoot = resolveProjectRoot(process.env);
   const sessionManager = new SessionManager();
   const config = loadGatewayConfig();
   const sandboxManager = new SandboxManager({
@@ -198,21 +200,45 @@ async function main(): Promise<void> {
       const request = createGatewayRequest(command.payload ?? command.raw, {
         sessionId: sessionManager.getCurrentSessionId(),
         activeSkills: sessionManager.getCurrentSession().activeSkills ?? [],
+        permissionMode:
+          sessionManager.getCurrentSession().permissionMode ?? "default",
+        planState: sessionManager.getCurrentSession().planState,
       });
       const response = await gateway.handle(request);
 
       printGatewayResponse(response);
 
-      if (response.toolCalls && response.toolCalls.length > 0) {
-        for (const toolCall of response.toolCalls) {
-          recordTranscript(
-            sessionManager.getCurrentSessionId(),
-            "tool",
-            `[auto-tool] ${toolCall.toolName} ${toolCall.status} (${toolCall.id})`
+      const currentSession = sessionManager.getCurrentSession();
+      if (currentSession.permissionMode === "plan" && currentSession.planState?.active) {
+        const updatedPlan = {
+          ...currentSession.planState,
+          status: "awaiting_approval" as const,
+          summary: response.text.split(/\r?\n/, 1)[0]?.slice(0, 200),
+          content: response.text,
+          updatedAt: new Date().toISOString(),
+        };
+        if (updatedPlan.planPath) {
+          fs.mkdirSync(path.dirname(updatedPlan.planPath), {
+            recursive: true,
+          });
+          fs.writeFileSync(
+            updatedPlan.planPath,
+            [
+              `# Plan ${updatedPlan.planId ?? ""}`.trim(),
+              "",
+              `status: ${updatedPlan.status}`,
+              `active: ${String(updatedPlan.active)}`,
+              `updatedAt: ${updatedPlan.updatedAt}`,
+              "",
+              updatedPlan.content ?? "_No plan content yet._",
+              "",
+            ].join("\n"),
+            "utf8"
           );
-          sessionManager.incrementCurrentSessionMessageCount();
         }
+        sessionManager.setCurrentSessionPlanState(updatedPlan);
       }
+
 
       // 回复记录写入当前活跃会话，而不是沿用旧变量，避免命令切换会话后写错文件。
       const activeSessionId = sessionManager.getCurrentSessionId();
@@ -231,11 +257,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
-function resolveProjectRoot(value: string | undefined): string {
-  if (!value || value.trim() === "") {
-    return process.cwd();
-  }
-
-  return path.resolve(value.trim());
-}

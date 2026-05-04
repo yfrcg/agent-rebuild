@@ -1,4 +1,10 @@
 import { spawn } from "node:child_process";
+import {
+  existsSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import * as path from "node:path";
 
 import { assertInsideWorkspace, validateBindMountSource } from "./pathGuard";
@@ -7,6 +13,7 @@ import type {
   SandboxBackend,
   SandboxProfile,
   SandboxRequest,
+  SandboxRequestedNetworkMode,
   SandboxResult,
 } from "./types";
 
@@ -24,19 +31,14 @@ const BLOCKED_ENV_KEYS = [
   "AWS_SECRET_ACCESS_KEY",
   "AWS_SESSION_TOKEN",
   "AZURE_OPENAI_API_KEY",
+  "NPM_TOKEN",
+  "NODE_AUTH_TOKEN",
 ];
-const ALLOWED_ENV_KEYS = new Set([
-  "CI",
-  "NODE_ENV",
-  "FORCE_COLOR",
-  "NO_COLOR",
-  "TERM",
-  "COLORTERM",
-  "PYTHONUNBUFFERED",
-  "PYTHONDONTWRITEBYTECODE",
-  "NPM_CONFIG_LOGLEVEL",
-  "UV_NO_SYNC",
-]);
+const MINIMAL_DEFAULT_ENV: Record<string, string> = {
+  CI: "true",
+  NODE_ENV: "test",
+  HOME: "/tmp/sandbox-home",
+};
 
 export interface DockerSandboxBackendOptions {
   dockerCommand?: string;
@@ -60,7 +62,15 @@ export class DockerSandboxBackend implements SandboxBackend {
   }
 
   async checkAvailability(): Promise<SandboxAvailability> {
-    const result = await this.spawnProcess(["version", "--format", "{{.Client.Version}}"], 10_000);
+    const result = await this.spawnProcess(
+      ["version", "--format", "{{.Client.Version}}"],
+      10_000,
+      undefined,
+      {
+        stdoutLimitBytes: this.stdoutLimitBytes,
+        stderrLimitBytes: this.stderrLimitBytes,
+      }
+    );
     if (result.error) {
       return {
         ok: false,
@@ -71,60 +81,83 @@ export class DockerSandboxBackend implements SandboxBackend {
     return {
       ok: result.exitCode === 0,
       version: firstNonEmptyLine(result.stdout) ?? firstNonEmptyLine(result.stderr),
-      error: result.exitCode === 0 ? undefined : firstNonEmptyLine(result.stderr) ?? "docker unavailable",
+      error:
+        result.exitCode === 0
+          ? undefined
+          : firstNonEmptyLine(result.stderr) ?? "docker unavailable",
     };
   }
 
   async run(req: SandboxRequest, profile: SandboxProfile): Promise<SandboxResult> {
-    const projectRoot = path.resolve(req.projectRoot);
-    validateBindMountSource(projectRoot);
-    assertInsideWorkspace(resolveWorkingDirectory(req), projectRoot);
+    const workspaceMount = resolveWorkspaceMount(req);
+    const cwd = resolveWorkingDirectory(req, workspaceMount);
+    validateBindMountSource(workspaceMount);
+    assertInsideWorkspace(cwd, workspaceMount);
 
-    const dockerArgs = this.buildDockerArgs(req, profile, projectRoot);
+    const timeoutMs = normalizeTimeout(req.timeoutMs, profile.timeoutMs);
+    const maxOutputBytes = normalizeMaxOutputBytes(
+      req.resourceLimits?.maxOutputBytes,
+      Math.max(this.stdoutLimitBytes, this.stderrLimitBytes)
+    );
+    const dockerArgs = this.buildDockerArgs(req, profile, workspaceMount);
     const startedAt = Date.now();
-    const result = await this.spawnProcess(dockerArgs, profile.timeoutMs, req.stdin);
+    const result = await this.spawnProcess(dockerArgs, timeoutMs, req.stdin, {
+      stdoutLimitBytes: maxOutputBytes,
+      stderrLimitBytes: maxOutputBytes,
+    });
+    const artifacts = collectArtifacts(workspaceMount);
 
     return {
-      ok: result.exitCode === 0 && !result.error,
+      ok: result.exitCode === 0 && !result.error && !result.timedOut,
       exitCode: result.exitCode,
       stdout: result.stdout,
       stderr: result.error ? appendError(result.stderr, result.error) : result.stderr,
       durationMs: Date.now() - startedAt,
+      timedOut: result.timedOut,
+      artifacts,
     };
   }
 
-  buildDockerArgs(req: SandboxRequest, profile: SandboxProfile, projectRoot = path.resolve(req.projectRoot)): string[] {
+  buildDockerArgs(
+    req: SandboxRequest,
+    profile: SandboxProfile,
+    workspaceMount = resolveWorkspaceMount(req)
+  ): string[] {
     const workspaceMode = profile.workspaceAccess === "ro" ? "ro" : "rw";
-    const workdir = toWorkspaceDir(req, projectRoot);
-    const envEntries = [
-      ["CI", "1"],
-      ["NODE_ENV", "test"],
-      ["HOME", "/tmp/sandbox-home"],
-      ...Object.entries(filterAllowedEnv(req.env)),
-    ];
+    const workdir = toWorkspaceDir(req, workspaceMount);
+    const envEntries = Object.entries(
+      buildContainerEnv(req.env, req.envAllowlist)
+    );
+    const memoryMb = req.resourceLimits?.memoryMb ?? profile.memoryMb;
+    const cpus = req.resourceLimits?.cpus ?? profile.cpus;
+    const pidsLimit = req.resourceLimits?.pidsLimit ?? profile.pidsLimit;
+    const network = normalizeRequestedNetwork(req.networkPolicy ?? profile.network);
 
     const args = [
       "run",
       "--rm",
+      "--init",
+      "--user",
+      "node",
       "--network",
-      translateNetwork(profile.network),
+      translateNetwork(network),
       "--read-only",
       "--tmpfs",
       "/tmp:rw,nosuid,size=256m",
       "--tmpfs",
       "/run:rw,nosuid,size=64m",
       "--memory",
-      `${profile.memoryMb}m`,
+      `${memoryMb}m`,
       "--cpus",
-      String(profile.cpus),
+      String(cpus),
       "--pids-limit",
-      String(profile.pidsLimit),
+      String(pidsLimit),
       "--security-opt",
       "no-new-privileges",
       "--cap-drop",
       "ALL",
       "-v",
-      `${projectRoot}:/workspace:${workspaceMode}`,
+      `${workspaceMount}:/workspace:${workspaceMode}`,
       "-w",
       workdir,
     ];
@@ -140,18 +173,35 @@ export class DockerSandboxBackend implements SandboxBackend {
   private async spawnProcess(
     args: string[],
     timeoutMs: number,
-    stdin?: string
-  ): Promise<{ exitCode: number | null; stdout: string; stderr: string; error?: string }> {
+    stdin: string | undefined,
+    limits: {
+      stdoutLimitBytes: number;
+      stderrLimitBytes: number;
+    }
+  ): Promise<{
+    exitCode: number | null;
+    stdout: string;
+    stderr: string;
+    timedOut: boolean;
+    error?: string;
+  }> {
     return await new Promise((resolve) => {
       let stdout = "";
       let stderr = "";
       let finished = false;
+      let timedOut = false;
       const child = spawn(this.dockerCommand, args, {
         env: {},
         stdio: ["pipe", "pipe", "pipe"],
       });
 
-      const finalize = (result: { exitCode: number | null; stdout: string; stderr: string; error?: string }) => {
+      const finalize = (result: {
+        exitCode: number | null;
+        stdout: string;
+        stderr: string;
+        timedOut: boolean;
+        error?: string;
+      }) => {
         if (finished) {
           return;
         }
@@ -161,20 +211,22 @@ export class DockerSandboxBackend implements SandboxBackend {
       };
 
       const timer = setTimeout(() => {
+        timedOut = true;
         child.kill("SIGKILL");
         finalize({
           exitCode: null,
           stdout,
           stderr: appendError(stderr, `[sandbox] command timed out after ${timeoutMs}ms`),
+          timedOut: true,
         });
       }, timeoutMs);
 
       child.stdout?.on("data", (chunk: Buffer | string) => {
-        stdout = appendLimited(stdout, chunk, this.stdoutLimitBytes);
+        stdout = appendLimited(stdout, chunk, limits.stdoutLimitBytes);
       });
 
       child.stderr?.on("data", (chunk: Buffer | string) => {
-        stderr = appendLimited(stderr, chunk, this.stderrLimitBytes);
+        stderr = appendLimited(stderr, chunk, limits.stderrLimitBytes);
       });
 
       child.on("error", (error) => {
@@ -182,15 +234,17 @@ export class DockerSandboxBackend implements SandboxBackend {
           exitCode: null,
           stdout,
           stderr,
+          timedOut,
           error: friendlyDockerError(this.dockerCommand, error),
         });
       });
 
       child.on("close", (code) => {
         finalize({
-          exitCode: code,
+          exitCode: timedOut ? null : code,
           stdout,
           stderr,
+          timedOut,
         });
       });
 
@@ -202,25 +256,41 @@ export class DockerSandboxBackend implements SandboxBackend {
   }
 }
 
-function resolveWorkingDirectory(req: SandboxRequest): string {
-  const projectRoot = path.resolve(req.projectRoot);
-  if (!req.cwd) {
-    return projectRoot;
+function resolveWorkspaceMount(req: SandboxRequest): string {
+  const candidate = req.workspaceMount ?? req.projectRoot;
+  if (!candidate || candidate.trim() === "") {
+    throw new Error("[sandbox] workspaceMount is required");
   }
 
-  return path.resolve(projectRoot, req.cwd);
+  const resolved = path.resolve(candidate);
+  if (!existsSync(resolved)) {
+    throw new Error(`[sandbox] workspaceMount does not exist: ${candidate}`);
+  }
+
+  return realpathSync.native(resolved);
 }
 
-function toWorkspaceDir(req: SandboxRequest, projectRoot: string): string {
-  const cwd = resolveWorkingDirectory(req);
-  const relative = path.relative(projectRoot, cwd).replace(/\\/g, "/");
+function resolveWorkingDirectory(req: SandboxRequest, workspaceMount: string): string {
+  if (!req.cwd || req.cwd.trim() === "") {
+    return workspaceMount;
+  }
+
+  const candidate = path.isAbsolute(req.cwd)
+    ? req.cwd
+    : path.resolve(workspaceMount, req.cwd);
+  return path.resolve(candidate);
+}
+
+function toWorkspaceDir(req: SandboxRequest, workspaceMount: string): string {
+  const cwd = resolveWorkingDirectory(req, workspaceMount);
+  const relative = path.relative(workspaceMount, cwd).replace(/\\/g, "/");
   return relative === "" ? "/workspace" : path.posix.join("/workspace", relative);
 }
 
-function translateNetwork(mode: SandboxProfile["network"]): string {
+function translateNetwork(mode: "none" | "restricted" | "host"): string {
   switch (mode) {
     case "host":
-      return "host";
+      return "bridge";
     case "restricted":
       return "bridge";
     case "none":
@@ -229,23 +299,63 @@ function translateNetwork(mode: SandboxProfile["network"]): string {
   }
 }
 
-function filterAllowedEnv(env: Record<string, string> | undefined): Record<string, string> {
+function normalizeRequestedNetwork(
+  mode: SandboxRequestedNetworkMode
+): "none" | "restricted" | "host" {
+  switch (mode) {
+    case "enabled":
+      return "restricted";
+    case "limited":
+      return "none";
+    case "disabled":
+      return "none";
+    case "host":
+    case "restricted":
+    case "none":
+      return mode;
+    default:
+      return "none";
+  }
+}
+
+function buildContainerEnv(
+  env: Record<string, string> | undefined,
+  envAllowlist: string[] | undefined
+): Record<string, string> {
+  const allowlist = new Set(
+    (envAllowlist ?? [])
+      .filter((key): key is string => typeof key === "string" && key.trim() !== "")
+      .map((key) => key.trim().toUpperCase())
+  );
+
+  const filtered: Record<string, string> = {
+    ...MINIMAL_DEFAULT_ENV,
+  };
+
   if (!env) {
-    return {};
+    return filtered;
   }
 
-  const filtered: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
     const normalizedKey = key.trim().toUpperCase();
     if (!normalizedKey || BLOCKED_ENV_KEYS.includes(normalizedKey)) {
       continue;
     }
 
-    if (normalizedKey.includes("KEY") || normalizedKey.includes("TOKEN") || normalizedKey.includes("SECRET") || normalizedKey.includes("PASSWORD")) {
+    if (
+      normalizedKey.includes("KEY") ||
+      normalizedKey.includes("TOKEN") ||
+      normalizedKey.includes("SECRET") ||
+      normalizedKey.includes("PASSWORD")
+    ) {
       continue;
     }
 
-    if (!ALLOWED_ENV_KEYS.has(normalizedKey)) {
+    if (allowlist.size > 0 && !allowlist.has(normalizedKey)) {
+      continue;
+    }
+
+    if (allowlist.size === 0 && !(normalizedKey === "CI" || normalizedKey === "NODE_ENV")) {
       continue;
     }
 
@@ -255,6 +365,60 @@ function filterAllowedEnv(env: Record<string, string> | undefined): Record<strin
   return filtered;
 }
 
+function normalizeTimeout(input: number | undefined, fallback: number): number {
+  if (!Number.isFinite(input) || input === undefined || input <= 0) {
+    return fallback;
+  }
+
+  return Math.floor(input);
+}
+
+function normalizeMaxOutputBytes(input: number | undefined, fallback: number): number {
+  if (!Number.isFinite(input) || input === undefined || input <= 0) {
+    return fallback;
+  }
+
+  return Math.floor(input);
+}
+
+function collectArtifacts(
+  workspaceMount: string
+): Array<{ path: string; sizeBytes?: number; kind?: string; description?: string }> {
+  const artifactsDir = path.join(workspaceMount, "artifacts");
+  if (!existsSync(artifactsDir)) {
+    return [];
+  }
+
+  const results: Array<{ path: string; sizeBytes?: number; kind?: string; description?: string }> = [];
+  walkArtifacts(artifactsDir, workspaceMount, results);
+  return results;
+}
+
+function walkArtifacts(
+  currentDir: string,
+  workspaceMount: string,
+  results: Array<{ path: string; sizeBytes?: number; kind?: string; description?: string }>
+): void {
+  for (const entry of readdirSync(currentDir, { withFileTypes: true })) {
+    const absolutePath = path.join(currentDir, entry.name);
+    assertInsideWorkspace(absolutePath, workspaceMount);
+    if (entry.isDirectory()) {
+      walkArtifacts(absolutePath, workspaceMount, results);
+      continue;
+    }
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const stat = statSync(absolutePath);
+    results.push({
+      path: absolutePath,
+      sizeBytes: stat.size,
+      kind: path.extname(absolutePath).replace(/^\./, "") || "file",
+    });
+  }
+}
+
 function appendLimited(current: string, chunk: Buffer | string, limit: number): string {
   const next = current + chunk.toString();
   if (Buffer.byteLength(next, "utf8") <= limit) {
@@ -262,7 +426,10 @@ function appendLimited(current: string, chunk: Buffer | string, limit: number): 
   }
 
   const suffix = "\n[truncated]";
-  const trimmed = Buffer.from(next, "utf8").subarray(0, Math.max(0, limit - Buffer.byteLength(suffix, "utf8")));
+  const trimmed = Buffer.from(next, "utf8").subarray(
+    0,
+    Math.max(0, limit - Buffer.byteLength(suffix, "utf8"))
+  );
   return trimmed.toString("utf8") + suffix;
 }
 

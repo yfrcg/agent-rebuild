@@ -1,5 +1,10 @@
 export type SandboxProfileName = "plan" | "safe-dev" | "elevated";
 export type SandboxNetworkMode = "none" | "restricted" | "host";
+export type SandboxRequestedNetworkMode =
+  | SandboxNetworkMode
+  | "disabled"
+  | "limited"
+  | "enabled";
 export type SandboxWorkspaceAccess = "none" | "ro" | "rw";
 export type SandboxBackendName = "docker" | "bubblewrap" | "nsjail" | "remote";
 export type PolicyAction = "allow" | "ask" | "deny";
@@ -24,6 +29,16 @@ export interface SandboxRequest {
   cwd?: string;
   projectRoot: string;
   env?: Record<string, string>;
+  envAllowlist?: string[];
+  timeoutMs?: number;
+  workspaceMount?: string;
+  networkPolicy?: SandboxRequestedNetworkMode;
+  resourceLimits?: {
+    memoryMb?: number;
+    cpus?: number;
+    pidsLimit?: number;
+    maxOutputBytes?: number;
+  };
   stdin?: string;
 }
 
@@ -33,6 +48,13 @@ export interface SandboxResult {
   stdout: string;
   stderr: string;
   durationMs: number;
+  timedOut?: boolean;
+  artifacts?: Array<{
+    path: string;
+    sizeBytes?: number;
+    kind?: string;
+    description?: string;
+  }>;
   deniedReason?: string;
 }
 

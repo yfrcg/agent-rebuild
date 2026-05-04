@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+
 import type { Interface as ReadlineInterface } from "node:readline";
 
 import type { AuditEventType } from "../audit/types";
@@ -20,6 +22,7 @@ import { hybridSearch } from "../memory/src/hybridSearch";
 import { upsertFileIndex } from "../memory/src/memoryIndex";
 
 import type { ParsedGatewayCommand } from "./commandParser";
+import type { GatewayPlanApprovalMode, GatewayPlanState } from "./permissionTypes";
 import { createApprovalToken } from "./approvalToken";
 import { printGatewayHelp } from "./replHelp";
 import { SessionManager } from "./sessionManager";
@@ -329,6 +332,123 @@ export async function handleBuiltInGatewayCommand(
     };
   }
 
+  if (command.type === "plan") {
+    const payload = (command.payload ?? "").trim();
+    const currentSession = context.sessionManager.getCurrentSession();
+    const currentPlan = currentSession.planState;
+
+    if (!payload || payload === "show") {
+      if (!currentPlan?.active) {
+        const output = "[plan] inactive";
+        console.log(output);
+        recordToCurrentSession("assistant", output);
+        return { handled: true };
+      }
+
+      console.log(
+        `[plan] status=${currentPlan.status} mode=${currentSession.permissionMode ?? "default"}`
+      );
+      if (currentPlan.planPath) {
+        console.log(`[plan] file=${currentPlan.planPath}`);
+      }
+      if (currentPlan.summary) {
+        console.log(`[plan] summary=${currentPlan.summary}`);
+      }
+      if (currentPlan.content) {
+        console.log(currentPlan.content);
+      }
+      recordToCurrentSession("assistant", `[plan] showed ${currentPlan.status} plan state.`);
+      return { handled: true };
+    }
+
+    if (payload === "on") {
+      const nextPlan = createPlanState(currentSession.id, currentPlan);
+      persistPlanState(nextPlan);
+      context.sessionManager.setCurrentSessionPermissionMode("plan");
+      context.sessionManager.setCurrentSessionPlanState(nextPlan);
+      const output = `[plan] enabled. Mode=plan. Write/shell tools are now blocked until approval. Plan file: ${nextPlan.planPath}`;
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return { handled: true };
+    }
+
+    if (payload === "off") {
+      context.sessionManager.setCurrentSessionPermissionMode("default");
+      if (currentPlan?.active) {
+        const updatedPlan: GatewayPlanState = {
+          ...currentPlan,
+          active: false,
+          updatedAt: new Date().toISOString(),
+        };
+        context.sessionManager.setCurrentSessionPlanState(updatedPlan);
+      }
+      const output = "[plan] disabled. Mode=default.";
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return { handled: true };
+    }
+
+    if (payload === "reject") {
+      if (!currentPlan?.active) {
+        const output = "[plan] no active plan to reject";
+        console.log(output);
+        recordToCurrentSession("assistant", output);
+        return { handled: true };
+      }
+
+      const rejectedPlan: GatewayPlanState = {
+        ...currentPlan,
+        status: "rejected",
+        active: false,
+        approvalMode: "reject",
+        updatedAt: new Date().toISOString(),
+      };
+      persistPlanState(rejectedPlan);
+      context.sessionManager.setCurrentSessionPermissionMode("default");
+      context.sessionManager.setCurrentSessionPlanState(rejectedPlan);
+      const output = "[plan] rejected. Mode=default.";
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return { handled: true };
+    }
+
+    if (
+      payload === "approve" ||
+      payload === "execute_with_context" ||
+      payload === "execute_fresh"
+    ) {
+      if (!currentPlan?.active) {
+        const output = "[plan] no active plan to approve";
+        console.log(output);
+        recordToCurrentSession("assistant", output);
+        return { handled: true };
+      }
+
+      const approvalMode = normalizePlanApprovalMode(payload);
+      const approvedPlan: GatewayPlanState = {
+        ...currentPlan,
+        status: "approved",
+        active: false,
+        approvalMode,
+        approvedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      persistPlanState(approvedPlan);
+      context.sessionManager.setCurrentSessionPermissionMode("default");
+      context.sessionManager.setCurrentSessionPlanState(approvedPlan);
+      const output = `[plan] approved via ${approvalMode}. Mode=default. Submit the next request to execute.`;
+      console.log(output);
+      recordToCurrentSession("assistant", output);
+      return { handled: true };
+    }
+
+    const output =
+      "[plan] usage: :plan on | :plan off | :plan show | :plan approve | :plan reject | :plan execute_with_context | :plan execute_fresh";
+    console.log(output);
+    recordToCurrentSession("assistant", output);
+    return { handled: true };
+  }
+
   if (command.type === "confirm") {
     const token = (command.payload ?? "").trim();
     if (!token) {
@@ -382,6 +502,9 @@ export async function handleBuiltInGatewayCommand(
       input: approval.input,
       sessionId: context.sessionManager.getCurrentSessionId(),
       approved: true,
+      permissionMode:
+        context.sessionManager.getCurrentSession().permissionMode ?? "default",
+      planState: context.sessionManager.getCurrentSession().planState,
     });
     const toolCallRecord = await context.toolCallExecutor.execute(toolCallRequest);
     printToolCallRecord(toolCallRecord);
@@ -618,6 +741,9 @@ export async function handleBuiltInGatewayCommand(
       toolName,
       input: parsedInput,
       sessionId: context.sessionManager.getCurrentSessionId(),
+      permissionMode:
+        context.sessionManager.getCurrentSession().permissionMode ?? "default",
+      planState: context.sessionManager.getCurrentSession().planState,
     });
     const toolCallRecord = await context.toolCallExecutor.execute(toolCallRequest);
     printToolCallRecord(toolCallRecord);
@@ -694,6 +820,9 @@ export async function handleBuiltInGatewayCommand(
       toolName,
       input: toolInput,
       sessionId: context.sessionManager.getCurrentSessionId(),
+      permissionMode:
+        context.sessionManager.getCurrentSession().permissionMode ?? "default",
+      planState: context.sessionManager.getCurrentSession().planState,
     });
     const toolCallRecord = await context.toolCallExecutor.execute(toolCallRequest);
     printToolCallRecord(toolCallRecord);
@@ -716,7 +845,12 @@ export async function handleBuiltInGatewayCommand(
           ? ` skills=${current.activeSkills.join(",")}`
           : "";
       const approvals = current.pendingApprovals?.length ?? 0;
-      const output = `[session] current: ${current.id} (${current.name}) messages=${current.messageCount}${activeSkills} approvals=${approvals}`;
+      const mode = current.permissionMode ?? "default";
+      const plan =
+        current.planState?.active || current.planState?.status
+          ? ` plan=${current.planState?.status ?? "inactive"}`
+          : "";
+      const output = `[session] current: ${current.id} (${current.name}) messages=${current.messageCount}${activeSkills} approvals=${approvals} mode=${mode}${plan}`;
       console.log(output);
       recordToCurrentSession("assistant", output);
       return {
@@ -736,8 +870,10 @@ export async function handleBuiltInGatewayCommand(
             ? ` | skills=${session.activeSkills.join(",")}`
             : "";
         const approvalSuffix = ` | approvals=${session.pendingApprovals?.length ?? 0}`;
+        const modeSuffix = ` | mode=${session.permissionMode ?? "default"}`;
+        const planSuffix = session.planState ? ` | plan=${session.planState.status}` : "";
         console.log(
-          `${currentFlag} ${session.id} | ${session.name} | messages=${session.messageCount}${skillSuffix}${approvalSuffix}`
+          `${currentFlag} ${session.id} | ${session.name} | messages=${session.messageCount}${skillSuffix}${approvalSuffix}${modeSuffix}${planSuffix}`
         );
       });
 
@@ -989,6 +1125,9 @@ export async function handleBuiltInGatewayCommand(
           path: file,
         },
         sessionId: context.sessionManager.getCurrentSessionId(),
+        permissionMode:
+          context.sessionManager.getCurrentSession().permissionMode ?? "default",
+        planState: context.sessionManager.getCurrentSession().planState,
       })
     );
     printToolCallRecord(toolCallRecord);
@@ -1005,4 +1144,58 @@ export async function handleBuiltInGatewayCommand(
   return {
     handled: false,
   };
+}
+
+function createPlanState(
+  sessionId: string,
+  existing?: GatewayPlanState
+): GatewayPlanState {
+  const now = new Date().toISOString();
+  const planId =
+    existing?.planId ?? `plan-${sessionId}-${Date.now().toString(36)}`;
+  const planPath =
+    existing?.planPath ?? resolveWorkspacePath("plans", `${sessionId}.md`);
+
+  return {
+    active: true,
+    status: "draft",
+    planId,
+    planPath,
+    content: existing?.content,
+    summary: existing?.summary,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+}
+
+function persistPlanState(planState: GatewayPlanState): void {
+  if (!planState.planPath) {
+    return;
+  }
+
+  fs.mkdirSync(resolveWorkspacePath("plans"), { recursive: true });
+  const body = [
+    `# Plan ${planState.planId ?? ""}`.trim(),
+    "",
+    `status: ${planState.status}`,
+    `active: ${String(planState.active)}`,
+    `updatedAt: ${planState.updatedAt ?? new Date().toISOString()}`,
+    "",
+    planState.content ?? "_No plan content yet._",
+    "",
+  ].join("\n");
+  fs.writeFileSync(planState.planPath, body, "utf8");
+}
+
+function normalizePlanApprovalMode(
+  payload: string
+): GatewayPlanApprovalMode {
+  if (payload === "execute_fresh") {
+    return "execute_fresh";
+  }
+  if (payload === "execute_with_context") {
+    return "execute_with_context";
+  }
+
+  return "approve";
 }

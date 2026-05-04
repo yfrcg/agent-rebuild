@@ -1,46 +1,136 @@
-import type { MemorySearch } from "./gateway";
-import { createGatewayMemorySearch } from "./memoryAdapter";
+import {
+  classifyMemory,
+  classifyMemoryType,
+} from "../memory/src/classifyMemory";
+import {
+  writeDailyMemory,
+  writeLongTermMemory,
+} from "../memory/src/memoryWriter";
+import { resolveProjectRoot } from "../core/src/config";
 import { createToolSecurityProfile } from "../sandbox/src/policy";
-import { createSandboxedBashTool } from "./tools/sandboxedBash";
-import { createSandboxedFileTools } from "./tools/sandboxedFile";
+import { createGatewayMemorySearch } from "./memoryAdapter";
+import type { MemorySearch } from "./gateway";
 import { ToolRegistry } from "./toolRegistry";
-import type { GatewayToolInput, GatewayToolPolicy } from "./toolTypes";
+import {
+  createSandboxedBashTool,
+  createSandboxedBuildTool,
+  createSandboxedNpmTestTool,
+  createSandboxedRunTestTool,
+} from "./tools/sandboxedBash";
+import { createSandboxedFileTools } from "./tools/sandboxedFile";
+import type {
+  GatewayTool,
+  GatewayToolContext,
+  GatewayToolInput,
+  GatewayToolPolicy,
+  ToolResult,
+} from "./toolTypes";
 import type { MemorySearchResult } from "./types";
 
-/**
- * 创建内建工具注册表时可传入的配置项。
- *
- * 调用方既可以传入已经初始化好的记忆检索函数，
- * 也可以只给 `topK`，让这里按默认方式创建检索能力。
- */
 export interface BuiltinToolRegistryOptions {
   memorySearch?: MemorySearch;
   memoryTopK?: number;
   projectRoot?: string;
 }
 
-/**
- * 创建 Gateway 自带的工具注册表。
- *
- * 当前主要注册 `memory.search` 工具。它的目标是把“记忆搜索”包装成统一工具协议，
- * 这样无论调用方是命令行、Agent 还是未来的 MCP 映射层，都能走同一条执行路径。
- */
 export function createBuiltinToolRegistry(
   options: BuiltinToolRegistryOptions = {}
 ): ToolRegistry {
   const registry = new ToolRegistry();
   const defaultTopK = options.memoryTopK ?? 5;
-  const projectRoot = options.projectRoot ?? process.cwd();
-  const memorySearchPolicy: GatewayToolPolicy = {
+  const projectRoot = options.projectRoot ?? resolveProjectRoot();
+
+  registry.register(createMemorySearchTool(options.memorySearch, defaultTopK));
+  registry.register(createMemoryWriteTool());
+
+  const shellTool = createSandboxedBashTool(projectRoot, "shell.run");
+  registry.register(shellTool);
+  registry.register({
+    ...shellTool,
+    name: "bash.run",
+    description: "Compatibility alias for shell.run.",
+  });
+  registry.register({
+    ...shellTool,
+    name: "sandbox.exec",
+    description: "Compatibility alias for shell.run.",
+  });
+  registry.register(createSandboxedRunTestTool(projectRoot));
+  registry.register(createSandboxedNpmTestTool(projectRoot));
+  registry.register(createSandboxedBuildTool(projectRoot));
+
+  for (const tool of createSandboxedFileTools(projectRoot)) {
+    registry.register(tool);
+  }
+
+  return registry;
+}
+
+function createMemorySearchTool(
+  memorySearch: MemorySearch | undefined,
+  defaultTopK: number
+): GatewayTool {
+  const policy: GatewayToolPolicy = {
     automationLevel: "auto",
     riskLevel: "read-only",
     tags: ["memory", "search", "local"],
   };
 
-  registry.register({
+  const schema = {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+      },
+      topK: {
+        type: "number",
+      },
+    },
+    required: ["query"],
+  } satisfies Record<string, unknown>;
+
+  const execute = async (
+    args: unknown,
+    context?: GatewayToolContext
+  ): Promise<ToolResult> => {
+    const input = asToolInput(args);
+    const query = input.query;
+    if (typeof query !== "string" || query.trim().length === 0) {
+      return failToolResult(context, "input.query required");
+    }
+
+    const topKInput = input.topK;
+    if (
+      topKInput !== undefined &&
+      (typeof topKInput !== "number" || !Number.isFinite(topKInput))
+    ) {
+      return failToolResult(context, "input.topK must be number");
+    }
+
+    const resolvedTopK =
+      typeof topKInput === "number" ? Math.max(1, Math.floor(topKInput)) : defaultTopK;
+
+    const search = memorySearch ?? createGatewayMemorySearch(resolvedTopK);
+    const results = (await search(query.trim())) as MemorySearchResult[];
+
+    return {
+      toolCallId: context?.requestId ?? "",
+      ok: true,
+      result: results,
+    };
+  };
+
+  return {
     name: "memory.search",
     description: "Search indexed memory by query text.",
-    policy: memorySearchPolicy,
+    schema,
+    inputSchema: schema,
+    riskLevel: "safe",
+    permissionLevel: "read",
+    readOnly: true,
+    sideEffect: false,
+    requiresSandbox: false,
+    policy,
     security: createToolSecurityProfile({
       riskLevel: "safe",
       sandboxRequired: false,
@@ -49,74 +139,121 @@ export function createBuiltinToolRegistry(
       allowHostExecution: true,
       requireApproval: false,
     }),
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "Search query text",
-        },
-        topK: {
-          type: "number",
-          description: "Optional top K result count",
-        },
-      },
-      required: ["query"],
-    },
-
-    /**
-     * 执行内建记忆搜索工具。
-     *
-     * 这里会先校验输入是否合法，再决定最终的 `topK`，
-     * 最后调用记忆检索函数并把结果包装成统一的工具输出格式。
-     */
-    async invoke(input: GatewayToolInput) {
-      const query = input.query;
-      if (typeof query !== "string" || query.trim().length === 0) {
-        return {
-          ok: false,
-          error: "input.query required",
-        };
-      }
-
-      const topKInput = input.topK;
-      if (
-        topKInput !== undefined &&
-        (typeof topKInput !== "number" || !Number.isFinite(topKInput))
-      ) {
-        return {
-          ok: false,
-          error: "input.topK must be number",
-        };
-      }
-
-      const resolvedTopK =
-        typeof topKInput === "number" ? Math.max(1, Math.floor(topKInput)) : defaultTopK;
-
-      const search = options.memorySearch ?? createGatewayMemorySearch(resolvedTopK);
-      const results = (await search(query.trim())) as MemorySearchResult[];
-
+    execute,
+    async invoke(input, context) {
+      const result = await execute(input, context);
       return {
-        ok: true,
-        content: results,
+        ok: result.ok,
+        content: result.result,
+        error: result.error,
         metadata: {
-          count: results.length,
+          count: Array.isArray(result.result) ? result.result.length : undefined,
         },
       };
     },
-  });
+  };
+}
 
-  const bashTool = createSandboxedBashTool(projectRoot);
-  registry.register(bashTool);
-  registry.register({
-    ...bashTool,
-    name: "sandbox.exec",
-    description: "Compatibility alias for bash.run.",
-  });
+function createMemoryWriteTool(): GatewayTool {
+  const schema = {
+    type: "object",
+    properties: {
+      content: {
+        type: "string",
+      },
+      tags: {
+        type: "array",
+        items: {
+          type: "string",
+        },
+      },
+    },
+    required: ["content"],
+  } satisfies Record<string, unknown>;
 
-  for (const tool of createSandboxedFileTools(projectRoot)) {
-    registry.register(tool);
+  const execute = async (
+    args: unknown,
+    context?: GatewayToolContext
+  ): Promise<ToolResult> => {
+    const input = asToolInput(args);
+    const content =
+      typeof input.content === "string" ? input.content.trim() : "";
+    if (!content) {
+      return failToolResult(context, "input.content required");
+    }
+
+    const tags = Array.isArray(input.tags)
+      ? input.tags.filter((tag): tag is string => typeof tag === "string")
+      : [];
+    const preferLongTerm = tags.some((tag) => /long[-_\s]?term/i.test(tag));
+    const kind = preferLongTerm ? "long-term" : classifyMemory(content);
+    const category = classifyMemoryType(content);
+    const filePath =
+      kind === "long-term"
+        ? writeLongTermMemory(content)
+        : writeDailyMemory(content);
+
+    return {
+      toolCallId: context?.requestId ?? "",
+      ok: true,
+      result: {
+        kind,
+        category,
+        path: filePath,
+        tags,
+      },
+    };
+  };
+
+  return {
+    name: "memory.write",
+    description: "Write a memory note into daily or long-term local memory.",
+    schema,
+    inputSchema: schema,
+    riskLevel: "medium",
+    permissionLevel: "write",
+    readOnly: false,
+    sideEffect: true,
+    requiresSandbox: false,
+    policy: {
+      automationLevel: "auto",
+      riskLevel: "stateful",
+      tags: ["memory", "write", "local"],
+    },
+    security: createToolSecurityProfile({
+      riskLevel: "medium",
+      sandboxRequired: false,
+      allowWrite: true,
+      allowHostExecution: true,
+      requireApproval: false,
+    }),
+    execute,
+    async invoke(input, context) {
+      const result = await execute(input, context);
+      return {
+        ok: result.ok,
+        content: result.result,
+        error: result.error,
+      };
+    },
+  };
+}
+
+function asToolInput(args: unknown): GatewayToolInput {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    return {};
   }
 
-  return registry;
+  return args as GatewayToolInput;
+}
+
+function failToolResult(
+  context: GatewayToolContext | undefined,
+  error: string
+): ToolResult {
+  return {
+    toolCallId: context?.requestId ?? "",
+    ok: false,
+    error,
+  };
 }

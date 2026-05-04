@@ -25,6 +25,11 @@ export function createGatewayMemorySearch(topK = 5): MemorySearch {
           filePath: hit.filePath,
           date: hit.date,
           sourceKind: hit.source,
+          freshness: inferFreshness(hit.date, hit.source),
+          freshnessWarning:
+            inferFreshness(hit.date, hit.source) === "stale"
+              ? "Older project/reference memory. Re-verify against current files before acting on it."
+              : undefined,
         },
       };
     });
@@ -42,4 +47,23 @@ function createMemoryResultId(
   index: number
 ): string {
   return `${filePath}#${section ?? index + 1}`;
+}
+
+function inferFreshness(
+  date: string | undefined,
+  sourceKind: string | undefined
+): "recent" | "stale" | "timeless" {
+  if (!date) {
+    return sourceKind === "fts" || sourceKind === "vector" || sourceKind === "hybrid"
+      ? "timeless"
+      : "timeless";
+  }
+
+  const timestamp = Date.parse(`${date}T00:00:00+08:00`);
+  if (Number.isNaN(timestamp)) {
+    return "timeless";
+  }
+
+  const ageDays = Math.floor((Date.now() - timestamp) / 86_400_000);
+  return ageDays > 30 ? "stale" : "recent";
 }

@@ -5,15 +5,19 @@ import { resolveWorkspacePath } from "../core/src/config";
 
 import type {
   GatewayPendingApproval,
+  GatewaySession,
   GatewaySessionApprovalConsumeResult,
   GatewaySessionApprovalCreateInput,
-  GatewaySession,
   GatewaySessionCreateInput,
   GatewaySessionId,
   GatewaySessionRenameInput,
   GatewaySessionSkillInput,
   GatewaySessionStoreSnapshot,
 } from "./sessionTypes";
+import type {
+  GatewayPermissionMode,
+  GatewayPlanState,
+} from "./permissionTypes";
 
 /**
  * 默认的会话快照文件路径。
@@ -92,6 +96,7 @@ export class SessionStore {
       transcriptPath: resolveWorkspacePath("sessions", `${id}.jsonl`),
       activeSkills: [],
       pendingApprovals: [],
+      permissionMode: "default",
     };
 
     sessions.push(session);
@@ -141,6 +146,40 @@ export class SessionStore {
     }
 
     target.activeSkills = [...new Set(input.skillNames.map((name) => name.trim()).filter(Boolean))];
+    target.updatedAt = nowIso();
+    this.saveSessions(sessions);
+    return target;
+  }
+
+  setPermissionMode(
+    id: GatewaySessionId,
+    permissionMode: GatewayPermissionMode
+  ): GatewaySession | undefined {
+    const sessions = this.loadSessions();
+    const target = sessions.find((session) => session.id === id);
+
+    if (!target) {
+      return undefined;
+    }
+
+    target.permissionMode = permissionMode;
+    target.updatedAt = nowIso();
+    this.saveSessions(sessions);
+    return target;
+  }
+
+  setPlanState(
+    id: GatewaySessionId,
+    planState: GatewayPlanState | undefined
+  ): GatewaySession | undefined {
+    const sessions = this.loadSessions();
+    const target = sessions.find((session) => session.id === id);
+
+    if (!target) {
+      return undefined;
+    }
+
+    target.planState = planState;
     target.updatedAt = nowIso();
     this.saveSessions(sessions);
     return target;
@@ -328,6 +367,14 @@ export class SessionStore {
                   typeof item.message === "string"
               )
             : [],
+          permissionMode:
+            typeof session.permissionMode === "string"
+              ? session.permissionMode
+              : "default",
+          planState:
+            session.planState && typeof session.planState === "object"
+              ? session.planState
+              : undefined,
         })),
       };
     } catch {
@@ -358,6 +405,7 @@ export class SessionStore {
     return {
       ...session,
       pendingApprovals: this.pruneExpiredApprovals(session.pendingApprovals ?? []),
+      permissionMode: session.permissionMode ?? "default",
     };
   }
 

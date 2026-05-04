@@ -7,6 +7,9 @@ export function printToolCallRecord(record: GatewayToolCallRecord): void {
   if (sandboxContent) {
     console.log(`[tool:${record.toolName}]`);
     console.log(`status: ${record.status}`);
+    if (record.riskLevel) {
+      console.log(`riskLevel: ${record.riskLevel}`);
+    }
     console.log(`decision: ${sandboxContent.decision}`);
     console.log(`exitCode: ${sandboxContent.exitCode ?? "null"}`);
     console.log(`durationMs: ${readMetadataNumber(metadata.durationMs) ?? record.durationMs ?? 0}`);
@@ -42,6 +45,9 @@ export function printToolCallRecord(record: GatewayToolCallRecord): void {
   console.log(`[tool-call] id: ${record.id}`);
   console.log(`[tool-call] tool: ${record.toolName}`);
   console.log(`[tool-call] status: ${record.status}`);
+  if (record.riskLevel) {
+    console.log(`[tool-call] riskLevel: ${record.riskLevel}`);
+  }
   console.log(`[tool-call] durationMs: ${record.durationMs ?? 0}`);
   if (record.error) {
     console.log(`[tool-call] error: ${record.error}`);

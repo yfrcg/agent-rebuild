@@ -21,7 +21,8 @@ export function createGatewaySessionId(): string {
 export function recordTranscript(
   sessionId: string,
   role: TranscriptEntry["role"],
-  content: string
+  content: string,
+  metadata?: Record<string, unknown>
 ): void {
-  appendTranscript(sessionId, createTranscriptEntry(role, content));
+  appendTranscript(sessionId, createTranscriptEntry(role, content, metadata));
 }

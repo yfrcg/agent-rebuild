@@ -118,7 +118,9 @@ export class ToolPolicyEngine {
       }
     }
 
-    if (toolName === "bash.run" || toolName === "sandbox.exec") {
+    if (
+      isExecutionToolName(toolName)
+    ) {
       return {
         action: "allow",
         reason: "default sandboxed bash execution allowed by profile",
@@ -299,7 +301,11 @@ function createDefaultAllowRules(): PolicyRule[] {
 }
 
 function blocksPlanTool(toolName: string): boolean {
-  return toolName === "bash.run" || toolName === "sandbox.exec" || toolName === "file.write" || toolName === "file.edit";
+  return (
+    isExecutionToolName(toolName) ||
+    toolName === "file.write" ||
+    toolName === "file.edit"
+  );
 }
 
 function normalizeCommand(command: string | undefined): string {
@@ -312,7 +318,9 @@ function bashRule(pattern: string, regex: RegExp, reason: string): PolicyRule {
     pattern: `Bash(${pattern})`,
     reason,
     matcher: (context) =>
-      (context.toolName === "bash.run" || context.toolName === "sandbox.exec") && regex.test(context.command),
+      (
+        isExecutionToolName(context.toolName)
+      ) && regex.test(context.command),
   };
 }
 
@@ -353,4 +361,15 @@ function envFileRule(pattern: string, reason: string): PolicyRule {
     reason,
     matcher: (context) => /(^|[\s"'`])(\.env([.\w-]+)?)(?=$|[\s"'`])/i.test(context.command),
   };
+}
+
+function isExecutionToolName(toolName: string): boolean {
+  return (
+    toolName === "shell.run" ||
+    toolName === "bash.run" ||
+    toolName === "sandbox.exec" ||
+    toolName === "run_test" ||
+    toolName === "npm_test" ||
+    toolName === "build"
+  );
 }

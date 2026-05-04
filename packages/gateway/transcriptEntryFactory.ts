@@ -10,12 +10,14 @@ import type { TranscriptEntry } from "../core/src/types";
  */
 export function createTranscriptEntry(
   role: TranscriptEntry["role"],
-  content: string
+  content: string,
+  metadata?: Record<string, unknown>
 ): TranscriptEntry {
   return {
     id: randomUUID(),
     role,
     content,
     createdAt: new Date().toISOString(),
+    metadata,
   };
 }
