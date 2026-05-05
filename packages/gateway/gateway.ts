@@ -20,6 +20,10 @@ import type { ModelProvider } from "../model/types";
 import { extractProjectBoundary } from "./sessionTypes";
 import { MemoryAutoWriter } from "./memoryAutoWriter";
 import type { MemoryAutoWriterConfig } from "./memoryAutoWriter";
+import { ReviewGraphRunner } from "./reviewGraph/graphRunner";
+import type { ReviewGraphRunOutput } from "./reviewGraph/graphRunner";
+import type { ReviewGraphRunnerOptions } from "./reviewGraph/types";
+import { formatReportAsText } from "./reviewGraph/reportBuilder";
 
 type GatewayMemorySearch = (query: string) => Promise<MemorySearchResult[]>;
 export type MemorySearch = GatewayMemorySearch;
@@ -43,6 +47,8 @@ export interface GatewayOptions {
   sessionManager?: SessionManager;
   memoryAutoWriterConfig?: Partial<MemoryAutoWriterConfig>;
   mcpManager?: GatewayMcpManager;
+  autoReviewGraphEnabled?: boolean;
+  reviewGraphOptions?: ReviewGraphRunnerOptions;
 }
 
 interface RateLimitResult {
@@ -90,6 +96,8 @@ export class Gateway {
   private readonly memoryAutoWriter: MemoryAutoWriter;
   private readonly mcpManager?: GatewayMcpManager;
   private readonly toolRegistry?: ToolRegistry;
+  private readonly reviewGraphRunner?: ReviewGraphRunner;
+  private readonly autoReviewGraphEnabled: boolean;
   private mcpInitialized = false;
 
   constructor(options: GatewayOptions) {
@@ -107,10 +115,13 @@ export class Gateway {
     this.sessionManager = options.sessionManager;
     this.mcpManager = options.mcpManager;
     this.toolRegistry = options.toolRegistry;
+    this.autoReviewGraphEnabled = options.autoReviewGraphEnabled ?? false;
+
     this.memoryAutoWriter = new MemoryAutoWriter({
       modelProvider: this.modelProvider,
       ...options.memoryAutoWriterConfig,
     });
+
     this.agentRunner = new AgentRunner({
       memorySearch: this.memorySearch,
       modelProvider: this.modelProvider,
@@ -123,6 +134,17 @@ export class Gateway {
       devTaskMaxSteps: options.devTaskMaxSteps,
       devTaskMaxFixRounds: options.devTaskMaxFixRounds,
     });
+
+    if (this.autoReviewGraphEnabled && options.toolRegistry && options.toolCallExecutor) {
+      this.reviewGraphRunner = new ReviewGraphRunner({
+        modelProvider: this.modelProvider,
+        toolRegistry: options.toolRegistry,
+        toolCallExecutor: options.toolCallExecutor,
+        workspaceRoot: process.cwd(),
+        auditLogger: this.auditLogger as ReviewGraphRunner["auditLogger"],
+        ...options.reviewGraphOptions,
+      });
+    }
   }
 
   async handle(request: GatewayRequest): Promise<GatewayResponse> {
@@ -241,14 +263,32 @@ export class Gateway {
           ...request,
           projectBoundary: this.resolveProjectBoundary(request.sessionId),
         };
-        const result = await this.agentRunner.run(requestWithBoundary);
-        responseText = result.text;
-        memoryResults = result.memoryResults;
-        toolCalls = result.toolCalls;
-        autoToolLoopInfo = result.autoToolLoop;
-        devTaskInfo = result.devTask;
-        builtContext = result.builtContext;
-        this.recordCircuitSuccess();
+
+        if (this.reviewGraphRunner && this.shouldUseReviewGraph(input)) {
+          const reviewResult = await this.reviewGraphRunner.run({
+            userGoal: input,
+            taskType: undefined,
+            targetFiles: [],
+            constraints: [],
+          });
+
+          responseText = this.formatReviewGraphResponse(reviewResult);
+          memoryResults = [];
+          toolCalls = [];
+          autoToolLoopInfo = undefined;
+          devTaskInfo = undefined;
+          builtContext = undefined;
+          this.recordCircuitSuccess();
+        } else {
+          const result = await this.agentRunner.run(requestWithBoundary);
+          responseText = result.text;
+          memoryResults = result.memoryResults;
+          toolCalls = result.toolCalls;
+          autoToolLoopInfo = result.autoToolLoop;
+          devTaskInfo = result.devTask;
+          builtContext = result.builtContext;
+          this.recordCircuitSuccess();
+        }
       } catch (err) {
         hasError = true;
         errorMessage = this.toErrorMessage(err);
@@ -844,6 +884,72 @@ export class Gateway {
     } catch {
       return undefined;
     }
+  }
+
+  private shouldUseReviewGraph(input: string): boolean {
+    const trimmed = input.trim();
+    if (trimmed.length < 10) {
+      return false;
+    }
+
+    const devKeywords = [
+      /\bfix\b/i,
+      /\bbug\b/i,
+      /\bfeature\b/i,
+      /\badd\b/i,
+      /\bimplement\b/i,
+      /\brefactor\b/i,
+      /\boptimize\b/i,
+      /\bcreate\b/i,
+      /\bupdate\b/i,
+      /\bmodify\b/i,
+      /\bchange\b/i,
+      /\bdelete\b/i,
+      /\bremove\b/i,
+      /\bwrite\b/i,
+      /\btest\b/i,
+      /\bdebug\b/i,
+      /修复/,
+      /新增/,
+      /实现/,
+      /重构/,
+      /优化/,
+      /创建/,
+      /修改/,
+      /删除/,
+      /测试/,
+      /调试/,
+      /编写/,
+    ];
+
+    const hasDevKeyword = devKeywords.some((pattern) => pattern.test(trimmed));
+    if (!hasDevKeyword) {
+      return false;
+    }
+
+    const casualPatterns = [
+      /^(hi|hello|hey|你好|嗨)\b/i,
+      /^(thanks|thank you|谢谢)/i,
+      /^(what is|what are|什么是|怎么)/i,
+      /^(how are you|你好吗)/i,
+      /\?$/
+    ];
+
+    const isCasual = casualPatterns.some((pattern) => pattern.test(trimmed));
+    return !isCasual;
+  }
+
+  private formatReviewGraphResponse(reviewResult: ReviewGraphRunOutput): string {
+    const reportText = formatReportAsText(reviewResult.report);
+    const statusEmoji = reviewResult.finalStatus === "passed" ? "✅" :
+      reviewResult.finalStatus === "blocked" ? "🚫" :
+      reviewResult.finalStatus === "needs_approval" ? "⏸️" : "❌";
+
+    return [
+      `${statusEmoji} AgentReview Graph completed with status: **${reviewResult.finalStatus}**`,
+      "",
+      reportText,
+    ].join("\n");
   }
 }
 

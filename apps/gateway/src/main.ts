@@ -97,6 +97,7 @@ async function main(): Promise<void> {
     memorySearch,
     memoryTopK: config.memoryTopK,
     projectRoot,
+    tavilyApiKey: config.tavilyApiKey || undefined,
   });
 
   if (mcpLazy) {

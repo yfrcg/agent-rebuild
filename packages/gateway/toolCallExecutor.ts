@@ -580,6 +580,11 @@ export class ToolCallExecutor {
       artifacts: Array.isArray(record.output?.metadata?.artifacts)
         ? record.output?.metadata?.artifacts
         : undefined,
+      runId: undefined as string | undefined,
+      subRunId: undefined as string | undefined,
+      agentName: undefined as string | undefined,
+      node: undefined as string | undefined,
+      policyDecision: undefined as string | undefined,
     };
 
     try {

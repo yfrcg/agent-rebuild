@@ -164,3 +164,29 @@ export interface GatewayResponse {
   debug?: GatewayDebugInfo;
   createdAt: string;
 }
+
+export interface WebSearchInput {
+  query: string;
+  maxResults?: number;
+  topic?: "general" | "news" | "finance";
+  includeDomains?: string[];
+  excludeDomains?: string[];
+  freshness?: "day" | "week" | "month" | "year" | "any";
+}
+
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+  source: string;
+  publishedDate?: string;
+  score?: number;
+}
+
+export interface WebSearchOutput {
+  query: string;
+  results: WebSearchResult[];
+  provider: string;
+  totalResults: number;
+  searchDurationMs: number;
+}

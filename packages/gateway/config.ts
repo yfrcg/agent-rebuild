@@ -28,6 +28,7 @@ export interface GatewayRuntimeConfig {
   circuitCooldownMs: number;
   sloMaxRtMs: number;
   sloMaxErrorRate: number;
+  tavilyApiKey: string;
 }
 
 export function loadGatewayConfig(
@@ -71,6 +72,7 @@ export function loadGatewayConfig(
     circuitCooldownMs: parsePositiveInteger(env.GATEWAY_CIRCUIT_COOLDOWN_MS, 30_000),
     sloMaxRtMs: parsePositiveInteger(env.GATEWAY_SLO_MAX_RT_MS, 200),
     sloMaxErrorRate: parsePositiveNumber(env.GATEWAY_SLO_MAX_ERROR_RATE, 0.1),
+    tavilyApiKey: env.TAVILY_API_KEY?.trim() ?? "",
   };
 }
 

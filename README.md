@@ -12,16 +12,31 @@ AI Agent Gateway - Windows 本地版。Gateway 是控制层，所有工具调用
               +---> 内建命令（会话管理、记忆、MCP、工具手动调用）
               +---> Gateway.handle()
                       |
+                      +---> ReviewGraphRunner（多 Agent 协作，autoReviewGraphEnabled 时触发）
+                      |       +---> Explore Agent（只读代码探索）
+                      |       +---> Plan Agent（生成实施计划）
+                      |       +---> Implement Agent（执行代码修改，targetFiles 限制）
+                      |       +---> Test Agent（运行 typecheck/lint/build/test）
+                      |       +---> Verify Agent（独立需求验证，0-10 评分）
+                      |       +---> Security Agent（安全审计 + 策略检查）
+                      |       +---> Reviewer Agent（最终交付决策）
+                      |       +---> ToolPolicy（8 层工具策略检查）
+                      |
                       +---> AgentRunner（LLM 循环 + 工具调用 + DevTask）
                       |       +---> ContextBuilder（系统提示 + 记忆 + 技能 + 会话记忆）
                       |       +---> ContextCompressor（4-tier 上下文压缩）
                       |       +---> ModelProvider（DeepSeek / Mock）
-                      |       +---> ToolCallExecutor -> ToolRegistry
-                      |             +---> file.*    本地文件读写（cwd 约束）
-                      |             +---> shell.*   PowerShell 执行（危险命令拦截）
-                      |             +---> memory.*  记忆检索
-                      |             +---> skill     技能调用
-                      |             +---> mcp.*     MCP 插件工具
+                      |       +---> ToolCallExecutor -> ToolRegistry（29 个内建工具 + MCP 动态工具）
+                      |             +---> file.*     文件读写/编辑/glob/grep/patch
+                      |             +---> shell.*    PowerShell 执行（危险命令拦截）
+                      |             +---> git.*      status/diff/commit
+                      |             +---> dev.*      typecheck/lint/verify
+                      |             +---> web.*      fetch/search（Tavily）
+                      |             +---> todo.*     write/update/list
+                      |             +---> agent.*    verify/policy/audit
+                      |             +---> memory.*   检索/写入
+                      |             +---> skill      技能调用
+                      |             +---> mcp.*      MCP 插件工具
                       |
                       +---> MemoryAutoWriter（自动记忆写入 + 压缩）
                       +---> SessionMemoryManager（工作记忆 + 滚动摘要）
@@ -29,7 +44,7 @@ AI Agent Gateway - Windows 本地版。Gateway 是控制层，所有工具调用
 
 Gateway 在 `packages/gateway/gateway.ts` 的 `handle()` 中驱动完整链路：构建上下文 → 调用 LLM → 解析工具调用 → 权限检查 → 执行 → 结果返回 LLM，直到模型给出最终回复或达到最大轮次。
 
-系统内置 **4-tier 上下文压缩管线**、**流式响应处理**、**自动记忆写入**、**会话工作记忆**和 **DevTask 自动修复循环**。
+系统内置 **多 Agent 协作系统（ReviewGraph）**、**4-tier 上下文压缩管线**、**流式响应处理**、**自动记忆写入**、**会话工作记忆**和 **DevTask 自动修复循环**。
 
 ## 环境准备
 
@@ -60,16 +75,33 @@ npm run gateway             # tsx apps/gateway/src/main.ts
 
 ## 可用工具
 
-工具按 family 分组，包括内建工具和 MCP 插件工具：
+系统内置 **29 个工具**，按 family 分组，另有 MCP 插件动态工具：
 
-| 类型 | 工具 | 说明 |
+| 类别 | 工具 | 说明 |
 |------|------|------|
-| file | file.read / file.write / file.edit / file.delete / file.mkdir / file.list | 读取、写入、编辑、删除文件，创建目录，列目录 |
-| terminal | shell.run / bash.run | 通过 PowerShell 在本地执行命令，cwd 必须在工作区内 |
-| terminal | npm_test / npm_install / npm_build / build | npm 专用快捷工具 |
-| memory | memory.search / memory.get | 记忆检索（FTS + 向量混合搜索） |
-| skill | skill | 调用已注册的 Skill 技能 |
-| mcp | mcp.* | MCP 插件工具（动态发现，运行时注册） |
+| **文件操作** | file.read / file.write / file.edit / file.list | 基础文件读写、编辑、列目录 |
+| | file.glob | 模式匹配查找文件（支持 glob 语法） |
+| | file.grep | 正则搜索文件内容（支持上下文行） |
+| | file.multi_edit | 原子化多处编辑（全部成功或全部回滚） |
+| | file.patch | 应用 unified diff 补丁（支持 dryRun） |
+| **Shell 执行** | shell.run / bash.run | 通过 PowerShell 执行命令，cwd 约束在工作区内 |
+| | npm_test / run_test / build | 测试和构建快捷工具 |
+| **Git** | git.status | 获取 Git 仓库状态（staged/unstaged/branch） |
+| | git.diff | 获取差异（支持 staged/unstaged/maxChars） |
+| | git.commit | 提交变更（需 amend 时支持 amend 模式） |
+| **开发验证** | typecheck.run | 运行 TypeScript 类型检查，返回结构化结果 |
+| | lint.run | 运行代码检查（ESLint/Prettier 等） |
+| | verify.run | 完整验证流水线（typecheck + lint + test + build） |
+| **Web** | web.fetch | HTTP/HTTPS 页面抓取（HTML 解析为 Markdown） |
+| | web.search | 互联网搜索（Tavily API，需配置 API Key） |
+| **Todo** | todo.write / todo.update / todo.list | 任务管理（创建/更新状态/列出/筛选） |
+| **Agent** | agent.verify | 独立验证修改质量（生成验证报告） |
+| | policy.check | 命令/路径安全策略检查（severity 分级） |
+| | audit.query | 查询审计日志（按工具名/时间过滤） |
+| **记忆** | memory.search | 混合检索（FTS + 向量 + RRF 融合） |
+| | memory.write | 写入记忆（daily / long-term） |
+| **技能** | skill | 调用已注册的 Skill 技能 |
+| **MCP** | mcp.* | MCP 插件工具（动态发现，运行时注册） |
 
 ## 项目结构
 
@@ -79,7 +111,7 @@ agent-rebuild/
 │   ├── main.ts                    # Gateway 启动入口（REPL 主循环）
 │   └── agent/agentRunner.ts       # re-export
 ├── packages/
-│   ├── gateway/                   # 核心网关层
+│   ├── gateway/                   # 核心网关层（73 个源文件）
 │   │   ├── gateway.ts             # Gateway 主类（handle 入口）
 │   │   ├── agentRunner.ts         # LLM 交互 + 工具循环 + DevTask
 │   │   ├── contextBuilder.ts      # 系统提示 + 记忆 + 技能 + 会话记忆构建
@@ -91,12 +123,35 @@ agent-rebuild/
 │   │   ├── sessionStore.ts        # 会话持久化（JSON 快照）
 │   │   ├── toolCallExecutor.ts    # 工具调用执行器（4 层安全校验）
 │   │   ├── toolRegistry.ts        # 工具注册中心
-│   │   ├── builtinTools.ts        # 内建工具注册（file/shell/memory/skill）
+│   │   ├── builtinTools.ts        # 内建工具注册（29 个工具）
 │   │   ├── permissionPolicy.ts    # 权限策略（plan mode + 危险操作拦截）
 │   │   ├── sandbox.ts             # 策略守卫（文件路径 + 命令安全）
 │   │   ├── pathGuard.ts           # 路径守卫（阻止系统目录访问）
 │   │   ├── toolSecurityProfile.ts # 工具安全分类（risk level）
 │   │   ├── config.ts              # 运行时配置加载
+│   │   ├── webSearchProvider.ts   # Tavily Web 搜索提供商
+│   │   ├── reviewGraph/           # 多 Agent 协作系统
+│   │   │   ├── types.ts           # 核心类型（ReviewGraphState/AgentResult 等）
+│   │   │   ├── toolPolicy.ts      # 8 层工具策略检查
+│   │   │   ├── subAgentRunner.ts  # 子 Agent 运行器（fork-return 模式）
+│   │   │   ├── graphRunner.ts     # ReviewGraph 状态机（7 节点流水线）
+│   │   │   ├── reportBuilder.ts   # AgentReview 报告构建
+│   │   │   └── agents/            # 7 类 Agent 定义
+│   │   │       ├── explore.ts     # Explore Agent（只读代码探索）
+│   │   │       ├── plan.ts        # Plan Agent（生成实施计划）
+│   │   │       ├── implement.ts   # Implement Agent（执行代码修改）
+│   │   │       ├── test.ts        # Test Agent（运行测试命令）
+│   │   │       ├── verify.ts      # Verify Agent（独立需求验证）
+│   │   │       ├── security.ts    # Security Agent（安全审计）
+│   │   │       └── reviewer.ts    # Reviewer Agent（最终交付决策）
+│   │   ├── tools/                 # 工具实现（7 个文件，29 个工具）
+│   │   │   ├── sandboxedFile.ts   # file.* 工具（8 个）
+│   │   │   ├── sandboxedBash.ts   # shell/build 工具（5 个）
+│   │   │   ├── gitTools.ts        # git.* 工具（3 个）
+│   │   │   ├── devTools.ts        # typecheck/lint/verify 工具（3 个）
+│   │   │   ├── webFetch.ts        # web.fetch 工具
+│   │   │   ├── todoTools.ts       # todo.* 工具（3 个）
+│   │   │   └── agentTools.ts      # agent.* 工具（3 个）
 │   │   ├── mcpManager.ts          # MCP 服务器管理（懒连接 + 重连）
 │   │   ├── mcpConfig.ts           # MCP 多源配置加载
 │   │   ├── mcpClient.ts           # MCP stdio 客户端
@@ -129,13 +184,14 @@ agent-rebuild/
 │   │   └── db.ts                  # SQLite 数据库（FTS5 + 向量表）
 │   └── audit/
 │       └── auditLogger.ts         # 审计日志
-├── tests/                         # 196 个测试，0 失败
+├── tests/                         # 314 个测试，42 suites，0 失败
 ├── workspace/                     # 工作区（记忆、技能、配置）
 │   ├── memory/                    # 日常记忆文件
 │   ├── skills/                    # 项目级 Skill
 │   ├── MEMORY.md                  # 长期记忆
 │   └── AGENTS.md                  # Agent 行为规则
 ├── config/                        # 配置模板
+├── docs/                          # 版本文档
 ├── logs/                          # 运行时日志
 └── scripts/                       # 辅助脚本
 ```
@@ -171,6 +227,7 @@ agent-rebuild/
 | DASHSCOPE_API_KEY | 阿里云 DashScope API Key（向量检索用） | 可选 |
 | DASHSCOPE_EMBED_MODEL | 向量模型名称 | text-embedding-v4 |
 | DASHSCOPE_EMBED_DIMENSIONS | 向量维度 | 1024 |
+| TAVILY_API_KEY | Tavily Web 搜索 API Key（web.search 工具用） | 可选 |
 
 修改 `.env` 后需要重启 Gateway 才能生效。
 
@@ -178,9 +235,9 @@ agent-rebuild/
 
 ```bash
 # Gateway
-pnpm gateway                # 启动 Gateway（REPL 模式）
+npm run gateway             # 启动 Gateway（REPL 模式）
 npm run typecheck           # TypeScript 类型检查
-npm test                    # 运行全部测试（196 个测试，0 失败）
+npm test                    # 运行全部测试（314 个测试，0 失败）
 npm run build               # 构建项目
 
 # 辅助脚本
@@ -206,6 +263,50 @@ npx tsx scripts/system-detect-offline.ts   # 离线环境检测
 - `allowedReadRoots` / `allowedWriteRoots`：限制文件操作范围
 - `permission`：`chat-only`（仅聊天）或 `project-write`（允许项目文件修改）
 - MCP 和 Skill 目录自动加入白名单，支持完整的文件管理操作
+
+### 多 Agent 协作系统（ReviewGraph）
+
+当 `autoReviewGraphEnabled=true` 时，Gateway 会自动检测开发类任务（fix/bug/feature/add/implement/refactor 等关键词），并启动 ReviewGraph 多 Agent 协作流水线。
+
+**7 个专用 Agent：**
+
+| Agent | 节点 | 权限 | 职责 |
+|-------|------|------|------|
+| Explore | explore | 只读 | 代码探索，识别相关文件和代码结构 |
+| Plan | plan | 只读 | 生成实施计划，确定 targetFiles 和修改步骤 |
+| Implement | implement | 可写（targetFiles 限制） | 执行代码修改，只能修改 Plan 指定的文件 |
+| Test | test | 安全命令 | 运行 typecheck/lint/build/test，验证修改正确性 |
+| Verify | verify | 只读（独立验证） | 独立验证需求覆盖度，0-10 评分，识别假通过风险 |
+| Security | security | 只读 + 审计查询 | 安全审计，检查敏感文件访问、危险命令、策略违规 |
+| Reviewer | reviewer | 只读（最小权限） | 最终交付决策，综合所有节点结果给出 approved/rejected |
+
+**执行流水线：**
+```
+explore → plan → implement → test → verify → security → reviewer
+                      ↑           ↓          ↓
+                      └── repair ──┘          ↓
+                      ↑                       ↓
+                      └── repair ─────────────┘
+```
+
+**失败恢复机制：**
+- Test 失败 → 回退到 Plan（repairRounds++，最多 3 轮）
+- Verify 失败 → 回退到 Plan（修复后重新验证）
+- Security deny → 阻断（blocked），终止流程
+- Security needs_approval → 暂停等待人工审批
+- 超过 maxRepairRounds → 标记为 failed
+
+**8 层 ToolPolicy 检查：**
+1. deniedTools 命中 → deny
+2. allowedTools 不包含 → deny
+3. canSpawnAgents=false 且调用 agent.spawn → deny
+4. Implement Agent 修改非 targetFiles → deny
+5. 敏感文件（.env/.ssh/id_rsa 等）→ deny
+6. 路径越界 → deny
+7. 危险命令（rm -rf/sudo/git push 等）→ deny
+8. 删除操作 → deny
+
+每个子 Agent 运行在隔离上下文中（fork-return 模式），工具调用独立审计，结果通过 AgentResult 结构化返回。最终生成 AgentReviewReport，包含完整的 agentChain、changedFiles、testResult、verifyResult、securityResult 和 reviewerResult。
 
 ## 子系统
 
@@ -354,9 +455,33 @@ SKILL.md 支持 frontmatter 元数据（`when-to-use`、`allowed-tools`、`conte
 - DevTask 状态跨会话持久化
 
 **其他：**
-- 测试：196 个通过，0 失败，0 跳过
+- 测试：314 个通过，0 失败，0 跳过，42 suites
 - 类型检查：通过
 - 代码审查：无 TODO/FIXME/HACK 残留
+
+### 2026-05-05（多 Agent 协作系统 + 工具扩展）
+
+**ReviewGraph 多 Agent 协作系统：**
+- 7 个专用 Agent（Explore/Plan/Implement/Test/Verify/Security/Reviewer）
+- 7 节点状态机流水线，支持 Test/Verify 失败回退修复（最多 3 轮）
+- 8 层 ToolPolicy 工具策略检查（deniedTools/allowedTools/targetFiles/sensitive/pathEscape/dangerous/delete/gitPush）
+- SubAgentRunner fork-return 模式，子 Agent 隔离上下文，独立审计
+- ReportBuilder 生成完整 AgentReviewReport（agentChain/changedFiles/testResult/verifyResult/securityResult/reviewerResult）
+- Gateway 自动路由：检测开发类任务关键词，自动启动 ReviewGraph
+- 审计日志扩展：runId/subRunId/agentName/node/policyDecision
+
+**工具扩展（29 个内建工具）：**
+- 新增 15 个工具：file.glob/file.grep/file.multi_edit/file.patch、git.status/git.diff/git.commit、typecheck.run/lint.run/verify.run、web.fetch、todo.write/todo.update/todo.list、agent.verify/policy.check/audit.query
+- web.search（Tavily API）：互联网搜索工具
+- file.grep 正则无 g 标志设计（避免 lastIndex 状态问题）
+- file.patch 基于 entries 模型的 unified diff 解析器
+- policy.check 包含 file.read 敏感文件检测和 Invoke-Expression 危险命令拦截
+
+**测试：**
+- 314 个通过，0 失败，42 suites
+- 新增 51 个 ReviewGraph 测试（toolPolicy 32 + runner 9 + gateway 10）
+- 新增 46 个工具测试（newTools.test.ts）
+- 新增 web.search 测试（18 个）
 
 ### 2026-05-04（上下文管理 + 流式优化）
 

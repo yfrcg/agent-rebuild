@@ -25,6 +25,11 @@ import {
   createSandboxedRunTestTool,
 } from "./tools/sandboxedBash";
 import { createSandboxedFileTools } from "./tools/sandboxedFile";
+import { createGitTools } from "./tools/gitTools";
+import { createDevTools } from "./tools/devTools";
+import { createWebFetchTool } from "./tools/webFetch";
+import { createTodoTools } from "./tools/todoTools";
+import { createAgentTools } from "./tools/agentTools";
 import type {
   GatewayTool,
   GatewayToolContext,
@@ -32,12 +37,14 @@ import type {
   GatewayToolPolicy,
   ToolResult,
 } from "./toolTypes";
-import type { MemorySearchResult } from "./types";
+import type { MemorySearchResult, WebSearchInput } from "./types";
+import { tavilySearch, validateSearchInput, clampMaxResults } from "./webSearchProvider";
 
 export interface BuiltinToolRegistryOptions {
   memorySearch?: MemorySearch;
   memoryTopK?: number;
   projectRoot?: string;
+  tavilyApiKey?: string;
 }
 
 export function createBuiltinToolRegistry(
@@ -66,6 +73,28 @@ export function createBuiltinToolRegistry(
   }
 
   registry.register(createSkillTool());
+
+  registry.register(createWebSearchTool(options.tavilyApiKey ?? ""));
+
+  for (const tool of createGitTools(projectRoot)) {
+    registry.register(tool);
+  }
+
+  for (const tool of createDevTools(projectRoot)) {
+    registry.register(tool);
+  }
+
+  for (const tool of createWebFetchTool()) {
+    registry.register(tool);
+  }
+
+  for (const tool of createTodoTools(projectRoot)) {
+    registry.register(tool);
+  }
+
+  for (const tool of createAgentTools(projectRoot)) {
+    registry.register(tool);
+  }
 
   return registry;
 }
@@ -323,6 +352,116 @@ function createSkillTool(): GatewayTool {
       riskLevel: "safe",
       sandboxRequired: false,
       allowNetwork: false,
+      allowWrite: false,
+      allowHostExecution: true,
+      requireApproval: false,
+    }),
+    execute,
+    async invoke(input, context) {
+      const result = await execute(input, context);
+      return {
+        ok: result.ok,
+        content: result.result,
+        error: result.error,
+      };
+    },
+  };
+}
+
+function createWebSearchTool(tavilyApiKey: string): GatewayTool {
+  const schema = {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "Search query text (max 300 characters).",
+      },
+      maxResults: {
+        type: "number",
+        description: "Maximum number of results to return (1-10, default 5).",
+      },
+      topic: {
+        type: "string",
+        enum: ["general", "news", "finance"],
+        description: "Search topic category. Default: general.",
+      },
+      includeDomains: {
+        type: "array",
+        items: { type: "string" },
+        description: "Only include results from these domains.",
+      },
+      excludeDomains: {
+        type: "array",
+        items: { type: "string" },
+        description: "Exclude results from these domains.",
+      },
+      freshness: {
+        type: "string",
+        enum: ["day", "week", "month", "year", "any"],
+        description: "Filter results by freshness. Default: any.",
+      },
+    },
+    required: ["query"],
+  } satisfies Record<string, unknown>;
+
+  const execute = async (
+    args: unknown,
+    context?: GatewayToolContext
+  ): Promise<ToolResult> => {
+    const input = asToolInput(args);
+
+    const searchInput: WebSearchInput = {
+      query: typeof input.query === "string" ? input.query : "",
+      maxResults: typeof input.maxResults === "number" ? input.maxResults : undefined,
+      topic: typeof input.topic === "string" ? input.topic as WebSearchInput["topic"] : undefined,
+      includeDomains: Array.isArray(input.includeDomains)
+        ? input.includeDomains.filter((d): d is string => typeof d === "string")
+        : undefined,
+      excludeDomains: Array.isArray(input.excludeDomains)
+        ? input.excludeDomains.filter((d): d is string => typeof d === "string")
+        : undefined,
+      freshness: typeof input.freshness === "string" ? input.freshness as WebSearchInput["freshness"] : undefined,
+    };
+
+    const validationError = validateSearchInput(searchInput);
+    if (validationError) {
+      return failToolResult(context, validationError);
+    }
+
+    searchInput.maxResults = clampMaxResults(searchInput.maxResults);
+
+    try {
+      const output = await tavilySearch(searchInput, { apiKey: tavilyApiKey });
+      return {
+        toolCallId: context?.requestId ?? "",
+        ok: true,
+        result: output,
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown web search error";
+      return failToolResult(context, message);
+    }
+  };
+
+  return {
+    name: "web.search",
+    description: "Search the web for current information using Tavily API. Returns titles, URLs, snippets, and scores. Use for: current events, latest API docs, unfamiliar libraries/projects/papers, factual verification.",
+    schema,
+    inputSchema: schema,
+    riskLevel: "safe",
+    permissionLevel: "read",
+    readOnly: true,
+    sideEffect: false,
+    requiresSandbox: false,
+    policy: {
+      automationLevel: "auto",
+      riskLevel: "external-read",
+      tags: ["web", "search", "network", "tavily"],
+    },
+    security: createToolSecurityProfile({
+      riskLevel: "low",
+      sandboxRequired: false,
+      allowNetwork: true,
       allowWrite: false,
       allowHostExecution: true,
       requireApproval: false,
