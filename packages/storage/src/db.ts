@@ -1,3 +1,4 @@
+
 import Database from "better-sqlite3";
 import { ensureDir, resolveWorkspacePath } from "../../core/src/config";
 
@@ -18,7 +19,7 @@ let _db: Database.Database | null = null;
  * 3. 创建记忆系统所需的四张核心表。
  * 4. 打开 WAL 模式并建立必要索引。
  */
-export function getDb() {
+export function getDb(): Database.Database {
   if (_db) return _db;
 
   ensureDir(resolveWorkspacePath("index"));
@@ -98,4 +99,18 @@ export function getDb() {
   _db.exec(`CREATE INDEX IF NOT EXISTS idx_embeddings_file_id ON mem_embeddings(file_id);`);
 
   return _db;
+}
+
+/**
+ * 函数 `closeDb` 的职责说明。
+ * `closeDb` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
+export function closeDb(): void {
+  if (!_db) {
+    return;
+  }
+
+  _db.close();
+  _db = null;
 }

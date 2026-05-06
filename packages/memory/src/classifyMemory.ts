@@ -1,9 +1,4 @@
-/**
- * 记忆分类结果。
- *
- * - `long-term`：应该进入长期记忆，跨会话保留。
- * - `daily`：只记到当天日志型记忆中。
- */
+
 export type MemoryKind = "long-term" | "daily";
 export type MemoryCategory = "user" | "feedback" | "project" | "reference";
 
@@ -38,6 +33,11 @@ export function classifyMemory(text: string): MemoryKind {
   return shouldPromote ? "long-term" : "daily";
 }
 
+/**
+ * 函数 `classifyMemoryType` 的职责说明。
+ * `classifyMemoryType` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function classifyMemoryType(text: string): MemoryCategory {
   const normalized = text.trim().toLowerCase();
 

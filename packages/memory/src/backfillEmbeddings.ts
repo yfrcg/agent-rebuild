@@ -1,3 +1,4 @@
+
 import { getDb } from "../../storage/src/db";
 import { embedText } from "./embedder";
 import { saveEmbeddingsBatch } from "./embeddingStore";

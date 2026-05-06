@@ -1,9 +1,15 @@
+
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { checkToolPolicy } from "../packages/gateway/reviewGraph/toolPolicy";
 import type { AgentDefinition, ReviewGraphState } from "../packages/gateway/reviewGraph/types";
 
+/**
+ * 函数 `makeAgentDef` 的职责说明。
+ * `makeAgentDef` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeAgentDef(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
   return {
     name: "TestAgent",
@@ -17,6 +23,11 @@ function makeAgentDef(overrides: Partial<AgentDefinition> = {}): AgentDefinition
   };
 }
 
+/**
+ * 函数 `makeState` 的职责说明。
+ * `makeState` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeState(overrides: Partial<ReviewGraphState> = {}): ReviewGraphState {
   return {
     runId: "test_run_001",

@@ -1,3 +1,11 @@
+
+import { randomBytes } from "node:crypto";
+
+/**
+ * 函数 `createApprovalToken` 的职责说明。
+ * `createApprovalToken` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createApprovalToken(): string {
-  return `approve_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `approve_${Date.now()}_${randomBytes(8).toString("hex")}`;
 }

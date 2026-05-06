@@ -1,3 +1,4 @@
+
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -6,6 +7,11 @@ import { resolveProjectRoot } from "../../core/src/config";
 import { createToolSecurityProfile } from "../toolSecurityProfile";
 import type { GatewayTool, GatewayToolInput, GatewayToolOutput } from "../toolTypes";
 
+/**
+ * 函数 `createDevTools` 的职责说明。
+ * `createDevTools` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createDevTools(projectRoot = resolveProjectRoot()): GatewayTool[] {
   return [
     createTypecheckTool(projectRoot),
@@ -14,6 +20,11 @@ export function createDevTools(projectRoot = resolveProjectRoot()): GatewayTool[
   ];
 }
 
+/**
+ * 函数 `readPackageJsonScripts` 的职责说明。
+ * `readPackageJsonScripts` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function readPackageJsonScripts(projectRoot: string): Record<string, string> {
   try {
     const content = fs.readFileSync(path.join(projectRoot, "package.json"), "utf8");
@@ -24,6 +35,11 @@ function readPackageJsonScripts(projectRoot: string): Record<string, string> {
   }
 }
 
+/**
+ * 函数 `runCommand` 的职责说明。
+ * `runCommand` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function runCommand(cmd: string, cwd: string, timeoutMs = 60000): { stdout: string; stderr: string; exitCode: number } {
   try {
     const stdout = execSync(cmd, {
@@ -43,6 +59,11 @@ function runCommand(cmd: string, cwd: string, timeoutMs = 60000): { stdout: stri
   }
 }
 
+/**
+ * 函数 `createTypecheckTool` 的职责说明。
+ * `createTypecheckTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createTypecheckTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -70,6 +91,7 @@ function createTypecheckTool(projectRoot: string): GatewayTool {
       allowWrite: false,
       allowHostExecution: true,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke() {
       const scripts = readPackageJsonScripts(projectRoot);
       const cmd = scripts.typecheck ? "npm run typecheck" : "npx tsc --noEmit";
@@ -90,6 +112,11 @@ function createTypecheckTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createLintTool` 的职责说明。
+ * `createLintTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createLintTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -117,6 +144,7 @@ function createLintTool(projectRoot: string): GatewayTool {
       allowWrite: false,
       allowHostExecution: true,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke() {
       const scripts = readPackageJsonScripts(projectRoot);
 
@@ -150,6 +178,11 @@ function createLintTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createVerifyTool` 的职责说明。
+ * `createVerifyTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createVerifyTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -162,7 +195,7 @@ function createVerifyTool(projectRoot: string): GatewayTool {
     },
   } satisfies Record<string, unknown>;
 
-  interface VerifyStepResult {
+    interface VerifyStepResult {
     step: string;
     ok: boolean;
     skipped: boolean;
@@ -193,6 +226,7 @@ function createVerifyTool(projectRoot: string): GatewayTool {
       allowWrite: false,
       allowHostExecution: true,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const skipSteps = new Set(
         Array.isArray(input.skipSteps)
@@ -204,6 +238,11 @@ function createVerifyTool(projectRoot: string): GatewayTool {
       const steps: VerifyStepResult[] = [];
       let allOk = true;
 
+      /**
+       * 函数 `runStep` 的职责说明。
+       * `runStep` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+       * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+       */
       async function runStep(name: string, cmd: string | null) {
         if (skipSteps.has(name)) {
           steps.push({ step: name, ok: true, skipped: true, durationMs: 0 });
@@ -292,6 +331,11 @@ function createVerifyTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `runGit` 的职责说明。
+ * `runGit` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function runGit(args: string[], cwd: string): string {
   try {
     return execSync(`git ${args.join(" ")}`, {

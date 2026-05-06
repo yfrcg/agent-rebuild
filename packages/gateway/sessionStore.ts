@@ -1,5 +1,7 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { randomBytes } from "node:crypto";
 
 import { resolveWorkspacePath } from "../core/src/config";
 
@@ -63,6 +65,7 @@ export class SessionStore {
   private readonly defaultAllowedWriteRoots: string[];
   private readonly defaultPermission: GatewaySessionProjectPermission;
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(optionsOrPath?: string | SessionStoreOptions) {
     if (typeof optionsOrPath === "string") {
       this.snapshotPath = optionsOrPath;
@@ -112,7 +115,7 @@ export class SessionStore {
   createSession(input?: GatewaySessionCreateInput): GatewaySession {
     const sessions = this.loadSessions();
     const timestamp = Date.now();
-    const id = `session-${timestamp}-${Math.random().toString(36).slice(2, 8)}`;
+    const id = `session-${timestamp}-${randomBytes(6).toString("hex")}`;
     const createdAt = nowIso();
     const session: GatewaySession = {
       id,
@@ -170,6 +173,11 @@ export class SessionStore {
     return target;
   }
 
+  /**
+   * 方法 `setActiveSkills` 的职责说明。
+   * `setActiveSkills` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   setActiveSkills(input: GatewaySessionSkillInput): GatewaySession | undefined {
     const sessions = this.loadSessions();
     const target = sessions.find((session) => session.id === input.id);
@@ -184,6 +192,11 @@ export class SessionStore {
     return target;
   }
 
+  /**
+   * 方法 `setPermissionMode` 的职责说明。
+   * `setPermissionMode` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   setPermissionMode(
     id: GatewaySessionId,
     permissionMode: GatewayPermissionMode
@@ -201,6 +214,11 @@ export class SessionStore {
     return target;
   }
 
+  /**
+   * 方法 `setPlanState` 的职责说明。
+   * `setPlanState` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   setPlanState(
     id: GatewaySessionId,
     planState: GatewayPlanState | undefined
@@ -218,6 +236,11 @@ export class SessionStore {
     return target;
   }
 
+  /**
+   * 方法 `addPendingApproval` 的职责说明。
+   * `addPendingApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   addPendingApproval(
     input: GatewaySessionApprovalCreateInput
   ): GatewaySession | undefined {
@@ -235,11 +258,21 @@ export class SessionStore {
     return target;
   }
 
+  /**
+   * 方法 `listPendingApprovals` 的职责说明。
+   * `listPendingApprovals` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   listPendingApprovals(id: GatewaySessionId): GatewayPendingApproval[] {
     const session = this.readSnapshot().sessions.find((item) => item.id === id);
     return this.pruneExpiredApprovals(session?.pendingApprovals ?? []);
   }
 
+  /**
+   * 方法 `consumePendingApproval` 的职责说明。
+   * `consumePendingApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   consumePendingApproval(
     id: GatewaySessionId,
     token: string
@@ -282,6 +315,11 @@ export class SessionStore {
     };
   }
 
+  /**
+   * 方法 `rejectPendingApproval` 的职责说明。
+   * `rejectPendingApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   rejectPendingApproval(
     id: GatewaySessionId,
     token: string
@@ -289,6 +327,11 @@ export class SessionStore {
     return this.removePendingApproval(id, token, "rejected");
   }
 
+  /**
+   * 方法 `clearPendingApprovals` 的职责说明。
+   * `clearPendingApprovals` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   clearPendingApprovals(id: GatewaySessionId): GatewayPendingApproval[] {
     const sessions = this.readSnapshot().sessions;
     const target = sessions.find((session) => session.id === id);
@@ -304,6 +347,11 @@ export class SessionStore {
     return approvals;
   }
 
+  /**
+   * 方法 `setDevTaskState` 的职责说明。
+   * `setDevTaskState` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   setDevTaskState(
     id: GatewaySessionId,
     devTaskState: GatewaySessionDevTaskState | undefined
@@ -321,6 +369,11 @@ export class SessionStore {
     return target;
   }
 
+  /**
+   * 方法 `setProjectBinding` 的职责说明。
+   * `setProjectBinding` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   setProjectBinding(
     id: GatewaySessionId,
     binding: {
@@ -518,12 +571,22 @@ export class SessionStore {
     );
   }
 
+  /**
+   * 方法 `pruneExpiredApprovals` 的职责说明。
+   * `pruneExpiredApprovals` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private pruneExpiredApprovals(
     approvals: GatewayPendingApproval[]
   ): GatewayPendingApproval[] {
     return approvals.filter((approval) => !this.isExpiredApproval(approval));
   }
 
+  /**
+   * 方法 `withFreshApprovals` 的职责说明。
+   * `withFreshApprovals` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private withFreshApprovals(session: GatewaySession): GatewaySession {
     return {
       ...session,
@@ -540,6 +603,11 @@ export class SessionStore {
     };
   }
 
+  /**
+   * 方法 `removePendingApproval` 的职责说明。
+   * `removePendingApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private removePendingApproval(
     id: GatewaySessionId,
     token: string,
@@ -584,6 +652,11 @@ export class SessionStore {
     };
   }
 
+  /**
+   * 方法 `isExpiredApproval` 的职责说明。
+   * `isExpiredApproval` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private isExpiredApproval(approval: GatewayPendingApproval): boolean {
     const expiresAtMs = Date.parse(approval.expiresAt);
     return Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();

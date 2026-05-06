@@ -1,5 +1,7 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { randomBytes } from "node:crypto";
 import { resolveWorkspacePath } from "../core/src/config";
 
 export interface WorkingMemory {
@@ -49,6 +51,11 @@ const SENSITIVE_PATTERNS = [
   /[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}/g,
 ];
 
+/**
+ * 函数 `sanitizeText` 的职责说明。
+ * `sanitizeText` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function sanitizeText(text: string): string {
   let cleaned = text;
   for (const pattern of SENSITIVE_PATTERNS) {
@@ -57,21 +64,41 @@ function sanitizeText(text: string): string {
   return cleaned;
 }
 
+/**
+ * 函数 `truncateLine` 的职责说明。
+ * `truncateLine` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function truncateLine(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
   return text.slice(0, maxLen) + "…";
 }
 
+/**
+ * 函数 `nowIso` 的职责说明。
+ * `nowIso` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function nowIso(): string {
   return new Date().toISOString();
 }
 
+/**
+ * 函数 `ensureDir` 的职责说明。
+ * `ensureDir` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function ensureDir(dirPath: string): void {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
 }
 
+/**
+ * 函数 `readJsonSafe` 的职责说明。
+ * `readJsonSafe` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function readJsonSafe<T>(filePath: string, fallback: T): T {
   try {
     if (fs.existsSync(filePath)) {
@@ -81,6 +108,11 @@ function readJsonSafe<T>(filePath: string, fallback: T): T {
   return fallback;
 }
 
+/**
+ * 函数 `writeJson` 的职责说明。
+ * `writeJson` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function writeJson(filePath: string, data: unknown): void {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf8");
 }
@@ -88,6 +120,7 @@ function writeJson(filePath: string, data: unknown): void {
 export class SessionMemoryManager {
   private sessionDir: string;
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(sessionId: string, baseDir?: string) {
     if (baseDir) {
       this.sessionDir = path.join(baseDir, "sessions", sessionId);
@@ -97,6 +130,11 @@ export class SessionMemoryManager {
     ensureDir(this.sessionDir);
   }
 
+  /**
+   * 方法 `init` 的职责说明。
+   * `init` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   init(): void {
     const wmPath = this.workingMemoryPath();
     if (!fs.existsSync(wmPath)) {
@@ -119,15 +157,30 @@ export class SessionMemoryManager {
     }
   }
 
+  /**
+   * 方法 `readWorkingMemory` 的职责说明。
+   * `readWorkingMemory` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   readWorkingMemory(): WorkingMemory {
     return readJsonSafe<WorkingMemory>(this.workingMemoryPath(), this.emptyWorkingMemory());
   }
 
+  /**
+   * 方法 `writeWorkingMemory` 的职责说明。
+   * `writeWorkingMemory` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   writeWorkingMemory(wm: WorkingMemory): void {
     wm.updatedAt = nowIso();
     writeJson(this.workingMemoryPath(), wm);
   }
 
+  /**
+   * 方法 `readRollingSummary` 的职责说明。
+   * `readRollingSummary` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   readRollingSummary(): string {
     try {
       if (fs.existsSync(this.rollingSummaryPath())) {
@@ -137,23 +190,48 @@ export class SessionMemoryManager {
     return "# Session Rolling Summary\n\nNo activity yet.\n";
   }
 
+  /**
+   * 方法 `writeRollingSummary` 的职责说明。
+   * `writeRollingSummary` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   writeRollingSummary(content: string): void {
     fs.writeFileSync(this.rollingSummaryPath(), sanitizeText(content), "utf8");
   }
 
+  /**
+   * 方法 `readOpenIssues` 的职责说明。
+   * `readOpenIssues` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   readOpenIssues(): OpenIssue[] {
     return readJsonSafe<OpenIssue[]>(this.openIssuesPath(), []);
   }
 
+  /**
+   * 方法 `writeOpenIssues` 的职责说明。
+   * `writeOpenIssues` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   writeOpenIssues(issues: OpenIssue[]): void {
     writeJson(this.openIssuesPath(), issues);
   }
 
+  /**
+   * 方法 `appendDecision` 的职责说明。
+   * `appendDecision` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   appendDecision(decision: Decision): void {
     const line = JSON.stringify({ ...decision, timestamp: decision.timestamp || nowIso() }) + "\n";
     fs.appendFileSync(this.decisionsPath(), line, "utf8");
   }
 
+  /**
+   * 方法 `readDecisions` 的职责说明。
+   * `readDecisions` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   readDecisions(): Decision[] {
     try {
       if (!fs.existsSync(this.decisionsPath())) return [];
@@ -168,12 +246,22 @@ export class SessionMemoryManager {
     } catch { return []; }
   }
 
+  /**
+   * 方法 `setProjectDir` 的职责说明。
+   * `setProjectDir` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   setProjectDir(projectDir: string): void {
     const wm = this.readWorkingMemory();
     wm.projectDir = projectDir;
     this.writeWorkingMemory(wm);
   }
 
+  /**
+   * 方法 `applyPatch` 的职责说明。
+   * `applyPatch` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   applyPatch(patch: SessionMemoryPatch): void {
     const wm = this.readWorkingMemory();
 
@@ -257,7 +345,7 @@ export class SessionMemoryManager {
         const clean = sanitizeText(truncateLine(desc, 300));
         if (clean && !existingDescs.has(clean)) {
           issues.push({
-            id: `issue-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            id: `issue-${Date.now()}-${randomBytes(6).toString("hex")}`,
             description: clean,
             source: "auto",
             createdAt: nowIso(),
@@ -286,6 +374,11 @@ export class SessionMemoryManager {
     }
   }
 
+  /**
+   * 方法 `buildWorkingMemorySummary` 的职责说明。
+   * `buildWorkingMemorySummary` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   buildWorkingMemorySummary(): string {
     const wm = this.readWorkingMemory();
     const parts: string[] = [];
@@ -333,6 +426,11 @@ export class SessionMemoryManager {
     return parts.join("\n");
   }
 
+  /**
+   * 方法 `buildRollingSummarySection` 的职责说明。
+   * `buildRollingSummarySection` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   buildRollingSummarySection(): string {
     const content = this.readRollingSummary();
     if (!content || content.includes("No activity yet")) {
@@ -341,22 +439,47 @@ export class SessionMemoryManager {
     return `## Session Rolling Summary\n\n${content}`;
   }
 
+  /**
+   * 方法 `workingMemoryPath` 的职责说明。
+   * `workingMemoryPath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private workingMemoryPath(): string {
     return path.join(this.sessionDir, "working-memory.json");
   }
 
+  /**
+   * 方法 `rollingSummaryPath` 的职责说明。
+   * `rollingSummaryPath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private rollingSummaryPath(): string {
     return path.join(this.sessionDir, "rolling-summary.md");
   }
 
+  /**
+   * 方法 `openIssuesPath` 的职责说明。
+   * `openIssuesPath` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private openIssuesPath(): string {
     return path.join(this.sessionDir, "open-issues.json");
   }
 
+  /**
+   * 方法 `decisionsPath` 的职责说明。
+   * `decisionsPath` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private decisionsPath(): string {
     return path.join(this.sessionDir, "decisions.jsonl");
   }
 
+  /**
+   * 方法 `emptyWorkingMemory` 的职责说明。
+   * `emptyWorkingMemory` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private emptyWorkingMemory(): WorkingMemory {
     return {
       sessionGoal: "",

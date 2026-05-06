@@ -1,3 +1,4 @@
+
 import type { GatewayToolPolicy } from "./toolTypes";
 
 export interface ToolSecurityProfile {
@@ -15,6 +16,11 @@ export interface ToolExecutionDecision {
   profile: ToolSecurityProfile;
 }
 
+/**
+ * 函数 `createToolSecurityProfile` 的职责说明。
+ * `createToolSecurityProfile` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createToolSecurityProfile(
   profile: Partial<ToolSecurityProfile> & Pick<ToolSecurityProfile, "riskLevel">
 ): ToolSecurityProfile {
@@ -32,6 +38,11 @@ export function createToolSecurityProfile(
   };
 }
 
+/**
+ * 函数 `securityProfileFromLegacyPolicy` 的职责说明。
+ * `securityProfileFromLegacyPolicy` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function securityProfileFromLegacyPolicy(
   policy: GatewayToolPolicy | undefined
 ): ToolSecurityProfile {
@@ -71,6 +82,11 @@ export function securityProfileFromLegacyPolicy(
   }
 }
 
+/**
+ * 函数 `resolveToolSecurityProfile` 的职责说明。
+ * `resolveToolSecurityProfile` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function resolveToolSecurityProfile(input: {
   security?: ToolSecurityProfile;
   legacyPolicy?: GatewayToolPolicy;
@@ -82,6 +98,11 @@ export function resolveToolSecurityProfile(input: {
   return securityProfileFromLegacyPolicy(input.legacyPolicy);
 }
 
+/**
+ * 函数 `decideToolExecution` 的职责说明。
+ * `decideToolExecution` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function decideToolExecution(input: {
   profile: ToolSecurityProfile;
   hasSandboxSpec: boolean;

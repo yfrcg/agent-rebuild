@@ -1,3 +1,4 @@
+
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -41,6 +42,11 @@ function splitIntoChunks(filePath: string, content: string): MemoryChunk[] {
   let buffer: string[] = [];
   let bufferChars = 0;
 
+  /**
+   * 函数 `shouldSkipChunk` 的职责说明。
+   * `shouldSkipChunk` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   function shouldSkipChunk(section: string, text: string) {
     const trimmed = text.trim();
     if (!trimmed) return true;

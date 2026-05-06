@@ -1,3 +1,4 @@
+
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -5,12 +6,22 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { MemoryAutoWriter } from "../packages/gateway/memoryAutoWriter";
 
+/**
+ * 函数 `makeTempWorkspace` 的职责说明。
+ * `makeTempWorkspace` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeTempWorkspace(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "maw-test-"));
   fs.mkdirSync(path.join(dir, "memory"), { recursive: true });
   return dir;
 }
 
+/**
+ * 函数 `makeMockWriters` 的职责说明。
+ * `makeMockWriters` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeMockWriters(tempDir: string) {
   const dailyPath = path.join(tempDir, "memory", "daily.log");
   const longTermPath = path.join(tempDir, "MEMORY.md");

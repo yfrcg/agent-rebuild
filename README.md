@@ -4,13 +4,33 @@ AI Agent Gateway - Windows 本地版。Gateway 是控制层，所有工具调用
 
 > 仅支持 Windows + Node.js >= 18。无需 Docker、WSL 或其他运行时依赖。
 
+## 启动方式
+
+```bash
+npm run gateway             # REPL 交互模式
+npm run gateway:ws          # WebSocket 服务端（本地 Agent Console 用）
+npm run gateway:smoke:ws    # WS 冒烟测试
+```
+
+WS 文档：
+
+- [docs/ws-gateway.md](docs/ws-gateway.md)
+- [docs/ws-protocol.md](docs/ws-protocol.md)
+- [docs/ws-security.md](docs/ws-security.md)
+- [docs/ws-smoke-test.md](docs/ws-smoke-test.md)
+
 ## 架构
 
 ```
-用户输入 --> REPL 命令解析
-              |
-              +---> 内建命令（会话管理、记忆、MCP、工具手动调用）
-              +---> Gateway.handle()
+用户输入 --> REPL 命令解析 ──┐
+                            │
+WS 客户端 --> WebSocket 协议 ─┤
+                            │
+                            ▼
+                    runtime.ts（共享运行时）
+                      |
+                      +---> 内建命令（会话管理、记忆、MCP、工具手动调用）
+                      +---> Gateway.handle()
                       |
                       +---> ReviewGraphRunner（多 Agent 协作，autoReviewGraphEnabled 时触发）
                       |       +---> Explore Agent（只读代码探索）
@@ -109,10 +129,12 @@ npm run gateway             # tsx apps/gateway/src/main.ts
 agent-rebuild/
 ├── apps/gateway/src/
 │   ├── main.ts                    # Gateway 启动入口（REPL 主循环）
+│   ├── ws-main.ts                 # WebSocket 服务启动入口
 │   └── agent/agentRunner.ts       # re-export
 ├── packages/
 │   ├── gateway/                   # 核心网关层（73 个源文件）
 │   │   ├── gateway.ts             # Gateway 主类（handle 入口）
+│   │   ├── runtime.ts             # 共享运行时工厂（REPL/WS 共用）
 │   │   ├── agentRunner.ts         # LLM 交互 + 工具循环 + DevTask
 │   │   ├── contextBuilder.ts      # 系统提示 + 记忆 + 技能 + 会话记忆构建
 │   │   ├── contextCompressor.ts   # 4-tier 上下文压缩管线
@@ -130,6 +152,20 @@ agent-rebuild/
 │   │   ├── toolSecurityProfile.ts # 工具安全分类（risk level）
 │   │   ├── config.ts              # 运行时配置加载
 │   │   ├── webSearchProvider.ts   # Tavily Web 搜索提供商
+│   │   ├── ws/                    # WebSocket 模块（13 个文件）
+│   │   │   ├── protocol.ts        # WS 协议定义（1.0 版，7 方法 + 19 事件）
+│   │   │   ├── wsServer.ts        # WS 服务器启动 + 连接生命周期
+│   │   │   ├── auth.ts            # Token 认证 + Origin 白名单 + 配置加载
+│   │   │   ├── schemas.ts         # JSON Schema 消息验证
+│   │   │   ├── router.ts          # 请求路由 + 速率限制 + 事件广播
+│   │   │   ├── connectionManager.ts # 连接管理 + 排空 + 指标收集
+│   │   │   ├── runManager.ts      # 异步 Run 生命周期管理
+│   │   │   ├── replayBuffer.ts    # 事件回放缓冲（内存级）
+│   │   │   ├── idempotencyStore.ts # 幂等存储（TTL 过期）
+│   │   │   ├── redaction.ts       # 敏感字段递归脱敏
+│   │   │   ├── auditTail.ts       # 审计日志 tail 查询
+│   │   │   ├── memoryWrite.ts     # 受控 memory.write 路由
+│   │   │   └── metrics.ts         # WS 指标收集器
 │   │   ├── reviewGraph/           # 多 Agent 协作系统
 │   │   │   ├── types.ts           # 核心类型（ReviewGraphState/AgentResult 等）
 │   │   │   ├── toolPolicy.ts      # 8 层工具策略检查
@@ -184,7 +220,7 @@ agent-rebuild/
 │   │   └── db.ts                  # SQLite 数据库（FTS5 + 向量表）
 │   └── audit/
 │       └── auditLogger.ts         # 审计日志
-├── tests/                         # 314 个测试，42 suites，0 失败
+├── tests/                         # 373 个测试，48 suites，0 失败
 ├── workspace/                     # 工作区（记忆、技能、配置）
 │   ├── memory/                    # 日常记忆文件
 │   ├── skills/                    # 项目级 Skill
@@ -224,6 +260,17 @@ agent-rebuild/
 | GATEWAY_RATE_LIMIT_MAX_REQUESTS | 限流最大请求数 | 30 |
 | GATEWAY_RATE_LIMIT_WINDOW_MS | 限流窗口（ms） | 60000 |
 | GATEWAY_CONFIRM_TOKEN_TTL_MS | 审批令牌有效期（ms） | 300000 |
+| GATEWAY_WS_HOST | WS 监听地址 | 127.0.0.1 |
+| GATEWAY_WS_PORT | WS 监听端口 | 8787 |
+| GATEWAY_WS_TOKEN | WS 认证令牌（可选，建议 8+ 字符） | （可选） |
+| GATEWAY_WS_ALLOWED_ORIGINS | 允许的 Origin（逗号分隔） | localhost:3000 |
+| GATEWAY_WS_MAX_CONNECTIONS | 最大 WS 连接数 | 20 |
+| GATEWAY_WS_MAX_MESSAGE_BYTES | 最大消息字节数 | 1048576 |
+| GATEWAY_WS_MAX_RUNS_PER_CLIENT | 每客户端最大并发 Run | 2 |
+| GATEWAY_WS_MAX_RUNS_TOTAL | 全局最大并发 Run | 8 |
+| GATEWAY_WS_RATE_LIMIT_WINDOW_MS | WS 限流窗口（ms） | 60000 |
+| GATEWAY_WS_RATE_LIMIT_MAX_MESSAGES | WS 限流最大消息数 | 120 |
+| GATEWAY_WS_SHUTDOWN_TIMEOUT_MS | 优雅关闭超时（ms） | 10000 |
 | DASHSCOPE_API_KEY | 阿里云 DashScope API Key（向量检索用） | 可选 |
 | DASHSCOPE_EMBED_MODEL | 向量模型名称 | text-embedding-v4 |
 | DASHSCOPE_EMBED_DIMENSIONS | 向量维度 | 1024 |
@@ -236,8 +283,10 @@ agent-rebuild/
 ```bash
 # Gateway
 npm run gateway             # 启动 Gateway（REPL 模式）
+npm run gateway:ws          # 启动 WebSocket 服务端
+npm run gateway:smoke:ws    # WS 冒烟测试
 npm run typecheck           # TypeScript 类型检查
-npm test                    # 运行全部测试（314 个测试，0 失败）
+npm test                    # 运行全部测试（373 个测试，0 失败）
 npm run build               # 构建项目
 
 # 辅助脚本
@@ -263,6 +312,29 @@ npx tsx scripts/system-detect-offline.ts   # 离线环境检测
 - `allowedReadRoots` / `allowedWriteRoots`：限制文件操作范围
 - `permission`：`chat-only`（仅聊天）或 `project-write`（允许项目文件修改）
 - MCP 和 Skill 目录自动加入白名单，支持完整的文件管理操作
+
+### WebSocket Gateway
+
+WS 模块（`packages/gateway/ws/`，13 个文件）为前端 Agent Console 提供实时双向通信，协议版本 1.0。
+
+**协议：**
+- 7 个请求方法：`connect`、`chat.send`、`chat.cancel`、`tool.call`、`memory.search`、`memory.write`、`session.getTranscript`
+- 19 个 server event：`run.started`/`finished`/`cancelled`/`failed`、`chat.delta`/`completed`/`error`、`tool.started`/`finished`/`denied`/`failed`、`connection.state`/`ack`/`error`、`state.resync_required`、`memory.results`/`memory.write_ok`、`session.transcript`、`tool.list`
+
+**安全链路：**
+- Token 认证（可选）+ Origin 白名单 + JSON Schema 验证 + 消息大小限制
+- 速率限制（滑动窗口）+ Run 并发限制（每客户端 + 全局）
+- 写操作背压 + 敏感字段递归脱敏 + 幂等存储（TTL 过期）
+- 优雅关闭（排空 + 超时）
+
+**Run 生命周期：**
+- `chat.send` → `run.started` → `chat.delta`(N) → `chat.completed` + `run.finished`
+- `chat.cancel` → `run.cancelled`
+- 断线恢复：`session.getTranscript`(afterSeq) + `audit.tail`(afterSeq) 补齐间隙
+
+**前端设计规范：**
+- 见 `.trae/specs/frontend-design-spec/` — Local Agent Control Console 设计规范
+- WS Client SDK (`packages/ws-client`) + Web UI (`apps/web-ui`) 路线图
 
 ### 多 Agent 协作系统（ReviewGraph）
 
@@ -416,9 +488,42 @@ SKILL.md 支持 frontmatter 元数据（`when-to-use`、`allowed-tools`、`conte
 
 ## 更新日志
 
-### 2026-05-05（MCP/Skill 优化 + 安全白名单 + 记忆自动写入）
+### 2026-05-05（后端架构加固 + 前端设计规范）
 
-**MCP 系统优化：**
+**架构加固（12 项修复）：**
+- 循环依赖消除：ChatMessage 类型从 gateway 提升到 core 包，model→gateway 依赖解除
+- 安全 ID 生成：8 个文件的 Math.random() 全部替换为 crypto.randomBytes
+- 类型安全：移除 memory 包所有 `as any` 断言，better-sqlite3 声明补全 iterate/transaction
+- getDb() 显式返回类型：Database.Database
+- DeepSeek 参数范围校验：temperature 0-2、maxTokens 1-128000、timeout 1s-600s
+- SLO 错误率上界：parseBoundedNumber 限制 0-1
+- 布尔解析统一：permissionPolicy 和 toolCallExecutor 统一使用 isTruthyEnv（支持 true/1/yes/y/on）
+- WS Origin 白名单安全：用户显式配置时不再自动追加空字符串
+- WS Token 最低长度警告：< 8 字符时 console.warn
+- ws-main.ts 优雅关闭：SIGINT/SIGTERM 处理 + server.close()
+- .env.example 补全：新增 32 个 Gateway + WS 配置变量
+
+**前端设计规范（`.trae/specs/frontend-design-spec/`）：**
+- Local Agent Control Console 设计规范（spec.md）
+- 20 个实施任务 + 4 阶段路线图（tasks.md）
+- 验收清单（checklist.md）
+- 覆盖：WS Client SDK、Run 状态机、流式渲染、安全交互、视觉设计
+
+**测试：** 373 个通过，48 suites，0 失败
+
+### 2026-05-05（WebSocket Gateway）
+
+**WebSocket 模块（13 个文件）：**
+- 协议定义 1.0 版：7 个请求方法 + 19 个 server event
+- 安全链路：Token 认证 + Origin 白名单 + JSON Schema 验证 + 消息大小限制
+- 并发控制：速率限制（滑动窗口）+ Run 并发限制（每客户端 + 全局）+ 写操作背压
+- 断线恢复：ReplayBuffer 事件回放 + session.getTranscript afterSeq 补发
+- 幂等存储：TTL 过期自动清理，防止重复执行
+- 敏感字段递归脱敏：api_key/token/password/secret 等自动替换为 [REDACTED]
+- 共享运行时：REPL 和 WS 复用 runtime.ts，共享 Gateway/Session/Memory/Tools/Sandbox/Audit
+- 测试：56 个 WS 测试（protocol/auth/schema/router/run/replay/backpressure/audit/redaction/memory/server）
+
+### 2026-05-05（MCP/Skill 优化 + 安全白名单 + 记忆自动写入）
 - 多源配置加载（用户全局 / 项目级 / 项目根目录），按优先级合并
 - 懒连接模式（`mcpLazy`），首次 handle() 时才连接 MCP 服务器
 - `ensureServerConnected()` 按需连接单个服务器

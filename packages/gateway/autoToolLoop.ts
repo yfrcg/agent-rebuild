@@ -1,3 +1,4 @@
+
 import type { ChatMessage, ModelProvider } from "../model/types";
 import type { ContextCompressor } from "./contextCompressor";
 import type { GatewayToolCallRecord } from "./toolCallTypes";
@@ -18,6 +19,11 @@ export interface AutoToolDecisionTool {
 
 export type AutoToolDecision = AutoToolDecisionRespond | AutoToolDecisionTool;
 
+/**
+ * 函数 `buildAutoToolDecisionMessages` 的职责说明。
+ * `buildAutoToolDecisionMessages` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function buildAutoToolDecisionMessages(input: {
   baseMessages: ChatMessage[];
   tools: GatewayToolListItem[];
@@ -76,6 +82,11 @@ export function buildAutoToolDecisionMessages(input: {
   ];
 }
 
+/**
+ * 函数 `buildAutoToolAnswerMessages` 的职责说明。
+ * `buildAutoToolAnswerMessages` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function buildAutoToolAnswerMessages(input: {
   baseMessages: ChatMessage[];
   toolCalls: GatewayToolCallRecord[];
@@ -115,6 +126,11 @@ export function buildAutoToolAnswerMessages(input: {
   ];
 }
 
+/**
+ * 函数 `parseAutoToolDecision` 的职责说明。
+ * `parseAutoToolDecision` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function parseAutoToolDecision(raw: string): AutoToolDecision {
   const text = extractJsonObject(raw);
   const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -145,6 +161,11 @@ export function parseAutoToolDecision(raw: string): AutoToolDecision {
   throw new Error("Auto tool decision JSON has unsupported schema.");
 }
 
+/**
+ * 函数 `normalizeMemorySearchResults` 的职责说明。
+ * `normalizeMemorySearchResults` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function normalizeMemorySearchResults(content: unknown): MemorySearchResult[] {
   if (!Array.isArray(content)) {
     return [];
@@ -196,6 +217,11 @@ export function normalizeMemorySearchResults(content: unknown): MemorySearchResu
   return normalized.filter((item): item is MemorySearchResult => item !== undefined);
 }
 
+/**
+ * 函数 `mergeMemoryResults` 的职责说明。
+ * `mergeMemoryResults` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function mergeMemoryResults(
   base: MemorySearchResult[],
   extra: MemorySearchResult[]
@@ -212,6 +238,11 @@ export function mergeMemoryResults(
   return [...merged.values()];
 }
 
+/**
+ * 函数 `extractJsonObject` 的职责说明。
+ * `extractJsonObject` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function extractJsonObject(raw: string): string {
   const trimmed = raw.trim();
 
@@ -237,6 +268,11 @@ function extractJsonObject(raw: string): string {
   throw new Error("Auto tool decision is not valid JSON.");
 }
 
+/**
+ * 函数 `safeJsonPreview` 的职责说明。
+ * `safeJsonPreview` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function safeJsonPreview(value: unknown, maxChars = 600): string {
   const raw =
     typeof value === "string"
@@ -256,6 +292,11 @@ function safeJsonPreview(value: unknown, maxChars = 600): string {
   return `${raw.slice(0, maxChars)}...[truncated]`;
 }
 
+/**
+ * 函数 `asRecord` 的职责说明。
+ * `asRecord` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
@@ -271,6 +312,11 @@ const DEV_TASK_KEYWORDS = [
   "修改", "重构", "调试", "构建",
 ];
 
+/**
+ * 函数 `isDevTask` 的职责说明。
+ * `isDevTask` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function isDevTask(input: string): boolean {
   const lower = input.toLowerCase();
   return DEV_TASK_KEYWORDS.some((kw) => lower.includes(kw));
@@ -289,6 +335,11 @@ export interface StructuredToolResult {
   rawContent: string;
 }
 
+/**
+ * 函数 `extractStructuredResult` 的职责说明。
+ * `extractStructuredResult` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function extractStructuredResult(
   toolName: string,
   result: { content: string; isError?: boolean },
@@ -325,6 +376,11 @@ export function extractStructuredResult(
   return base;
 }
 
+/**
+ * 函数 `formatStructuredResultForContext` 的职责说明。
+ * `formatStructuredResultForContext` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function formatStructuredResultForContext(result: StructuredToolResult): string {
   const lines: string[] = [`[Tool Result] tool=${result.toolName} status=${result.status}`];
 
@@ -360,6 +416,11 @@ export interface DevTaskTracker {
   fixRounds: number;
 }
 
+/**
+ * 函数 `createDevTaskTracker` 的职责说明。
+ * `createDevTaskTracker` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createDevTaskTracker(): DevTaskTracker {
   return {
     filesModified: new Set(),
@@ -369,6 +430,11 @@ export function createDevTaskTracker(): DevTaskTracker {
   };
 }
 
+/**
+ * 函数 `trackToolCall` 的职责说明。
+ * `trackToolCall` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function trackToolCall(
   tracker: DevTaskTracker,
   toolName: string,
@@ -396,6 +462,11 @@ export function trackToolCall(
   }
 }
 
+/**
+ * 函数 `buildDevTaskSummaryPrompt` 的职责说明。
+ * `buildDevTaskSummaryPrompt` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function buildDevTaskSummaryPrompt(tracker: DevTaskTracker): string {
   const files = [...tracker.filesModified];
   const commands = tracker.commandsRun.map((c) => {
@@ -429,6 +500,11 @@ export function buildDevTaskSummaryPrompt(tracker: DevTaskTracker): string {
   ].join("\n");
 }
 
+/**
+ * 函数 `buildDevTaskSystemHint` 的职责说明。
+ * `buildDevTaskSystemHint` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function buildDevTaskSystemHint(): string {
   return [
     "[DEV_TASK_MODE]",
@@ -452,6 +528,11 @@ export interface SerializedDevTaskTracker {
   fixRounds: number;
 }
 
+/**
+ * 函数 `serializeDevTaskTracker` 的职责说明。
+ * `serializeDevTaskTracker` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function serializeDevTaskTracker(tracker: DevTaskTracker): SerializedDevTaskTracker {
   return {
     filesModified: [...tracker.filesModified],
@@ -461,6 +542,11 @@ export function serializeDevTaskTracker(tracker: DevTaskTracker): SerializedDevT
   };
 }
 
+/**
+ * 函数 `deserializeDevTaskTracker` 的职责说明。
+ * `deserializeDevTaskTracker` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function deserializeDevTaskTracker(data: unknown): DevTaskTracker | undefined {
   if (!data || typeof data !== "object") return undefined;
   const obj = data as Record<string, unknown>;

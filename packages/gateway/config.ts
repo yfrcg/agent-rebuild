@@ -1,3 +1,4 @@
+
 import * as path from "node:path";
 
 import {
@@ -31,6 +32,11 @@ export interface GatewayRuntimeConfig {
   tavilyApiKey: string;
 }
 
+/**
+ * 函数 `loadGatewayConfig` 的职责说明。
+ * `loadGatewayConfig` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function loadGatewayConfig(
   env: NodeJS.ProcessEnv = process.env
 ): GatewayRuntimeConfig {
@@ -71,11 +77,16 @@ export function loadGatewayConfig(
     ),
     circuitCooldownMs: parsePositiveInteger(env.GATEWAY_CIRCUIT_COOLDOWN_MS, 30_000),
     sloMaxRtMs: parsePositiveInteger(env.GATEWAY_SLO_MAX_RT_MS, 200),
-    sloMaxErrorRate: parsePositiveNumber(env.GATEWAY_SLO_MAX_ERROR_RATE, 0.1),
+    sloMaxErrorRate: parseBoundedNumber(env.GATEWAY_SLO_MAX_ERROR_RATE, 0.1, 0, 1),
     tavilyApiKey: env.TAVILY_API_KEY?.trim() ?? "",
   };
 }
 
+/**
+ * 函数 `parseSandboxRoots` 的职责说明。
+ * `parseSandboxRoots` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function parseSandboxRoots(
   value: string | undefined,
   projectRoot: string,
@@ -96,6 +107,11 @@ function parseSandboxRoots(
   return [...new Set([projectRoot, workspaceRoot, ...resolved])];
 }
 
+/**
+ * 函数 `parseLegacySandboxMode` 的职责说明。
+ * `parseLegacySandboxMode` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function parseLegacySandboxMode(value: string | undefined): GatewaySandboxMode {
   if (value === undefined || value.trim() === "") {
     return "off";
@@ -113,6 +129,11 @@ function parseLegacySandboxMode(value: string | undefined): GatewaySandboxMode {
   return "off";
 }
 
+/**
+ * 函数 `parseModelName` 的职责说明。
+ * `parseModelName` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function parseModelName(value: string | undefined): GatewayModelName {
   if (value === undefined || value.trim() === "" || value === "deepseek") {
     return "deepseek";
@@ -125,6 +146,11 @@ function parseModelName(value: string | undefined): GatewayModelName {
   return "deepseek";
 }
 
+/**
+ * 函数 `parsePositiveInteger` 的职责说明。
+ * `parsePositiveInteger` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function parsePositiveInteger(
   value: string | undefined,
   fallback: number
@@ -141,6 +167,11 @@ function parsePositiveInteger(
   return parsed;
 }
 
+/**
+ * 函数 `parsePositiveNumber` 的职责说明。
+ * `parsePositiveNumber` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function parsePositiveNumber(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") {
     return fallback;
@@ -154,6 +185,34 @@ function parsePositiveNumber(value: string | undefined, fallback: number): numbe
   return parsed;
 }
 
+/**
+ * 函数 `parseBoundedNumber` 的职责说明。
+ * `parseBoundedNumber` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
+function parseBoundedNumber(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  if (value === undefined || value.trim() === "") {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+/**
+ * 函数 `parseBoolean` 的职责说明。
+ * `parseBoolean` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value.trim() === "") {
     return fallback;

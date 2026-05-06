@@ -1,3 +1,4 @@
+
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -56,6 +57,7 @@ test("tool executor blocks shell execution in plan mode", async () => {
     sideEffect: true,
     requiresSandbox: false,
     riskLevel: "dangerous",
+    /** 方法 `execute`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async execute() {
       return {
         toolCallId: "",
@@ -446,6 +448,7 @@ test("execution tool audit log includes runner=local-windows metadata", async ()
       registry,
       projectRoot: tempDir,
       auditLogger: {
+        /** 方法 `log`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
         log(event: unknown) {
           events.push(event);
         },
@@ -474,6 +477,11 @@ test("execution tool audit log includes runner=local-windows metadata", async ()
   }
 });
 
+/**
+ * 函数 `createHostReadTool` 的职责说明。
+ * `createHostReadTool` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createHostReadTool(projectRoot: string): GatewayTool {
   return {
     name: "file.read",
@@ -483,6 +491,7 @@ function createHostReadTool(projectRoot: string): GatewayTool {
     sideEffect: false,
     requiresSandbox: false,
     riskLevel: "safe",
+    /** 方法 `execute`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async execute(input) {
       const filePath = path.resolve(projectRoot, String((input as Record<string, unknown>).path));
       return {
@@ -494,6 +503,11 @@ function createHostReadTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createHostWriteTool` 的职责说明。
+ * `createHostWriteTool` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createHostWriteTool(projectRoot: string): GatewayTool {
   return {
     name: "file.write",
@@ -503,6 +517,7 @@ function createHostWriteTool(projectRoot: string): GatewayTool {
     sideEffect: true,
     requiresSandbox: false,
     riskLevel: "medium",
+    /** 方法 `execute`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async execute(input) {
       const args = input as Record<string, unknown>;
       const filePath = path.resolve(projectRoot, String(args.path));

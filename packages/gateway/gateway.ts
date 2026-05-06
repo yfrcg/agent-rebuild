@@ -1,3 +1,4 @@
+
 import { AgentRunner } from "./agentRunner";
 import { ContextBuilder } from "./contextBuilder";
 import type { BuiltGatewayContext } from "./contextBuilder";
@@ -12,6 +13,7 @@ import type { ToolRegistry } from "./toolRegistry";
 import type { GatewayMcpManager } from "./mcpManager";
 import type {
   GatewayDebugInfo,
+  GatewayHandleOptions,
   GatewayRequest,
   GatewayResponse,
   MemorySearchResult,
@@ -100,6 +102,7 @@ export class Gateway {
   private readonly autoReviewGraphEnabled: boolean;
   private mcpInitialized = false;
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(options: GatewayOptions) {
     const contextBuilder = options.contextBuilder ?? new ContextBuilder();
     const autoToolLoopMaxSteps = options.autoToolLoopMaxSteps ?? 5;
@@ -147,8 +150,17 @@ export class Gateway {
     }
   }
 
-  async handle(request: GatewayRequest): Promise<GatewayResponse> {
+  /**
+   * 方法 `handle` 的职责说明。
+   * `handle` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
+  async handle(
+    request: GatewayRequest,
+    options: GatewayHandleOptions = {}
+  ): Promise<GatewayResponse> {
     await this.ensureMcpInitialized();
+    throwIfAborted(options.signal);
     const startedAt = Date.now();
     const requestId = this.getRequestId(request);
     const input = this.getRequestInput(request);
@@ -280,7 +292,11 @@ export class Gateway {
           builtContext = undefined;
           this.recordCircuitSuccess();
         } else {
-          const result = await this.agentRunner.run(requestWithBoundary);
+          const result = await this.agentRunner.run(requestWithBoundary, {
+            signal: options.signal,
+            onEvent: options.onEvent,
+          });
+          throwIfAborted(options.signal);
           responseText = result.text;
           memoryResults = result.memoryResults;
           toolCalls = result.toolCalls;
@@ -290,6 +306,9 @@ export class Gateway {
           this.recordCircuitSuccess();
         }
       } catch (err) {
+        if (isAbortError(err)) {
+          throw err;
+        }
         hasError = true;
         errorMessage = this.toErrorMessage(err);
         responseText = "模型调用失败，Gateway 已捕获错误，没有让程序崩溃。";
@@ -439,6 +458,9 @@ export class Gateway {
         planState: request.planState,
       });
     } catch (err) {
+      if (isAbortError(err)) {
+        throw err;
+      }
       const fatalMessage = this.toErrorMessage(err);
       const durationMs = Date.now() - startedAt;
       const text = "Gateway 内部异常，已捕获错误，没有让程序崩溃。";
@@ -481,6 +503,11 @@ export class Gateway {
     }
   }
 
+  /**
+   * 方法 `ensureMcpInitialized` 的职责说明。
+   * `ensureMcpInitialized` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async ensureMcpInitialized(): Promise<void> {
     if (this.mcpInitialized || !this.mcpManager) {
       return;
@@ -496,6 +523,11 @@ export class Gateway {
     }
   }
 
+  /**
+   * 方法 `checkRateLimit` 的职责说明。
+   * `checkRateLimit` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async checkRateLimit(): Promise<RateLimitResult> {
     if (!this.rateLimiter) {
       return { allowed: true };
@@ -556,6 +588,11 @@ export class Gateway {
     };
   }
 
+  /**
+   * 方法 `getCircuitState` 的职责说明。
+   * `getCircuitState` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private getCircuitState(): CircuitState {
     if (!this.circuitBreaker) {
       return { open: false, state: "disabled" };
@@ -606,6 +643,11 @@ export class Gateway {
     return { open: false, state: "unknown" };
   }
 
+  /**
+   * 方法 `recordCircuitSuccess` 的职责说明。
+   * `recordCircuitSuccess` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private recordCircuitSuccess(): void {
     if (!this.circuitBreaker) {
       return;
@@ -630,6 +672,11 @@ export class Gateway {
     }
   }
 
+  /**
+   * 方法 `recordCircuitFailure` 的职责说明。
+   * `recordCircuitFailure` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private recordCircuitFailure(errorMessage?: string): void {
     if (!this.circuitBreaker) {
       return;
@@ -654,6 +701,11 @@ export class Gateway {
     }
   }
 
+  /**
+   * 方法 `recordMetrics` 的职责说明。
+   * `recordMetrics` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async recordMetrics(input: {
     durationMs: number;
     hasError: boolean;
@@ -684,6 +736,11 @@ export class Gateway {
     }
   }
 
+  /**
+   * 方法 `recordAudit` 的职责说明。
+   * `recordAudit` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async recordAudit(event: GatewayAuditEvent): Promise<void> {
     if (!this.auditLogger) {
       return;
@@ -736,6 +793,11 @@ export class Gateway {
     }
   }
 
+  /**
+   * 方法 `createResponse` 的职责说明。
+   * `createResponse` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private createResponse(input: {
     requestId: string;
     text: string;
@@ -805,6 +867,11 @@ export class Gateway {
     };
   }
 
+  /**
+   * 方法 `getMetricsSnapshot` 的职责说明。
+   * `getMetricsSnapshot` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private getMetricsSnapshot(): unknown {
     if (!this.metricsCollector) {
       return undefined;
@@ -833,6 +900,11 @@ export class Gateway {
     return undefined;
   }
 
+  /**
+   * 方法 `getRequestId` 的职责说明。
+   * `getRequestId` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private getRequestId(request: GatewayRequest): string {
     const value = request as unknown as {
       id?: string;
@@ -842,6 +914,11 @@ export class Gateway {
     return value.requestId ?? value.id ?? `gateway-${Date.now()}`;
   }
 
+  /**
+   * 方法 `getRequestInput` 的职责说明。
+   * `getRequestInput` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private getRequestInput(request: GatewayRequest): string {
     const value = request as unknown as {
       input?: string;
@@ -853,6 +930,11 @@ export class Gateway {
     return value.input ?? value.text ?? value.query ?? value.content ?? "";
   }
 
+  /**
+   * 方法 `toErrorMessage` 的职责说明。
+   * `toErrorMessage` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private toErrorMessage(err: unknown): string {
     if (err instanceof Error) {
       return err.message;
@@ -868,6 +950,11 @@ export class Gateway {
     }
   }
 
+  /**
+   * 方法 `resolveProjectBoundary` 的职责说明。
+   * `resolveProjectBoundary` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private resolveProjectBoundary(
     sessionId: string | undefined
   ): GatewayProjectBoundary | undefined {
@@ -886,6 +973,11 @@ export class Gateway {
     }
   }
 
+  /**
+   * 方法 `shouldUseReviewGraph` 的职责说明。
+   * `shouldUseReviewGraph` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private shouldUseReviewGraph(input: string): boolean {
     const trimmed = input.trim();
     if (trimmed.length < 10) {
@@ -939,6 +1031,11 @@ export class Gateway {
     return !isCasual;
   }
 
+  /**
+   * 方法 `formatReviewGraphResponse` 的职责说明。
+   * `formatReviewGraphResponse` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private formatReviewGraphResponse(reviewResult: ReviewGraphRunOutput): string {
     const reportText = formatReportAsText(reviewResult.report);
     const statusEmoji = reviewResult.finalStatus === "passed" ? "✅" :
@@ -953,6 +1050,11 @@ export class Gateway {
   }
 }
 
+/**
+ * 函数 `summarizeMemorySources` 的职责说明。
+ * `summarizeMemorySources` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function summarizeMemorySources(memoryUsed: MemorySearchResult[]): Record<string, number> {
   return memoryUsed.reduce<Record<string, number>>((acc, item) => {
     const sourceKind =
@@ -964,6 +1066,11 @@ function summarizeMemorySources(memoryUsed: MemorySearchResult[]): Record<string
   }, {});
 }
 
+/**
+ * 函数 `isRecentMemoryResult` 的职责说明。
+ * `isRecentMemoryResult` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isRecentMemoryResult(item: MemorySearchResult): boolean {
   const directDate = item.metadata?.date;
   if (typeof directDate === "string") {
@@ -980,12 +1087,22 @@ function isRecentMemoryResult(item: MemorySearchResult): boolean {
   return typeof inferredDate === "string" && isRecentMemoryDate(inferredDate);
 }
 
+/**
+ * 函数 `extractDateFromMemoryPath` 的职责说明。
+ * `extractDateFromMemoryPath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function extractDateFromMemoryPath(filePath: string): string | undefined {
   const normalized = filePath.replace(/\\/g, "/");
   const match = normalized.match(/memory\/(\d{4}-\d{2}-\d{2})\.md$/);
   return match?.[1];
 }
 
+/**
+ * 函数 `isRecentMemoryDate` 的职责说明。
+ * `isRecentMemoryDate` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isRecentMemoryDate(date: string): boolean {
   const timestamp = Date.parse(`${date}T00:00:00+08:00`);
   if (Number.isNaN(timestamp)) {
@@ -993,4 +1110,29 @@ function isRecentMemoryDate(date: string): boolean {
   }
 
   return Date.now() - timestamp <= 7 * 86_400_000;
+}
+
+/**
+ * 函数 `throwIfAborted` 的职责说明。
+ * `throwIfAborted` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error("RUN_CANCELLED");
+  }
+}
+
+/**
+ * 函数 `isAbortError` 的职责说明。
+ * `isAbortError` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
+function isAbortError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.message === "RUN_CANCELLED" ||
+      err.name === "AbortError" ||
+      err.message.includes("aborted"))
+  );
 }

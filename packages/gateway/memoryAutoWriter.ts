@@ -1,3 +1,4 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -68,6 +69,11 @@ const TRIVIAL_PATTERNS: RegExp[] = [
   /^.{0,15}$/,
 ];
 
+/**
+ * 函数 `createMemoryAutoWriter` 的职责说明。
+ * `createMemoryAutoWriter` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createMemoryAutoWriter(
   config?: Partial<MemoryAutoWriterConfig>
 ): MemoryAutoWriter {
@@ -77,10 +83,16 @@ export function createMemoryAutoWriter(
 export class MemoryAutoWriter {
   private config: MemoryAutoWriterConfig;
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(config?: Partial<MemoryAutoWriterConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
+  /**
+   * 方法 `evaluateAndWrite` 的职责说明。
+   * `evaluateAndWrite` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   evaluateAndWrite(
     input: string,
     response: string,
@@ -127,6 +139,11 @@ export class MemoryAutoWriter {
     return result;
   }
 
+  /**
+   * 方法 `extractCandidates` 的职责说明。
+   * `extractCandidates` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   extractCandidates(
     input: string,
     response: string,
@@ -152,6 +169,11 @@ export class MemoryAutoWriter {
     return this.deduplicate(candidates);
   }
 
+  /**
+   * 方法 `extractFromText` 的职责说明。
+   * `extractFromText` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private extractFromText(
     text: string,
     source: "input" | "response"
@@ -181,6 +203,11 @@ export class MemoryAutoWriter {
     return candidates;
   }
 
+  /**
+   * 方法 `extractFromToolCalls` 的职责说明。
+   * `extractFromToolCalls` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private extractFromToolCalls(
     toolCalls: GatewayToolCallRecord[]
   ): MemoryCandidate[] {
@@ -260,6 +287,11 @@ export class MemoryAutoWriter {
     return candidates;
   }
 
+  /**
+   * 方法 `extractFromPatch` 的职责说明。
+   * `extractFromPatch` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private extractFromPatch(patch: SessionMemoryPatch): MemoryCandidate[] {
     const candidates: MemoryCandidate[] = [];
 
@@ -299,6 +331,11 @@ export class MemoryAutoWriter {
     return candidates;
   }
 
+  /**
+   * 方法 `scoreText` 的职责说明。
+   * `scoreText` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private scoreText(text: string, source: string): number {
     let score = 0.3;
 
@@ -339,6 +376,11 @@ export class MemoryAutoWriter {
     return Math.min(1, Math.max(0, score));
   }
 
+  /**
+   * 方法 `determineKind` 的职责说明。
+   * `determineKind` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private determineKind(
     text: string,
     score: number
@@ -352,10 +394,20 @@ export class MemoryAutoWriter {
     return "daily";
   }
 
+  /**
+   * 方法 `isTrivial` 的职责说明。
+   * `isTrivial` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private isTrivial(text: string): boolean {
     return TRIVIAL_PATTERNS.some((p) => p.test(text));
   }
 
+  /**
+   * 方法 `splitIntoSentences` 的职责说明。
+   * `splitIntoSentences` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private splitIntoSentences(text: string): string[] {
     return text
       .split(/[。！？\n.!?]/)
@@ -363,6 +415,11 @@ export class MemoryAutoWriter {
       .filter(Boolean);
   }
 
+  /**
+   * 方法 `deduplicate` 的职责说明。
+   * `deduplicate` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private deduplicate(candidates: MemoryCandidate[]): MemoryCandidate[] {
     const seen = new Set<string>();
     const result: MemoryCandidate[] = [];
@@ -377,6 +434,11 @@ export class MemoryAutoWriter {
     return result.sort((a, b) => b.score - a.score);
   }
 
+  /**
+   * 方法 `checkAndCompress` 的职责说明。
+   * `checkAndCompress` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   checkAndCompress(): { from: number; to: number } | null {
     const memPath = this.config.memoryFilePath ?? resolveWorkspacePath("MEMORY.md");
     if (!fs.existsSync(memPath)) return null;
@@ -396,6 +458,11 @@ export class MemoryAutoWriter {
     return { from: content.length, to: furtherCompressed.length };
   }
 
+  /**
+   * 方法 `compressHeuristic` 的职责说明。
+   * `compressHeuristic` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   compressHeuristic(content: string): string {
     const lines = content.split("\n");
     const sections: Map<string, string[]> = new Map();
@@ -447,6 +514,11 @@ export class MemoryAutoWriter {
     return output.join("\n").trim() + "\n";
   }
 
+  /**
+   * 方法 `compressAggressive` 的职责说明。
+   * `compressAggressive` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   compressAggressive(content: string): string {
     const lines = content.split("\n");
     const headerLines: string[] = [];
@@ -483,6 +555,11 @@ export class MemoryAutoWriter {
     return output.join("\n").trim() + "\n";
   }
 
+  /**
+   * 方法 `compressWithLLM` 的职责说明。
+   * `compressWithLLM` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   async compressWithLLM(content: string): Promise<string> {
     if (!this.config.modelProvider) {
       return this.compressHeuristic(content);
@@ -520,10 +597,20 @@ export class MemoryAutoWriter {
     }
   }
 
+  /**
+   * 方法 `getConfig` 的职责说明。
+   * `getConfig` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   getConfig(): Readonly<MemoryAutoWriterConfig> {
     return { ...this.config };
   }
 
+  /**
+   * 方法 `updateConfig` 的职责说明。
+   * `updateConfig` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   updateConfig(patch: Partial<MemoryAutoWriterConfig>): void {
     this.config = { ...this.config, ...patch };
   }

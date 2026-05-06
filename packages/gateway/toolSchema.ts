@@ -1,7 +1,14 @@
+
+/** 函数 `isPlainObject`：负责完成当前模块中的一个明确步骤，维护时要关注输入校验、返回结构和异常路径。 */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * 函数 `validateToolArgs` 的职责说明。
+ * `validateToolArgs` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function validateToolArgs(
   schema: Record<string, unknown> | undefined,
   value: unknown,

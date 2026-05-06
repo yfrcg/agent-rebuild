@@ -1,3 +1,4 @@
+
 import { createToolSecurityProfile } from "./toolSecurityProfile";
 import { validateToolArgs } from "./toolSchema";
 import type {
@@ -22,12 +23,18 @@ interface NormalizedGatewayTool
     GatewayToolMetadata {
   schema?: Record<string, unknown>;
   riskLevel: ToolDefinition["riskLevel"];
+  /** 方法 `execute`：负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。 */
   execute(args: unknown, context?: GatewayToolContext): Promise<ToolResult>;
 }
 
 export class ToolRegistry {
   private readonly tools = new Map<GatewayToolName, NormalizedGatewayTool>();
 
+  /**
+   * 方法 `register` 的职责说明。
+   * `register` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   register(tool: GatewayTool): void {
     if (this.tools.has(tool.name)) {
       throw new Error(`[tools] duplicate tool registration: ${tool.name}`);
@@ -36,10 +43,20 @@ export class ToolRegistry {
     this.tools.set(tool.name, normalizeTool(tool));
   }
 
+  /**
+   * 方法 `has` 的职责说明。
+   * `has` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   has(name: GatewayToolName): boolean {
     return this.tools.has(name);
   }
 
+  /**
+   * 方法 `list` 的职责说明。
+   * `list` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   list(): GatewayToolListItem[] {
     return Array.from(this.tools.values()).map((tool) => ({
       name: tool.name,
@@ -56,10 +73,20 @@ export class ToolRegistry {
     }));
   }
 
+  /**
+   * 方法 `get` 的职责说明。
+   * `get` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   get(name: GatewayToolName): NormalizedGatewayTool | undefined {
     return this.tools.get(name);
   }
 
+  /**
+   * 方法 `validate` 的职责说明。
+   * `validate` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   validate(name: GatewayToolName, input: unknown): string | undefined {
     const tool = this.tools.get(name);
     if (!tool) {
@@ -69,6 +96,11 @@ export class ToolRegistry {
     return validateToolArgs(tool.schema, input);
   }
 
+  /**
+   * 方法 `invoke` 的职责说明。
+   * `invoke` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   async invoke(
     name: GatewayToolName,
     input: GatewayToolInput,
@@ -109,6 +141,11 @@ export class ToolRegistry {
   }
 }
 
+/**
+ * 函数 `normalizeTool` 的职责说明。
+ * `normalizeTool` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeTool(tool: GatewayTool): NormalizedGatewayTool {
   const schema = tool.schema ?? tool.inputSchema;
   const riskLevel = tool.riskLevel ?? inferRiskLevel(tool);
@@ -144,6 +181,11 @@ function normalizeTool(tool: GatewayTool): NormalizedGatewayTool {
   };
 }
 
+/**
+ * 函数 `inferToolMetadata` 的职责说明。
+ * `inferToolMetadata` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function inferToolMetadata(tool: GatewayTool): GatewayToolMetadata {
   const permissionLevel = tool.permissionLevel ?? inferPermissionLevel(tool);
   const readOnly = tool.readOnly ?? permissionLevel === "read";
@@ -161,6 +203,11 @@ function inferToolMetadata(tool: GatewayTool): GatewayToolMetadata {
   };
 }
 
+/**
+ * 函数 `inferRiskLevel` 的职责说明。
+ * `inferRiskLevel` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function inferRiskLevel(tool: GatewayTool): ToolDefinition["riskLevel"] {
   if (tool.policy?.riskLevel === "destructive") {
     return "dangerous";
@@ -177,6 +224,11 @@ function inferRiskLevel(tool: GatewayTool): ToolDefinition["riskLevel"] {
   return "safe";
 }
 
+/**
+ * 函数 `inferPermissionLevel` 的职责说明。
+ * `inferPermissionLevel` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function inferPermissionLevel(
   tool: GatewayTool
 ): GatewayToolPermissionLevel {
@@ -206,6 +258,11 @@ function inferPermissionLevel(
   return "advanced";
 }
 
+/**
+ * 函数 `securityFromRiskLevel` 的职责说明。
+ * `securityFromRiskLevel` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function securityFromRiskLevel(
   riskLevel: ToolDefinition["riskLevel"]
 ): NonNullable<GatewayTool["security"]> {

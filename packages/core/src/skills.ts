@@ -1,3 +1,4 @@
+
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -49,6 +50,11 @@ export interface SkillSelectionResult {
 const SKILL_FILE_NAME = "SKILL.md";
 const MAX_SKILL_CONTENT_CHARS = 4000;
 
+/**
+ * 函数 `getHomeDir` 的职责说明。
+ * `getHomeDir` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getHomeDir(): string {
   return process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
 }
@@ -91,6 +97,11 @@ const DEFAULT_SKILL_SOURCES: SkillSource[] = [
   },
 ];
 
+/**
+ * 函数 `discoverSkills` 的职责说明。
+ * `discoverSkills` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function discoverSkills(): SkillDiscoveryResult {
   const skills: SkillDefinition[] = [];
   const seenPaths = new Set<string>();
@@ -119,6 +130,11 @@ export function discoverSkills(): SkillDiscoveryResult {
   };
 }
 
+/**
+ * 函数 `selectSkillsForUserInput` 的职责说明。
+ * `selectSkillsForUserInput` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function selectSkillsForUserInput(
   userInput: string,
   skills: SkillDefinition[],
@@ -131,6 +147,11 @@ export function selectSkillsForUserInput(
   }).selectedSkills;
 }
 
+/**
+ * 函数 `selectSkills` 的职责说明。
+ * `selectSkills` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function selectSkills(input: {
   userInput: string;
   availableSkills: SkillDefinition[];
@@ -173,6 +194,11 @@ export function selectSkills(input: {
   };
 }
 
+/**
+ * 函数 `renderSkillInventory` 的职责说明。
+ * `renderSkillInventory` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function renderSkillInventory(skills: SkillDefinition[]): string {
   if (skills.length === 0) {
     return [
@@ -195,6 +221,11 @@ export function renderSkillInventory(skills: SkillDefinition[]): string {
   ].join("\n");
 }
 
+/**
+ * 函数 `getSkillByName` 的职责说明。
+ * `getSkillByName` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function getSkillByName(
   name: string,
   skills?: SkillDefinition[]
@@ -208,6 +239,11 @@ export function getSkillByName(
   );
 }
 
+/**
+ * 函数 `resolveSkillPrompt` 的职责说明。
+ * `resolveSkillPrompt` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function resolveSkillPrompt(skill: SkillDefinition, args: string): string {
   let prompt = skill.content;
   prompt = prompt.replace(/\$ARGUMENTS|\$\{ARGUMENTS\}/g, args);
@@ -215,6 +251,11 @@ export function resolveSkillPrompt(skill: SkillDefinition, args: string): string
   return prompt;
 }
 
+/**
+ * 函数 `buildSkillDescriptions` 的职责说明。
+ * `buildSkillDescriptions` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function buildSkillDescriptions(skills: SkillDefinition[]): string {
   if (skills.length === 0) {
     return "";
@@ -253,6 +294,11 @@ export function buildSkillDescriptions(skills: SkillDefinition[]): string {
   return lines.join("\n");
 }
 
+/**
+ * 函数 `findSkillFiles` 的职责说明。
+ * `findSkillFiles` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function findSkillFiles(root: string): string[] {
   const result: string[] = [];
   const stack = [root];
@@ -286,6 +332,11 @@ function findSkillFiles(root: string): string[] {
   return result;
 }
 
+/**
+ * 函数 `readSkillFile` 的职责说明。
+ * `readSkillFile` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function readSkillFile(source: SkillSource, filePath: string): SkillDefinition {
   const rawContent = fs.readFileSync(filePath, "utf8");
   const metadata = extractSkillMetadata(rawContent);
@@ -317,6 +368,11 @@ function readSkillFile(source: SkillSource, filePath: string): SkillDefinition {
   };
 }
 
+/**
+ * 函数 `extractSkillTitle` 的职责说明。
+ * `extractSkillTitle` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function extractSkillTitle(content: string, filePath: string): string {
   const lines = content.split(/\r?\n/);
   const heading = lines.find((line) => line.trim().startsWith("#"));
@@ -327,6 +383,11 @@ function extractSkillTitle(content: string, filePath: string): string {
   return path.basename(path.dirname(filePath));
 }
 
+/**
+ * 函数 `extractSkillDescription` 的职责说明。
+ * `extractSkillDescription` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function extractSkillDescription(content: string): string {
   const lines = content.split(/\r?\n/).map((line) => line.trim());
   const description = lines.find(
@@ -336,6 +397,11 @@ function extractSkillDescription(content: string): string {
   return description ?? "No description provided.";
 }
 
+/**
+ * 函数 `collectAliases` 的职责说明。
+ * `collectAliases` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function collectAliases(
   name: string,
   title: string,
@@ -366,6 +432,11 @@ function collectAliases(
   return [...aliases].filter(Boolean);
 }
 
+/**
+ * 函数 `trimSkillContent` 的职责说明。
+ * `trimSkillContent` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function trimSkillContent(content: string): string {
   if (content.length <= MAX_SKILL_CONTENT_CHARS) {
     return content.trim();
@@ -375,6 +446,11 @@ function trimSkillContent(content: string): string {
   return `${content.slice(0, safeMax).trim()}\n\n[skill content truncated]`;
 }
 
+/**
+ * 函数 `collectExplicitMentions` 的职责说明。
+ * `collectExplicitMentions` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function collectExplicitMentions(userInput: string): Set<string> {
   const mentions = new Set<string>();
   const matches = userInput.match(/[@$]([A-Za-z0-9._/-]+)/g) ?? [];
@@ -386,6 +462,11 @@ function collectExplicitMentions(userInput: string): Set<string> {
   return mentions;
 }
 
+/**
+ * 函数 `matchActiveSkills` 的职责说明。
+ * `matchActiveSkills` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function matchActiveSkills(
   activeSkillNames: string[],
   skills: SkillDefinition[]
@@ -402,6 +483,11 @@ function matchActiveSkills(
   );
 }
 
+/**
+ * 函数 `computeSkillMatchScore` 的职责说明。
+ * `computeSkillMatchScore` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function computeSkillMatchScore(
   skill: SkillDefinition,
   rawInput: string,
@@ -452,6 +538,11 @@ function computeSkillMatchScore(
   };
 }
 
+/**
+ * 函数 `normalizeSkillName` 的职责说明。
+ * `normalizeSkillName` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeSkillName(value: string): string {
   return value
     .trim()
@@ -462,6 +553,11 @@ function normalizeSkillName(value: string): string {
     .replace(/^-|-$/g, "");
 }
 
+/**
+ * 函数 `dedupeSkills` 的职责说明。
+ * `dedupeSkills` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function dedupeSkills(skills: SkillDefinition[]): SkillDefinition[] {
   const seen = new Set<string>();
   const result: SkillDefinition[] = [];
@@ -477,6 +573,11 @@ function dedupeSkills(skills: SkillDefinition[]): SkillDefinition[] {
   return result;
 }
 
+/**
+ * 函数 `inferSelectionStrategy` 的职责说明。
+ * `inferSelectionStrategy` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function inferSelectionStrategy(
   explicitMatches: SkillDefinition[],
   autoMatches: SkillDefinition[],
@@ -507,10 +608,20 @@ function inferSelectionStrategy(
   return "none";
 }
 
+/**
+ * 函数 `normalizeKey` 的职责说明。
+ * `normalizeKey` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeKey(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+/**
+ * 函数 `extractSkillMetadata` 的职责说明。
+ * `extractSkillMetadata` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function extractSkillMetadata(content: string): {
   body: string;
   priority: number;
@@ -567,6 +678,11 @@ function extractSkillMetadata(content: string): {
   };
 }
 
+/**
+ * 函数 `parseFrontmatter` 的职责说明。
+ * `parseFrontmatter` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function parseFrontmatter(raw: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
@@ -600,6 +716,11 @@ function parseFrontmatter(raw: string): Record<string, unknown> {
   return result;
 }
 
+/**
+ * 函数 `normalizeStringList` 的职责说明。
+ * `normalizeStringList` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeStringList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === "string");
@@ -612,6 +733,11 @@ function normalizeStringList(value: unknown): string[] {
   return [];
 }
 
+/**
+ * 函数 `resolveSkillConflicts` 的职责说明。
+ * `resolveSkillConflicts` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function resolveSkillConflicts(skills: SkillDefinition[]): SkillDefinition[] {
   const selected: SkillDefinition[] = [];
 

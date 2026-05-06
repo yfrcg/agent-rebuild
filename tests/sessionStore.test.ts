@@ -1,3 +1,4 @@
+
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -50,6 +51,7 @@ test("SessionStore can reject and clear pending approvals", () => {
   });
 
   try {
+    /** 函数变量 `approval`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const approval = (token: string) => ({
       token,
       toolName: "mcp.example.deploy",

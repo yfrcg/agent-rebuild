@@ -1,3 +1,4 @@
+
 export { EXPLORE_AGENT } from "./explore";
 export { PLAN_AGENT } from "./plan";
 export { IMPLEMENT_AGENT } from "./implement";
@@ -25,6 +26,11 @@ export const ALL_AGENTS: AgentDefinition[] = [
   REVIEWER_AGENT,
 ];
 
+/**
+ * 函数 `getAgentByNode` 的职责说明。
+ * `getAgentByNode` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function getAgentByNode(
   node: AgentDefinition["node"]
 ): AgentDefinition | undefined {

@@ -1,3 +1,4 @@
+
 import type { AgentDefinition } from "../types";
 
 export const IMPLEMENT_AGENT: AgentDefinition = {

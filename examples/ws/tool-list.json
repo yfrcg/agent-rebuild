@@ -1,0 +1,5 @@
+{
+  "type": "req",
+  "id": "req_tool_list_001",
+  "method": "tool.list"
+}

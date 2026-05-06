@@ -1,9 +1,15 @@
+
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { GatewayMcpManager } from "../packages/gateway/mcpManager";
 import type { GatewayMcpServerConfig } from "../packages/gateway/mcpTypes";
 
+/**
+ * 函数 `makeConfig` 的职责说明。
+ * `makeConfig` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeConfig(overrides: Partial<GatewayMcpServerConfig> = {}): GatewayMcpServerConfig {
   return {
     id: "test-server",

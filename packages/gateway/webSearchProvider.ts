@@ -1,3 +1,4 @@
+
 import type { WebSearchInput, WebSearchOutput, WebSearchResult } from "./types";
 
 export interface TavilySearchOptions {
@@ -29,6 +30,11 @@ const FRESHNESS_MAP: Record<string, string> = {
   year: "py",
 };
 
+/**
+ * 函数 `tavilySearch` 的职责说明。
+ * `tavilySearch` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export async function tavilySearch(
   input: WebSearchInput,
   options: TavilySearchOptions
@@ -113,6 +119,11 @@ export async function tavilySearch(
   }
 }
 
+/**
+ * 函数 `normalizeTavilyResult` 的职责说明。
+ * `normalizeTavilyResult` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeTavilyResult(item: TavilyResult): WebSearchResult {
   return {
     title: typeof item.title === "string" ? item.title : "",
@@ -128,6 +139,11 @@ function normalizeTavilyResult(item: TavilyResult): WebSearchResult {
   };
 }
 
+/**
+ * 函数 `clampMaxResults` 的职责说明。
+ * `clampMaxResults` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function clampMaxResults(value: number | undefined): number {
   if (value === undefined || value === null) {
     return 5;
@@ -139,6 +155,11 @@ export function clampMaxResults(value: number | undefined): number {
   return Math.min(num, 10);
 }
 
+/**
+ * 函数 `freshnessToDays` 的职责说明。
+ * `freshnessToDays` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function freshnessToDays(freshness: string): number {
   switch (freshness) {
     case "day":
@@ -154,6 +175,11 @@ function freshnessToDays(freshness: string): number {
   }
 }
 
+/**
+ * 函数 `validateSearchInput` 的职责说明。
+ * `validateSearchInput` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function validateSearchInput(input: WebSearchInput): string | null {
   if (!input.query || input.query.trim().length === 0) {
     return "web.search query must not be empty.";

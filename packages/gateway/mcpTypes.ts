@@ -1,8 +1,4 @@
-/**
- * 当前 Gateway 支持的 MCP 传输方式。
- *
- * 现阶段只支持通过子进程标准输入输出进行通信。
- */
+
 export type GatewayMcpTransportType = "stdio";
 
 export interface GatewayMcpIsolationConfig {

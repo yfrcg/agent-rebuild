@@ -1,3 +1,4 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -25,6 +26,7 @@ export class ToolCallExecutor {
   private readonly fileAccessTracker: FileAccessTracker;
   private readonly toolResultDir: string;
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(options: GatewayToolCallExecutorOptions) {
     this.registry = options.registry;
     this.auditLogger = options.auditLogger;
@@ -38,7 +40,13 @@ export class ToolCallExecutor {
     this.toolResultDir = path.resolve(process.cwd(), "logs", "tool-results");
   }
 
+  /**
+   * 方法 `execute` 的职责说明。
+   * `execute` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   async execute(request: GatewayToolCallRequest): Promise<GatewayToolCallRecord> {
+    throwIfAborted(request.signal);
     const normalizedInput = normalizeToolInput(
       request.toolName,
       request.input,
@@ -69,6 +77,7 @@ export class ToolCallExecutor {
     record.status = "running";
 
     try {
+      throwIfAborted(request.signal);
       const validationError = this.registry.validate(request.toolName, normalizedInput);
       if (validationError) {
         this.errorRecord(record, validationError);
@@ -119,6 +128,7 @@ export class ToolCallExecutor {
               request.toolName,
               normalizedInput
             );
+            throwIfAborted(request.signal);
             await this.executeAllowedTool(
               record,
               {
@@ -128,6 +138,7 @@ export class ToolCallExecutor {
               },
               tool
             );
+            throwIfAborted(request.signal);
             await this.afterToolExecution(record, request.sessionId, mutationPreflight);
           }
           }
@@ -152,6 +163,11 @@ export class ToolCallExecutor {
     return record;
   }
 
+  /**
+   * 方法 `executeAllowedTool` 的职责说明。
+   * `executeAllowedTool` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async executeAllowedTool(
     record: GatewayToolCallRecord,
     request: GatewayToolCallRequest,
@@ -165,6 +181,11 @@ export class ToolCallExecutor {
     await this.executeOnHost(record, request);
   }
 
+  /**
+   * 方法 `captureMutationPreflight` 的职责说明。
+   * `captureMutationPreflight` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private captureMutationPreflight(
     sessionId: string | undefined,
     toolName: string,
@@ -190,6 +211,11 @@ export class ToolCallExecutor {
     };
   }
 
+  /**
+   * 方法 `afterToolExecution` 的职责说明。
+   * `afterToolExecution` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async afterToolExecution(
     record: GatewayToolCallRecord,
     sessionId: string | undefined,
@@ -235,6 +261,11 @@ export class ToolCallExecutor {
     this.truncateLargeRecord(record);
   }
 
+  /**
+   * 方法 `executeOnHost` 的职责说明。
+   * `executeOnHost` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async executeOnHost(
     record: GatewayToolCallRecord,
     request: GatewayToolCallRequest
@@ -255,11 +286,16 @@ export class ToolCallExecutor {
     });
   }
 
+  /**
+   * 方法 `executeLocally` 的职责说明。
+   * `executeLocally` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async executeLocally(
     record: GatewayToolCallRecord,
     request: GatewayToolCallRequest
   ): Promise<void> {
-    if (process.env.GATEWAY_DISABLE_LOCAL_EXECUTION === "true") {
+    if (isTruthyEnv("GATEWAY_DISABLE_LOCAL_EXECUTION")) {
       this.denyRecord(
         record,
         "[local-runner] local execution is disabled by GATEWAY_DISABLE_LOCAL_EXECUTION=true"
@@ -285,7 +321,7 @@ export class ToolCallExecutor {
 
     try {
       const result = await runLocalCommand(
-        { command, cwd, timeoutMs },
+        { command, cwd, timeoutMs, signal: request.signal },
         effectiveWorkspaceRoot
       );
 
@@ -336,6 +372,11 @@ export class ToolCallExecutor {
     }
   }
 
+  /**
+   * 方法 `applyToolResult` 的职责说明。
+   * `applyToolResult` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private applyToolResult(record: GatewayToolCallRecord, result: ToolResult): void {
     record.result = result;
     if (!record.output) {
@@ -362,6 +403,11 @@ export class ToolCallExecutor {
     record.error = result.error ?? "tool invocation failed";
   }
 
+  /**
+   * 方法 `errorRecord` 的职责说明。
+   * `errorRecord` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private errorRecord(
     record: GatewayToolCallRecord,
     error: string,
@@ -381,6 +427,11 @@ export class ToolCallExecutor {
     };
   }
 
+  /**
+   * 方法 `denyRecord` 的职责说明。
+   * `denyRecord` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private denyRecord(
     record: GatewayToolCallRecord,
     error: string,
@@ -400,6 +451,11 @@ export class ToolCallExecutor {
     };
   }
 
+  /**
+   * 方法 `truncateLargeRecord` 的职责说明。
+   * `truncateLargeRecord` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private truncateLargeRecord(record: GatewayToolCallRecord): void {
     if (isExecutionTool(record.toolName)) {
       return;
@@ -444,6 +500,11 @@ export class ToolCallExecutor {
     };
   }
 
+  /**
+   * 方法 `normalizeExecutionRecord` 的职责说明。
+   * `normalizeExecutionRecord` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private normalizeExecutionRecord(record: GatewayToolCallRecord): void {
     const raw = extractExecutionPayload(record);
     if (!raw) {
@@ -534,6 +595,11 @@ export class ToolCallExecutor {
     };
   }
 
+  /**
+   * 方法 `writeAudit` 的职责说明。
+   * `writeAudit` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async writeAudit(record: GatewayToolCallRecord): Promise<void> {
     if (!this.auditLogger) {
       return;
@@ -608,6 +674,11 @@ export class ToolCallExecutor {
     }
   }
 
+  /**
+   * 方法 `checkProjectBoundary` 的职责说明。
+   * `checkProjectBoundary` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private checkProjectBoundary(
     toolName: string,
     input: Record<string, unknown>,
@@ -718,6 +789,11 @@ export class ToolCallExecutor {
   }
 }
 
+/**
+ * 函数 `isPathUnderRoot` 的职责说明。
+ * `isPathUnderRoot` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isPathUnderRoot(filePath: string, root: string): boolean {
   const normalizedFile = path.resolve(filePath).toLowerCase().replace(/\//g, "\\");
   const normalizedRoot = path.resolve(root).toLowerCase().replace(/\//g, "\\");
@@ -735,6 +811,11 @@ const SENSITIVE_PATH_PATTERNS = [
   "\\login data",
 ];
 
+/**
+ * 函数 `isSensitivePath` 的职责说明。
+ * `isSensitivePath` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isSensitivePath(resolvedPath: string): boolean {
   const normalized = resolvedPath.toLowerCase().replace(/\//g, "\\");
   for (const pattern of SENSITIVE_PATH_PATTERNS) {
@@ -760,6 +841,11 @@ const SESSION_MEMORY_FILENAMES = [
   "decisions.jsonl",
 ];
 
+/**
+ * 函数 `isSessionMemoryFile` 的职责说明。
+ * `isSessionMemoryFile` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isSessionMemoryFile(filePath: string): boolean {
   const normalized = filePath.toLowerCase().replace(/\//g, "\\");
   return SESSION_MEMORY_FILENAMES.some((name) => normalized.endsWith("\\" + name));
@@ -778,6 +864,11 @@ const DANGEROUS_SHELL_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\bwget\s.*\|\s*(ba)?sh\b/i, label: "wget | sh 管道执行" },
 ];
 
+/**
+ * 函数 `detectDangerousShellCommand` 的职责说明。
+ * `detectDangerousShellCommand` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function detectDangerousShellCommand(command: string): string | null {
   const firstLine = command.split(/[;&|]+/)[0]?.trim() ?? command;
   for (const { pattern, label } of DANGEROUS_SHELL_PATTERNS) {
@@ -788,6 +879,11 @@ function detectDangerousShellCommand(command: string): string | null {
   return null;
 }
 
+/**
+ * 函数 `resolveExecutionCommand` 的职责说明。
+ * `resolveExecutionCommand` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function resolveExecutionCommand(
   toolName: string,
   input: Record<string, unknown>
@@ -813,6 +909,11 @@ function resolveExecutionCommand(
   }
 }
 
+/**
+ * 函数 `normalizeToolInput` 的职责说明。
+ * `normalizeToolInput` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeToolInput(
   toolName: string,
   input: Record<string, unknown>,
@@ -835,6 +936,11 @@ function normalizeToolInput(
   };
 }
 
+/**
+ * 函数 `normalizeShellCwd` 的职责说明。
+ * `normalizeShellCwd` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeShellCwd(input: unknown, projectRoot: string): string {
   if (typeof input !== "string" || input.trim() === "") {
     return projectRoot;
@@ -853,10 +959,20 @@ function normalizeShellCwd(input: unknown, projectRoot: string): string {
   return trimmed;
 }
 
+/**
+ * 函数 `isFileMutationTool` 的职责说明。
+ * `isFileMutationTool` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isFileMutationTool(toolName: string): boolean {
   return toolName === "file.write" || toolName === "file.edit";
 }
 
+/**
+ * 函数 `resolveInputFilePath` 的职责说明。
+ * `resolveInputFilePath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function resolveInputFilePath(
   projectRoot: string,
   input: Record<string, unknown>
@@ -868,6 +984,11 @@ function resolveInputFilePath(
   return path.resolve(projectRoot, input.path);
 }
 
+/**
+ * 函数 `safeStringify` 的职责说明。
+ * `safeStringify` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function safeStringify(value: unknown): string | undefined {
   try {
     return JSON.stringify(value, null, 2);
@@ -876,6 +997,11 @@ function safeStringify(value: unknown): string | undefined {
   }
 }
 
+/**
+ * 函数 `isExecutionTool` 的职责说明。
+ * `isExecutionTool` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isExecutionTool(toolName: string): boolean {
   return (
     toolName === "shell.run" ||
@@ -886,6 +1012,11 @@ function isExecutionTool(toolName: string): boolean {
   );
 }
 
+/**
+ * 函数 `extractExecutionPayload` 的职责说明。
+ * `extractExecutionPayload` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function extractExecutionPayload(record: GatewayToolCallRecord):
   | {
       ok: boolean;
@@ -965,6 +1096,11 @@ function extractExecutionPayload(record: GatewayToolCallRecord):
   };
 }
 
+/**
+ * 函数 `truncatePreview` 的职责说明。
+ * `truncatePreview` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function truncatePreview(value: string): string | undefined {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -978,6 +1114,11 @@ function truncatePreview(value: string): string | undefined {
   return `${trimmed.slice(0, EXECUTION_PREVIEW_CHARS)}...[truncated]`;
 }
 
+/**
+ * 函数 `readExecutionMetadataNumber` 的职责说明。
+ * `readExecutionMetadataNumber` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function readExecutionMetadataNumber(value: unknown): number | null | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -988,4 +1129,26 @@ function readExecutionMetadataNumber(value: unknown): number | null | undefined 
   }
 
   return undefined;
+}
+
+/**
+ * 函数 `throwIfAborted` 的职责说明。
+ * `throwIfAborted` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error("RUN_CANCELLED");
+  }
+}
+
+/**
+ * 函数 `isTruthyEnv` 的职责说明。
+ * `isTruthyEnv` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
+function isTruthyEnv(name: string): boolean {
+  const raw = process.env[name];
+  if (!raw) return false;
+  return ["true", "1", "yes", "y", "on"].includes(raw.trim().toLowerCase());
 }

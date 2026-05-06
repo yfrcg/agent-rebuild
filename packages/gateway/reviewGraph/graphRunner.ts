@@ -1,3 +1,4 @@
+
 import * as crypto from "node:crypto";
 
 import type { ModelProvider } from "../../model/types";
@@ -33,10 +34,20 @@ const GRAPH_NODES: GraphNode[] = [
   "reviewer",
 ];
 
+/**
+ * 函数 `generateRunId` 的职责说明。
+ * `generateRunId` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function generateRunId(): string {
   return `rg_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
 }
 
+/**
+ * 函数 `detectTaskType` 的职责说明。
+ * `detectTaskType` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function detectTaskType(userGoal: string): TaskType {
   const lower = userGoal.toLowerCase();
   if (
@@ -98,6 +109,7 @@ export class ReviewGraphRunner {
   private readonly maxRepairRounds: number;
   private readonly auditLogger?: SubAgentRunnerOptions["auditLogger"];
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(
     options: SubAgentRunnerOptions & ReviewGraphRunnerOptions
   ) {
@@ -106,6 +118,11 @@ export class ReviewGraphRunner {
     this.auditLogger = options.auditLogger;
   }
 
+  /**
+   * 方法 `run` 的职责说明。
+   * `run` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   async run(input: ReviewGraphRunInput): Promise<ReviewGraphRunOutput> {
     const runId = generateRunId();
     const taskType = input.taskType ?? detectTaskType(input.userGoal);
@@ -185,6 +202,11 @@ export class ReviewGraphRunner {
     return { state, report, finalStatus: state.finalStatus };
   }
 
+  /**
+   * 方法 `buildNodePrompt` 的职责说明。
+   * `buildNodePrompt` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private buildNodePrompt(node: GraphNode, state: ReviewGraphState): string {
     switch (node) {
       case "explore":
@@ -268,6 +290,11 @@ Synthesize all results and provide your final decision.`;
     }
   }
 
+  /**
+   * 方法 `buildNodeContext` 的职责说明。
+   * `buildNodeContext` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private buildNodeContext(node: GraphNode, state: ReviewGraphState): string {
     const parts: string[] = [];
 
@@ -292,6 +319,11 @@ Synthesize all results and provide your final decision.`;
     return parts.join("\n\n");
   }
 
+  /**
+   * 方法 `updateStateWithResult` 的职责说明。
+   * `updateStateWithResult` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private updateStateWithResult(
     state: ReviewGraphState,
     node: GraphNode,
@@ -327,6 +359,11 @@ Synthesize all results and provide your final decision.`;
     }
   }
 
+  /**
+   * 方法 `evaluateNodeResult` 的职责说明。
+   * `evaluateNodeResult` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private evaluateNodeResult(
     state: ReviewGraphState,
     node: GraphNode,

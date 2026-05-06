@@ -1,3 +1,4 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -55,17 +56,28 @@ export class ContextCompressor {
   private lastApiCallTime: number | null = null;
   private lastEstimatedTokens = 0;
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(options: ContextCompressorOptions = {}) {
     this.maxContextTokens = options.maxContextTokens ?? 100_000;
     this.maxContextChars = this.maxContextTokens * CHARS_PER_TOKEN;
     this.toolResultDir = options.toolResultDir ?? path.resolve(process.cwd(), "logs", "tool-results");
   }
 
+  /**
+   * 方法 `updateTokenEstimate` 的职责说明。
+   * `updateTokenEstimate` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   updateTokenEstimate(estimatedTokens: number): void {
     this.lastEstimatedTokens = estimatedTokens;
     this.lastApiCallTime = Date.now();
   }
 
+  /**
+   * 方法 `runPipeline` 的职责说明。
+   * `runPipeline` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   runPipeline(messages: ChatMessage[]): CompressorStats {
     const totalCharsBefore = this.estimateTotalChars(messages);
     const utilization = this.lastEstimatedTokens / this.maxContextTokens;
@@ -86,11 +98,21 @@ export class ContextCompressor {
     };
   }
 
+  /**
+   * 方法 `needsAutoCompact` 的职责说明。
+   * `needsAutoCompact` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   needsAutoCompact(messages: ChatMessage[]): boolean {
     const utilization = this.lastEstimatedTokens / this.maxContextTokens;
     return utilization >= AUTOCOMPACT_UTILIZATION_THRESHOLD && messages.length >= 5;
   }
 
+  /**
+   * 方法 `autoCompact` 的职责说明。
+   * `autoCompact` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   async autoCompact(
     messages: ChatMessage[],
     summarizer: (messages: ChatMessage[]) => Promise<string>
@@ -127,6 +149,11 @@ export class ContextCompressor {
     }
   }
 
+  /**
+   * 方法 `persistLargeResult` 的职责说明。
+   * `persistLargeResult` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   persistLargeResult(toolName: string, result: string): string {
     if (Buffer.byteLength(result) <= LARGE_RESULT_THRESHOLD_BYTES) {
       return result;
@@ -149,6 +176,11 @@ export class ContextCompressor {
     ].join("\n");
   }
 
+  /**
+   * 方法 `budgetToolResults` 的职责说明。
+   * `budgetToolResults` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private budgetToolResults(messages: ChatMessage[], utilization: number): number {
     if (utilization < BUDGET_UTILIZATION_THRESHOLD) {
       return 0;
@@ -178,6 +210,11 @@ export class ContextCompressor {
     return count;
   }
 
+  /**
+   * 方法 `snipStaleResults` 的职责说明。
+   * `snipStaleResults` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private snipStaleResults(messages: ChatMessage[], utilization: number): number {
     if (utilization < SNIP_UTILIZATION_THRESHOLD) {
       return 0;
@@ -217,6 +254,11 @@ export class ContextCompressor {
     return count;
   }
 
+  /**
+   * 方法 `microcompact` 的职责说明。
+   * `microcompact` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private microcompact(messages: ChatMessage[]): number {
     if (!this.lastApiCallTime) {
       return 0;
@@ -247,6 +289,11 @@ export class ContextCompressor {
     return count;
   }
 
+  /**
+   * 方法 `trackToolResults` 的职责说明。
+   * `trackToolResults` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private trackToolResults(messages: ChatMessage[]): TrackedToolResult[] {
     const results: TrackedToolResult[] = [];
 
@@ -274,11 +321,21 @@ export class ContextCompressor {
     return results;
   }
 
+  /**
+   * 方法 `extractToolName` 的职责说明。
+   * `extractToolName` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private extractToolName(content: string): string {
     const match = content.match(/tool:\s*(\S+)/);
     return match?.[1] ?? "unknown";
   }
 
+  /**
+   * 方法 `extractFilePath` 的职责说明。
+   * `extractFilePath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private extractFilePath(content: string): string | undefined {
     const pathMatch = content.match(/"(?:path|file|filePath)":\s*"([^"]+)"/);
     if (pathMatch?.[1]) {
@@ -289,6 +346,11 @@ export class ContextCompressor {
     return pathMatch2?.[1];
   }
 
+  /**
+   * 方法 `estimateTotalChars` 的职责说明。
+   * `estimateTotalChars` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private estimateTotalChars(messages: ChatMessage[]): number {
     let total = 0;
     for (const msg of messages) {
@@ -297,10 +359,20 @@ export class ContextCompressor {
     return total;
   }
 
+  /**
+   * 方法 `estimateTokens` 的职责说明。
+   * `estimateTokens` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private estimateTokens(chars: number): number {
     return Math.ceil(chars / CHARS_PER_TOKEN);
   }
 
+  /**
+   * 方法 `extractSessionMemoryPatch` 的职责说明。
+   * `extractSessionMemoryPatch` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   static extractSessionMemoryPatch(messages: ChatMessage[]): SessionMemoryPatch {
     const patch: SessionMemoryPatch = {};
     const filesTouched: string[] = [];
@@ -378,6 +450,11 @@ export class ContextCompressor {
   }
 }
 
+/**
+ * 函数 `isSensitiveToolPath` 的职责说明。
+ * `isSensitiveToolPath` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isSensitiveToolPath(filePath: string): boolean {
   const normalized = filePath.toLowerCase().replace(/\//g, "\\");
   return (
@@ -391,6 +468,11 @@ function isSensitiveToolPath(filePath: string): boolean {
   );
 }
 
+/**
+ * 函数 `sanitizeFilename` 的职责说明。
+ * `sanitizeFilename` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50);
 }

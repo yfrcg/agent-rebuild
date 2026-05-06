@@ -1,3 +1,4 @@
+
 import { execSync } from "node:child_process";
 import * as path from "node:path";
 
@@ -5,6 +6,11 @@ import { resolveProjectRoot } from "../../core/src/config";
 import { createToolSecurityProfile } from "../toolSecurityProfile";
 import type { GatewayTool, GatewayToolInput, GatewayToolOutput } from "../toolTypes";
 
+/**
+ * 函数 `createGitTools` 的职责说明。
+ * `createGitTools` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createGitTools(projectRoot = resolveProjectRoot()): GatewayTool[] {
   return [
     createGitStatusTool(projectRoot),
@@ -13,6 +19,11 @@ export function createGitTools(projectRoot = resolveProjectRoot()): GatewayTool[
   ];
 }
 
+/**
+ * 函数 `runGit` 的职责说明。
+ * `runGit` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function runGit(args: string[], cwd: string): string {
   try {
     return execSync(`git ${args.join(" ")}`, {
@@ -27,6 +38,11 @@ function runGit(args: string[], cwd: string): string {
   }
 }
 
+/**
+ * 函数 `createGitStatusTool` 的职责说明。
+ * `createGitStatusTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createGitStatusTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -54,6 +70,7 @@ function createGitStatusTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       allowWrite: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke() {
       const output = runGit(["status", "--porcelain=v1"], projectRoot);
       const lines = output ? output.split("\n") : [];
@@ -95,6 +112,11 @@ function createGitStatusTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createGitDiffTool` 的职责说明。
+ * `createGitDiffTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createGitDiffTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -135,6 +157,7 @@ function createGitDiffTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       allowWrite: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const filePath = typeof input.path === "string" ? input.path : undefined;
       const staged = input.staged === true;
@@ -187,6 +210,11 @@ function createGitDiffTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createGitCommitTool` 的职责说明。
+ * `createGitCommitTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createGitCommitTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -225,6 +253,7 @@ function createGitCommitTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       requireApproval: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const message = typeof input.message === "string" ? input.message.trim() : "";
       if (!message) {
@@ -257,6 +286,11 @@ function createGitCommitTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `clampNumber` 的职责说明。
+ * `clampNumber` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function clampNumber(value: unknown, defaultVal: number, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return defaultVal;
   return Math.max(min, Math.min(max, Math.floor(value)));

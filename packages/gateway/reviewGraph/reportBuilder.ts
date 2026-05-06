@@ -1,3 +1,4 @@
+
 import type {
   AgentChainEntry,
   AgentReviewReport,
@@ -5,6 +6,11 @@ import type {
   ReviewGraphState,
 } from "./types";
 
+/**
+ * 函数 `buildAgentChain` 的职责说明。
+ * `buildAgentChain` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function buildAgentChain(state: ReviewGraphState): AgentChainEntry[] {
   const chain: AgentChainEntry[] = [];
 
@@ -33,30 +39,60 @@ function buildAgentChain(state: ReviewGraphState): AgentChainEntry[] {
   return chain;
 }
 
+/**
+ * 函数 `getChangedFiles` 的职责说明。
+ * `getChangedFiles` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getChangedFiles(state: ReviewGraphState): string[] {
   return state.implement?.changedFiles ?? [];
 }
 
+/**
+ * 函数 `getTestSummary` 的职责说明。
+ * `getTestSummary` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getTestSummary(state: ReviewGraphState): string {
   if (!state.test) return "No test results available";
   return state.test.summary;
 }
 
+/**
+ * 函数 `getVerifySummary` 的职责说明。
+ * `getVerifySummary` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getVerifySummary(state: ReviewGraphState): string {
   if (!state.verify) return "No verification results available";
   return `Status: ${state.verify.status}, Score: ${state.verify.score}/10, Recommendation: ${state.verify.recommendation}`;
 }
 
+/**
+ * 函数 `getSecuritySummary` 的职责说明。
+ * `getSecuritySummary` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getSecuritySummary(state: ReviewGraphState): string {
   if (!state.security) return "No security audit available";
   return `Decision: ${state.security.decision}, Violations: ${state.security.violations.length}`;
 }
 
+/**
+ * 函数 `getReviewerSummary` 的职责说明。
+ * `getReviewerSummary` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getReviewerSummary(state: ReviewGraphState): string {
   if (!state.reviewer) return "No reviewer decision available";
   return `Decision: ${state.reviewer.finalDecision}, Approved: ${state.reviewer.approved}`;
 }
 
+/**
+ * 函数 `getSuggestions` 的职责说明。
+ * `getSuggestions` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getSuggestions(state: ReviewGraphState): string[] {
   const suggestions: string[] = [];
 
@@ -79,6 +115,11 @@ function getSuggestions(state: ReviewGraphState): string[] {
   return suggestions;
 }
 
+/**
+ * 函数 `buildReport` 的职责说明。
+ * `buildReport` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function buildReport(state: ReviewGraphState): AgentReviewReport {
   const totalDurationMs = state.endTime
     ? state.endTime - state.startTime
@@ -134,6 +175,11 @@ export function buildReport(state: ReviewGraphState): AgentReviewReport {
   };
 }
 
+/**
+ * 函数 `formatReportAsText` 的职责说明。
+ * `formatReportAsText` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function formatReportAsText(report: AgentReviewReport): string {
   const lines: string[] = [];
 

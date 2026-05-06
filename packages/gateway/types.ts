@@ -1,3 +1,4 @@
+
 import type { GatewayToolCallRecord } from "./toolCallTypes";
 import type { GatewayProjectBoundary } from "./toolCallTypes";
 import type {
@@ -5,18 +6,12 @@ import type {
   GatewayPlanState,
 } from "./permissionTypes";
 
+export type { ChatMessage } from "../core/src/types";
+
 /**
  * 模型对话消息角色类型。
  */
 export type ChatRole = "system" | "user" | "assistant";
-
-/**
- * 发给模型的标准消息结构。
- */
-export interface ChatMessage {
-  role: ChatRole;
-  content: string;
-}
 
 /**
  * Gateway 入口请求结构。
@@ -163,6 +158,27 @@ export interface GatewayResponse {
   error?: string;
   debug?: GatewayDebugInfo;
   createdAt: string;
+}
+
+export type GatewayInternalEvent =
+  | {
+      type: "chat.delta";
+      delta: string;
+    }
+  | {
+      type: "tool.started";
+      toolName: string;
+      toolCallId: string;
+      inputPreview?: unknown;
+    }
+  | {
+      type: "tool.finished" | "tool.failed" | "tool.denied";
+      toolCall: GatewayToolCallRecord;
+    };
+
+export interface GatewayHandleOptions {
+  signal?: AbortSignal;
+  onEvent?: (event: GatewayInternalEvent) => void | Promise<void>;
 }
 
 export interface WebSearchInput {

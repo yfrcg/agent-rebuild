@@ -1,0 +1,8 @@
+{
+  "type": "req",
+  "id": "req_memory_search_001",
+  "method": "memory.search",
+  "params": {
+    "query": "WebSocket Gateway"
+  }
+}

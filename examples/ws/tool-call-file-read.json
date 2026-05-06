@@ -1,0 +1,13 @@
+{
+  "type": "req",
+  "id": "req_tool_call_file_read_001",
+  "method": "tool.call",
+  "params": {
+    "sessionId": "<SESSION_ID>",
+    "toolName": "file.read",
+    "input": {
+      "path": "package.json"
+    }
+  },
+  "idempotencyKey": "manual-file-read-package-json"
+}

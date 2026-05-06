@@ -1,9 +1,5 @@
-/**
- * 计算两个向量的余弦相似度。
- *
- * 余弦相似度关注的是“方向是否接近”，而不是“长度是否相同”，
- * 因此非常适合比较 embedding 这类高维语义向量。
- */
+
+/** 函数 `cosineSimilarity`：负责完成当前模块中的一个明确步骤，维护时要关注输入校验、返回结构和异常路径。 */
 export function cosineSimilarity(a: number[], b: number[]) {
   if (a.length !== b.length || a.length === 0) {
     return 0;

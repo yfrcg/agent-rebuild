@@ -1,3 +1,5 @@
+
+import { randomBytes } from "node:crypto";
 import type {
   GatewayToolCallCreateInput,
   GatewayToolCallRequest,
@@ -10,7 +12,7 @@ import type {
  * 因此格式尽量短且可读。
  */
 export function createGatewayToolCallId(): string {
-  return `toolcall_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  return `toolcall_${Date.now()}_${randomBytes(8).toString("hex")}`;
 }
 
 /**
@@ -35,5 +37,6 @@ export function createGatewayToolCallRequest(
     planState: input.planState,
     createdAt: new Date().toISOString(),
     projectBoundary: input.projectBoundary,
+    signal: input.signal,
   };
 }

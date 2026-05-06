@@ -1,3 +1,4 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
@@ -6,6 +7,11 @@ import { resolveProjectRoot } from "../../core/src/config";
 import { createToolSecurityProfile } from "../toolSecurityProfile";
 import type { GatewayTool, GatewayToolInput, GatewayToolOutput } from "../toolTypes";
 
+/**
+ * 函数 `createAgentTools` 的职责说明。
+ * `createAgentTools` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createAgentTools(projectRoot = resolveProjectRoot()): GatewayTool[] {
   return [
     createAgentVerifyTool(projectRoot),
@@ -14,6 +20,11 @@ export function createAgentTools(projectRoot = resolveProjectRoot()): GatewayToo
   ];
 }
 
+/**
+ * 函数 `runGit` 的职责说明。
+ * `runGit` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function runGit(args: string[], cwd: string): string {
   try {
     return execSync(`git ${args.join(" ")}`, {
@@ -28,6 +39,11 @@ function runGit(args: string[], cwd: string): string {
   }
 }
 
+/**
+ * 函数 `createAgentVerifyTool` 的职责说明。
+ * `createAgentVerifyTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createAgentVerifyTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -66,6 +82,7 @@ function createAgentVerifyTool(projectRoot: string): GatewayTool {
       allowWrite: false,
       allowHostExecution: true,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const userGoal = typeof input.userGoal === "string" ? input.userGoal.trim() : "";
       if (!userGoal) {
@@ -176,6 +193,11 @@ function createAgentVerifyTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createPolicyCheckTool` 的职责说明。
+ * `createPolicyCheckTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createPolicyCheckTool(_projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -234,6 +256,7 @@ function createPolicyCheckTool(_projectRoot: string): GatewayTool {
       allowHostExecution: true,
       allowWrite: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const toolName = typeof input.toolName === "string" ? input.toolName.trim() : "";
       const args = input.args && typeof input.args === "object" ? input.args as Record<string, unknown> : {};
@@ -318,6 +341,11 @@ function createPolicyCheckTool(_projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createAuditQueryTool` 的职责说明。
+ * `createAuditQueryTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createAuditQueryTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -362,6 +390,7 @@ function createAuditQueryTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       allowWrite: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const limit = clampNumber(input.limit, 20, 1, 100);
       const toolFilter = typeof input.toolName === "string" ? input.toolName.trim() : undefined;
@@ -446,6 +475,11 @@ function createAuditQueryTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `clampNumber` 的职责说明。
+ * `clampNumber` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function clampNumber(value: unknown, defaultVal: number, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return defaultVal;
   return Math.max(min, Math.min(max, Math.floor(value)));

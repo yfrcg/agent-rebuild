@@ -1,3 +1,4 @@
+
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -32,7 +33,7 @@ function hashFile(content: string): string {
  * 所以这里把旧 daily 文件转换成历史摘要，并从活跃 FTS 索引中移除。
  */
 export function archiveOldMemory() {
-  const db = getDb() as any;
+  const db = getDb();
   const today = new Date();
   const memPath = resolveWorkspacePath("MEMORY.md");
 

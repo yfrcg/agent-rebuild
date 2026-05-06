@@ -1,3 +1,4 @@
+
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import * as os from "node:os";
@@ -25,6 +26,7 @@ test("repl :tool shell.run route executes through ToolCallExecutor", async () =>
       sessionManager,
       toolRegistry: registry,
       toolCallExecutor: {
+        /** 方法 `execute`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
         async execute(request: GatewayToolCallRequest): Promise<GatewayToolCallRecord> {
           captured.push(request);
           return createLocalToolCallRecord(request);
@@ -59,6 +61,7 @@ test("repl :sh shortcut maps to bash.run through ToolCallExecutor", async () => 
       sessionManager,
       toolRegistry: registry,
       toolCallExecutor: {
+        /** 方法 `execute`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
         async execute(request: GatewayToolCallRequest): Promise<GatewayToolCallRecord> {
           captured.push(request);
           return createLocalToolCallRecord(request);
@@ -99,6 +102,7 @@ test("repl read-file command routes through ToolCallExecutor", async () => {
         sessionManager,
         toolRegistry: registry,
         toolCallExecutor: {
+          /** 方法 `execute`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
           async execute(request: GatewayToolCallRequest): Promise<GatewayToolCallRecord> {
             captured.push(request);
             return createLocalToolCallRecord(request);
@@ -133,6 +137,7 @@ test("repl :plan commands toggle plan mode and approval state", async () => {
       sessionManager,
       toolRegistry: registry,
       toolCallExecutor: {
+        /** 方法 `execute`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
         async execute() {
           throw new Error("should not execute tools");
         },
@@ -153,6 +158,7 @@ test("repl :plan commands toggle plan mode and approval state", async () => {
         sessionManager,
         toolRegistry: registry,
         toolCallExecutor: {
+          /** 方法 `execute`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
           async execute() {
             throw new Error("should not execute tools");
           },
@@ -171,6 +177,11 @@ test("repl :plan commands toggle plan mode and approval state", async () => {
   });
 });
 
+/**
+ * 函数 `createLocalToolCallRecord` 的职责说明。
+ * `createLocalToolCallRecord` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createLocalToolCallRecord(
   request: GatewayToolCallRequest
 ): GatewayToolCallRecord {
@@ -199,28 +210,43 @@ function createLocalToolCallRecord(
   };
 }
 
+/**
+ * 函数 `createReplSandboxDouble` 的职责说明。
+ * `createReplSandboxDouble` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createReplSandboxDouble() {
   return {
     mode: "off",
     allowedRoots: [process.cwd()],
+    /** 方法 `canExecuteTool`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     canExecuteTool() {
       return { allowed: true };
     },
+    /** 方法 `canUseToolInputPaths`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     canUseToolInputPaths() {
       return { allowed: true };
     },
+    /** 方法 `requiresConfirmation`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     requiresConfirmation() {
       return false;
     },
+    /** 方法 `canWriteMemory`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     canWriteMemory() {
       return { allowed: true };
     },
+    /** 方法 `getToolSecurityProfile`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     getToolSecurityProfile() {
       return undefined;
     },
   } as never;
 }
 
+/**
+ * 函数 `withTempWorkspace` 的职责说明。
+ * `withTempWorkspace` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 async function withTempWorkspace(run: () => Promise<void>): Promise<void> {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-repl-"));
   const previousCwd = process.cwd();

@@ -1,3 +1,4 @@
+
 export type AuditEventType =
   | "gateway.request.received"
   | "gateway.rate_limited"
@@ -13,11 +14,21 @@ export type AuditEventType =
   | "gateway.auto_tool.decision"
   | "model.generate.completed"
   | "gateway.response.completed"
-  | "gateway.error";
+  | "gateway.error"
+  | "ws.connected"
+  | "ws.disconnected"
+  | "ws.auth.failed"
+  | "ws.request.received"
+  | "ws.request.failed"
+  | "ws.run.started"
+  | "ws.run.finished"
+  | "ws.run.cancelled"
+  | "ws.rate_limited"
+  | "ws.memory.write";
 
 export interface AuditEvent {
   id: string;
-  requestId: string;
+  requestId?: string;
   type: AuditEventType;
   message: string;
   createdAt: string;

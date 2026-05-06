@@ -1,3 +1,4 @@
+
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -11,10 +12,20 @@ import { createWebFetchTool } from "../packages/gateway/tools/webFetch";
 import { createTodoTools } from "../packages/gateway/tools/todoTools";
 import { createAgentTools } from "../packages/gateway/tools/agentTools";
 
+/**
+ * 函数 `makeTmpDir` 的职责说明。
+ * `makeTmpDir` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "new-tools-"));
 }
 
+/**
+ * 函数 `cleanupTmpDir` 的职责说明。
+ * `cleanupTmpDir` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function cleanupTmpDir(dir: string): void {
   for (let i = 0; i < 3; i++) {
     try {
@@ -29,6 +40,11 @@ function cleanupTmpDir(dir: string): void {
   }
 }
 
+/**
+ * 函数 `getTool` 的职责说明。
+ * `getTool` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getTool(tools: Awaited<ReturnType<typeof createSandboxedFileTools>>, name: string) {
   const tool = tools.find((t) => t.name === name);
   assert.ok(tool, `Tool ${name} not found`);

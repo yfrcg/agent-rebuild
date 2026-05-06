@@ -1,3 +1,4 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -40,6 +41,7 @@ export class GatewayMcpClient {
   private status: GatewayMcpServerStatus;
   private toolsCache: GatewayMcpToolInfo[] = [];
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(config: GatewayMcpServerConfig) {
     this.config = config;
     const launch = describeMcpLaunch(config);
@@ -248,6 +250,11 @@ export class GatewayMcpClient {
   }
 }
 
+/**
+ * 函数 `describeMcpLaunch` 的职责说明。
+ * `describeMcpLaunch` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function describeMcpLaunch(config: GatewayMcpServerConfig): {
   launchMode: "direct" | "managed-runner";
   isolationMode: "off" | "inherit" | "restricted";
@@ -266,6 +273,11 @@ export function describeMcpLaunch(config: GatewayMcpServerConfig): {
   };
 }
 
+/**
+ * 函数 `buildTransportOptions` 的职责说明。
+ * `buildTransportOptions` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function buildTransportOptions(config: GatewayMcpServerConfig): {
   command: string;
   args?: string[];
@@ -286,6 +298,11 @@ export function buildTransportOptions(config: GatewayMcpServerConfig): {
   };
 }
 
+/**
+ * 函数 `validateMcpLaunch` 的职责说明。
+ * `validateMcpLaunch` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function validateMcpLaunch(config: GatewayMcpServerConfig): {
   ok: boolean;
   error?: string;
@@ -350,6 +367,11 @@ function mergeEnv(
   };
 }
 
+/**
+ * 函数 `prepareIsolationRuntime` 的职责说明。
+ * `prepareIsolationRuntime` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function prepareIsolationRuntime(config: GatewayMcpServerConfig):
   | {
       runtimeRoot: string;
@@ -382,6 +404,11 @@ function prepareIsolationRuntime(config: GatewayMcpServerConfig):
   };
 }
 
+/**
+ * 函数 `resolveExecutablePath` 的职责说明。
+ * `resolveExecutablePath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function resolveExecutablePath(
   command: string,
   preserveEnvKeys?: string[]
@@ -423,6 +450,11 @@ function resolveExecutablePath(
   return undefined;
 }
 
+/**
+ * 函数 `buildRunnerTransportOptions` 的职责说明。
+ * `buildRunnerTransportOptions` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function buildRunnerTransportOptions(
   config: GatewayMcpServerConfig,
   runtime:
@@ -509,6 +541,11 @@ function extractToolError(result: unknown): string {
   return "MCP tool returned isError=true";
 }
 
+/**
+ * 函数 `inferMcpToolPolicy` 的职责说明。
+ * `inferMcpToolPolicy` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function inferMcpToolPolicy(name: string, description?: string): Pick<
   GatewayMcpToolInfo,
   "automationLevel" | "riskLevel" | "confirmationMessage"

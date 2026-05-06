@@ -1,3 +1,5 @@
+
+import { randomBytes } from "node:crypto";
 import { readTranscript } from "../session/src/transcript";
 import type { ChatMessage, ModelProvider } from "../model/types";
 import {
@@ -22,6 +24,7 @@ import type { ToolRegistry } from "./toolRegistry";
 import { recordTranscript } from "./transcriptRecorder";
 import type {
   GatewayDebugInfo,
+  GatewayHandleOptions,
   GatewayRequest,
   MemorySearchResult,
 } from "./types";
@@ -48,6 +51,11 @@ interface AgentRunnerResult {
   devTask?: GatewayDebugInfo["devTask"];
 }
 
+export interface AgentRunnerRunOptions {
+  signal?: AbortSignal;
+  onEvent?: GatewayHandleOptions["onEvent"];
+}
+
 type AgentModelOutput =
   | {
       type: "tool_call";
@@ -72,6 +80,7 @@ export class AgentRunner {
   private readonly devTaskMaxFixRounds: number;
   private devTaskTracker?: DevTaskTracker;
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(options: AgentRunnerOptions) {
     this.modelProvider = options.modelProvider;
     this.memorySearch = options.memorySearch;
@@ -85,7 +94,16 @@ export class AgentRunner {
     this.devTaskMaxFixRounds = options.devTaskMaxFixRounds ?? 3;
   }
 
-  async run(request: GatewayRequest): Promise<AgentRunnerResult> {
+  /**
+   * 方法 `run` 的职责说明。
+   * `run` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
+  async run(
+    request: GatewayRequest,
+    options: AgentRunnerRunOptions = {}
+  ): Promise<AgentRunnerResult> {
+    throwIfAborted(options.signal);
     const devMode = isDevTask(request.input);
     const devTracker = devMode
       ? (this.restoreDevTaskTracker(request.sessionId) ?? createDevTaskTracker())
@@ -95,6 +113,7 @@ export class AgentRunner {
     }
 
     let memoryResults = await this.memorySearch(request.input);
+    throwIfAborted(options.signal);
 
     let sessionMemoryContext = "";
     try {
@@ -128,7 +147,9 @@ export class AgentRunner {
             forceFinal: false,
             maxToolCalls: this.maxToolCalls,
             devMode,
-          })
+          }),
+          options,
+          true
         ),
         memoryResults,
         toolCalls: [],
@@ -152,6 +173,7 @@ export class AgentRunner {
     let lastTestFailed = false;
 
     for (let step = 0; step < this.maxToolCalls; step += 1) {
+      throwIfAborted(options.signal);
       if (devTracker && devTracker.fixRounds >= this.devTaskMaxFixRounds) {
         decisionTrace.push({
           step: step + 1,
@@ -163,7 +185,7 @@ export class AgentRunner {
 
       if (lastTestFailed && devTracker) {
         const backoffMs = computeBackoffMs(devTracker.fixRounds);
-        await delay(backoffMs);
+        await delay(backoffMs, options.signal);
         lastTestFailed = false;
       }
 
@@ -180,7 +202,8 @@ export class AgentRunner {
 
       this.compressor.runPipeline(messagesForModel);
 
-      const raw = await this.callModel(messagesForModel);
+      const raw = await this.callModel(messagesForModel, options, false);
+      throwIfAborted(options.signal);
       this.compressor.updateTokenEstimate(Math.ceil(raw.length / 4));
       const parsed = tryParseAgentModelOutput(raw);
       if (!parsed) {
@@ -240,6 +263,14 @@ export class AgentRunner {
         permissionMode: request.permissionMode,
         planState: request.planState,
         projectBoundary: request.projectBoundary,
+        signal: options.signal,
+      });
+      throwIfAborted(options.signal);
+      await options.onEvent?.({
+        type: "tool.started",
+        toolName: toolCallRequest.toolName,
+        toolCallId: toolCallRequest.id,
+        inputPreview: toolCallRequest.input,
       });
       this.recordToolTranscript(request.sessionId, "requested", toolCallRequest.toolName, {
         toolCallId: toolCallRequest.id,
@@ -255,7 +286,17 @@ export class AgentRunner {
 
       const toolStartTime = Date.now();
       const toolCallRecord = await this.toolCallExecutor.execute(toolCallRequest);
+      throwIfAborted(options.signal);
       const toolDurationMs = Date.now() - toolStartTime;
+      await options.onEvent?.({
+        type:
+          toolCallRecord.status === "success"
+            ? "tool.finished"
+            : toolCallRecord.status === "denied"
+              ? "tool.denied"
+              : "tool.failed",
+        toolCall: toolCallRecord,
+      });
 
       if (
         toolCallRecord.result?.ok &&
@@ -335,7 +376,8 @@ export class AgentRunner {
       devTracker,
     });
 
-    const forcedFinalRaw = await this.callModel(finalMessages);
+    const forcedFinalRaw = await this.callModel(finalMessages, options, true);
+    throwIfAborted(options.signal);
     const forcedFinal = tryParseAgentModelOutput(forcedFinalRaw);
     const finalText =
       forcedFinal && forcedFinal.type === "final"
@@ -360,11 +402,34 @@ export class AgentRunner {
     };
   }
 
-  private async callModel(messages: ChatMessage[]): Promise<string> {
-    const result = await this.modelProvider.generate(messages);
+  /**
+   * 方法 `callModel` 的职责说明。
+   * `callModel` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
+  private async callModel(
+    messages: ChatMessage[],
+    options: AgentRunnerRunOptions = {},
+    streamDeltas = false
+  ): Promise<string> {
+    throwIfAborted(options.signal);
+    const result = await this.modelProvider.generate(messages, {
+      signal: options.signal,
+      onDelta: streamDeltas
+        ? async (delta) => {
+            await options.onEvent?.({ type: "chat.delta", delta });
+          }
+        : undefined,
+    });
+    throwIfAborted(options.signal);
     return result.text;
   }
 
+  /**
+   * 方法 `buildTranscriptContext` 的职责说明。
+   * `buildTranscriptContext` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private buildTranscriptContext(
     sessionId: string | undefined,
     currentInput: string
@@ -403,6 +468,11 @@ export class AgentRunner {
       .join("\n");
   }
 
+  /**
+   * 方法 `recordToolTranscript` 的职责说明。
+   * `recordToolTranscript` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private recordToolTranscript(
     sessionId: string | undefined,
     phase: "requested" | "completed",
@@ -420,6 +490,11 @@ export class AgentRunner {
     recordTranscript(sessionId, "tool", statusText, metadata);
   }
 
+  /**
+   * 方法 `writeAudit` 的职责说明。
+   * `writeAudit` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async writeAudit(data: Record<string, unknown>): Promise<void> {
     if (!this.auditLogger) {
       return;
@@ -432,7 +507,7 @@ export class AgentRunner {
       write?: (event: unknown) => Promise<void> | void;
     };
     const event = {
-      id: `agent-runner-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: `agent-runner-${Date.now()}-${randomBytes(6).toString("hex")}`,
       createdAt: new Date().toISOString(),
       message: String(data.type ?? "gateway.agent"),
       ...data,
@@ -455,6 +530,11 @@ export class AgentRunner {
     }
   }
 
+  /**
+   * 方法 `buildDevTaskDebugInfo` 的职责说明。
+   * `buildDevTaskDebugInfo` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private buildDevTaskDebugInfo(
     tracker: DevTaskTracker,
     finalText?: string
@@ -491,6 +571,11 @@ export class AgentRunner {
     };
   }
 
+  /**
+   * 方法 `restoreDevTaskTracker` 的职责说明。
+   * `restoreDevTaskTracker` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private restoreDevTaskTracker(sessionId: string | undefined): DevTaskTracker | undefined {
     if (!sessionId) return undefined;
     const entries = readTranscript(sessionId);
@@ -506,6 +591,11 @@ export class AgentRunner {
     return undefined;
   }
 
+  /**
+   * 方法 `persistDevTaskTracker` 的职责说明。
+   * `persistDevTaskTracker` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private persistDevTaskTracker(sessionId: string | undefined, tracker: DevTaskTracker): void {
     if (!sessionId) return;
     recordTranscript(sessionId, "system", "[dev_task_tracker]", {
@@ -514,16 +604,45 @@ export class AgentRunner {
   }
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * 函数 `delay` 的职责说明。
+ * `delay` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("RUN_CANCELLED"));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new Error("RUN_CANCELLED"));
+      },
+      { once: true }
+    );
+  });
 }
 
+/**
+ * 函数 `computeBackoffMs` 的职责说明。
+ * `computeBackoffMs` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function computeBackoffMs(fixRounds: number): number {
   const base = 500;
   const max = 8000;
   return Math.min(base * Math.pow(2, fixRounds - 1), max);
 }
 
+/**
+ * 函数 `buildAgentMessages` 的职责说明。
+ * `buildAgentMessages` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function buildAgentMessages(input: {
   baseMessages: ChatMessage[];
   transcriptContext?: string;
@@ -627,6 +746,11 @@ function buildAgentMessages(input: {
   return messages;
 }
 
+/**
+ * 函数 `tryParseAgentModelOutput` 的职责说明。
+ * `tryParseAgentModelOutput` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function tryParseAgentModelOutput(raw: string): AgentModelOutput | undefined {
   let text = raw.trim();
 
@@ -671,6 +795,11 @@ function tryParseAgentModelOutput(raw: string): AgentModelOutput | undefined {
   }
 }
 
+/**
+ * 函数 `normalizeMemoryResults` 的职责说明。
+ * `normalizeMemoryResults` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeMemoryResults(value: unknown): MemorySearchResult[] {
   if (!Array.isArray(value)) {
     return [];
@@ -705,6 +834,11 @@ function normalizeMemoryResults(value: unknown): MemorySearchResult[] {
   });
 }
 
+/**
+ * 函数 `mergeMemoryResults` 的职责说明。
+ * `mergeMemoryResults` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function mergeMemoryResults(
   base: MemorySearchResult[],
   extra: MemorySearchResult[]
@@ -720,6 +854,11 @@ function mergeMemoryResults(
   return [...merged.values()];
 }
 
+/**
+ * 函数 `summarizeTools` 的职责说明。
+ * `summarizeTools` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function summarizeTools(tools: ReturnType<ToolRegistry["list"]>) {
   return tools.map((tool) => ({
     name: tool.name,
@@ -729,10 +868,26 @@ function summarizeTools(tools: ReturnType<ToolRegistry["list"]>) {
   }));
 }
 
+/**
+ * 函数 `truncate` 的职责说明。
+ * `truncate` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) {
     return value;
   }
 
   return `${value.slice(0, Math.max(0, maxChars - 16))}...[truncated]`;
+}
+
+/**
+ * 函数 `throwIfAborted` 的职责说明。
+ * `throwIfAborted` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error("RUN_CANCELLED");
+  }
 }

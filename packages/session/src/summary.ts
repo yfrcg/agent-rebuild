@@ -1,3 +1,4 @@
+
 import type { TranscriptEntry } from "../../core/src/types";
 
 export interface TranscriptMemorySummary {
@@ -100,6 +101,11 @@ export function summarizeTranscriptForMemory(
   };
 }
 
+/**
+ * 函数 `splitIntoSentences` 的职责说明。
+ * `splitIntoSentences` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function splitIntoSentences(text: string): string[] {
   return text
     .split(/[\n。！？!?]+/g)
@@ -107,10 +113,20 @@ function splitIntoSentences(text: string): string[] {
     .filter((line) => line.length >= 4);
 }
 
+/**
+ * 函数 `normalizeLine` 的职责说明。
+ * `normalizeLine` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeLine(line: string): string {
   return line.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * 函数 `collectUniqueLines` 的职责说明。
+ * `collectUniqueLines` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function collectUniqueLines(lines: string[], limit: number): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -130,6 +146,11 @@ function collectUniqueLines(lines: string[], limit: number): string[] {
   return result;
 }
 
+/**
+ * 函数 `renderSection` 的职责说明。
+ * `renderSection` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function renderSection(title: string, lines: string[]): string {
   return [`${title}:`, ...lines.map((line) => `- ${line}`)].join("\n");
 }

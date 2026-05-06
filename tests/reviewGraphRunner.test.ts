@@ -1,3 +1,4 @@
+
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
@@ -17,6 +18,11 @@ import type { ToolCallExecutor } from "../packages/gateway/toolCallExecutor";
 import type { ToolRegistry } from "../packages/gateway/toolRegistry";
 import type { GatewayToolCallRecord } from "../packages/gateway/toolCallTypes";
 
+/**
+ * 函数 `makeSuccessRecord` 的职责说明。
+ * `makeSuccessRecord` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeSuccessRecord(toolName: string): GatewayToolCallRecord {
   return {
     id: `rec_${Date.now()}`,
@@ -28,6 +34,11 @@ function makeSuccessRecord(toolName: string): GatewayToolCallRecord {
   };
 }
 
+/**
+ * 函数 `makeToolRegistry` 的职责说明。
+ * `makeToolRegistry` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeToolRegistry(): ToolRegistry {
   const toolNames = [
     "file.read", "file.glob", "file.grep", "file.list",
@@ -53,6 +64,11 @@ function makeToolRegistry(): ToolRegistry {
   } as unknown as ToolRegistry;
 }
 
+/**
+ * 函数 `makeToolCallExecutor` 的职责说明。
+ * `makeToolCallExecutor` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeToolCallExecutor(): ToolCallExecutor {
   return {
     execute: async (req: { toolName: string }): Promise<GatewayToolCallRecord> =>
@@ -60,6 +76,11 @@ function makeToolCallExecutor(): ToolCallExecutor {
   } as unknown as ToolCallExecutor;
 }
 
+/**
+ * 函数 `makeModelProvider` 的职责说明。
+ * `makeModelProvider` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeModelProvider(responseTexts: string[]): ModelProvider {
   let callIndex = 0;
   return {
@@ -72,6 +93,11 @@ function makeModelProvider(responseTexts: string[]): ModelProvider {
   } as unknown as ModelProvider;
 }
 
+/**
+ * 函数 `makeFinalResponse` 的职责说明。
+ * `makeFinalResponse` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeFinalResponse(data: Record<string, unknown>): string {
   return JSON.stringify({ type: "final", content: JSON.stringify(data) });
 }

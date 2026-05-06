@@ -1,10 +1,17 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { randomBytes } from "node:crypto";
 
 import { resolveProjectRoot } from "../../core/src/config";
 import { createToolSecurityProfile } from "../toolSecurityProfile";
 import type { GatewayTool, GatewayToolInput, GatewayToolOutput } from "../toolTypes";
 
+/**
+ * 函数 `createTodoTools` 的职责说明。
+ * `createTodoTools` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createTodoTools(projectRoot = resolveProjectRoot()): GatewayTool[] {
   return [
     createTodoWriteTool(projectRoot),
@@ -22,10 +29,20 @@ interface TodoItem {
   updatedAt: string;
 }
 
+/**
+ * 函数 `getTodoPath` 的职责说明。
+ * `getTodoPath` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getTodoPath(projectRoot: string): string {
   return path.join(projectRoot, ".agent-rebuild", "todos.json");
 }
 
+/**
+ * 函数 `readTodos` 的职责说明。
+ * `readTodos` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function readTodos(projectRoot: string): TodoItem[] {
   const filePath = getTodoPath(projectRoot);
   try {
@@ -38,6 +55,11 @@ function readTodos(projectRoot: string): TodoItem[] {
   }
 }
 
+/**
+ * 函数 `writeTodos` 的职责说明。
+ * `writeTodos` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function writeTodos(projectRoot: string, todos: TodoItem[]): void {
   const filePath = getTodoPath(projectRoot);
   const dir = path.dirname(filePath);
@@ -47,13 +69,23 @@ function writeTodos(projectRoot: string, todos: TodoItem[]): void {
   fs.writeFileSync(filePath, JSON.stringify(todos, null, 2), "utf8");
 }
 
+/**
+ * 函数 `generateId` 的职责说明。
+ * `generateId` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  return Date.now().toString(36) + randomBytes(6).toString("hex");
 }
 
 const VALID_STATUSES = new Set(["pending", "in_progress", "done", "blocked"]);
 const VALID_PRIORITIES = new Set(["high", "medium", "low"]);
 
+/**
+ * 函数 `createTodoWriteTool` 的职责说明。
+ * `createTodoWriteTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createTodoWriteTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -102,6 +134,7 @@ function createTodoWriteTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       requireApproval: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const content = typeof input.content === "string" ? input.content.trim() : "";
       if (!content) {
@@ -138,6 +171,11 @@ function createTodoWriteTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createTodoUpdateTool` 的职责说明。
+ * `createTodoUpdateTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createTodoUpdateTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -186,6 +224,7 @@ function createTodoUpdateTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       requireApproval: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const id = typeof input.id === "string" ? input.id.trim() : "";
       if (!id) {
@@ -230,6 +269,11 @@ function createTodoUpdateTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createTodoListTool` 的职责说明。
+ * `createTodoListTool` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createTodoListTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -267,6 +311,7 @@ function createTodoListTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       allowWrite: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const statusFilter = typeof input.status === "string" && VALID_STATUSES.has(input.status)
         ? input.status as TodoItem["status"]
@@ -302,6 +347,11 @@ function createTodoListTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `clampNumber` 的职责说明。
+ * `clampNumber` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function clampNumber(value: unknown, defaultVal: number, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return defaultVal;
   return Math.max(min, Math.min(max, Math.floor(value)));

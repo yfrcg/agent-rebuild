@@ -1,9 +1,5 @@
-/**
- * 打印 Gateway 命令行帮助信息。
- *
- * 该函数集中描述可用命令、工具调用方式以及主要运行配置，
- * 方便操作者启动后立刻知道系统能做什么、该怎么做。
- */
+
+/** 函数 `printGatewayHelp`：负责完成当前模块中的一个明确步骤，维护时要关注输入校验、返回结构和异常路径。 */
 export function printGatewayHelp(): void {
   console.log(`
 Available commands:

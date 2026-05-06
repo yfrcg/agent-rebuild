@@ -1,3 +1,4 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -34,10 +35,16 @@ export class LoggingDeepSeekProvider implements ModelProvider {
   private callIndex = 0;
   private readonly records: ApiCallRecord[] = [];
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor() {
     this.inner = new DeepSeekProvider();
   }
 
+  /**
+   * 方法 `generate` 的职责说明。
+   * `generate` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   async generate(messages: ChatMessage[]): Promise<ModelResponse> {
     this.callIndex++;
     const start = Date.now();
@@ -77,10 +84,20 @@ export class LoggingDeepSeekProvider implements ModelProvider {
     }
   }
 
+  /**
+   * 方法 `getRecords` 的职责说明。
+   * `getRecords` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   getRecords(): ApiCallRecord[] {
     return [...this.records];
   }
 
+  /**
+   * 方法 `writeLog` 的职责说明。
+   * `writeLog` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   writeLog(testName: string): void {
     fs.mkdirSync(LOG_DIR, { recursive: true });
     const safeName = testName.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
@@ -95,6 +112,11 @@ export class LoggingDeepSeekProvider implements ModelProvider {
   }
 }
 
+/**
+ * 函数 `createRealApiGateway` 的职责说明。
+ * `createRealApiGateway` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createRealApiGateway(opts?: {
   maxSteps?: number;
   maxFixRounds?: number;
@@ -120,6 +142,11 @@ export function createRealApiGateway(opts?: {
   return { gateway, provider, registry };
 }
 
+/**
+ * 函数 `bypassRequest` 的职责说明。
+ * `bypassRequest` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function bypassRequest(input: string, opts?: { sessionId?: string }): GatewayRequest {
   return createGatewayRequest(input, {
     permissionMode: "bypassPermissions",

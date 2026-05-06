@@ -1,3 +1,4 @@
+
 import "dotenv/config";
 import assert from "node:assert/strict";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
@@ -35,6 +36,11 @@ interface DetectionReport {
   checks: CheckResult[];
 }
 
+/**
+ * 函数 `main` 的职责说明。
+ * `main` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 async function main(): Promise<void> {
   const reportPath = path.join(
     process.cwd(),
@@ -93,6 +99,11 @@ async function main(): Promise<void> {
   }
 }
 
+/**
+ * 函数 `runBootstrapChecks` 的职责说明。
+ * `runBootstrapChecks` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 async function runBootstrapChecks(): Promise<CheckResult> {
   const contextBuilder = new ContextBuilder();
   const messages = contextBuilder.buildMessages("bootstrap probe", []);
@@ -115,6 +126,11 @@ async function runBootstrapChecks(): Promise<CheckResult> {
   };
 }
 
+/**
+ * 函数 `runApiAdapterChecks` 的职责说明。
+ * `runApiAdapterChecks` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 async function runApiAdapterChecks(): Promise<CheckResult> {
   const mockProvider = new MockModelProvider();
   const response = await mockProvider.generate([
@@ -138,6 +154,11 @@ async function runApiAdapterChecks(): Promise<CheckResult> {
   };
 }
 
+/**
+ * 函数 `runMemoryReliabilityChecks` 的职责说明。
+ * `runMemoryReliabilityChecks` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 async function runMemoryReliabilityChecks(tempMemoryFile: string): Promise<CheckResult> {
   const db = getDb();
   cleanupSystemDetectIndexArtifacts(db, "system-detect-offline-%.md");
@@ -179,6 +200,11 @@ async function runMemoryReliabilityChecks(tempMemoryFile: string): Promise<Check
   };
 }
 
+/**
+ * 函数 `runFullChainChecks` 的职责说明。
+ * `runFullChainChecks` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 async function runFullChainChecks(
   tempMemoryFile: string,
   auditLogPath: string
@@ -234,6 +260,11 @@ async function runFullChainChecks(
   };
 }
 
+/**
+ * 函数 `runRateLimitChecks` 的职责说明。
+ * `runRateLimitChecks` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 async function runRateLimitChecks(): Promise<CheckResult> {
   const gateway = new Gateway({
     memorySearch: async () => [],
@@ -265,6 +296,11 @@ async function runRateLimitChecks(): Promise<CheckResult> {
   };
 }
 
+/**
+ * 函数 `cleanupSystemDetectIndexArtifacts` 的职责说明。
+ * `cleanupSystemDetectIndexArtifacts` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function cleanupSystemDetectIndexArtifacts(
   db: ReturnType<typeof getDb>,
   pattern: string
@@ -304,6 +340,11 @@ function cleanupSystemDetectIndexArtifacts(
   }
 }
 
+/**
+ * 函数 `getFileState` 的职责说明。
+ * `getFileState` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getFileState(db: ReturnType<typeof getDb>, filePath: string) {
   const file = db.prepare(
     "SELECT file_id AS fileId, chunk_count AS chunkCount, embedding_status AS embeddingStatus FROM mem_files WHERE path = ?"
@@ -345,6 +386,11 @@ function getFileState(db: ReturnType<typeof getDb>, filePath: string) {
   };
 }
 
+/**
+ * 函数 `withEnv` 的职责说明。
+ * `withEnv` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 async function withEnv(
   updates: Record<string, string>,
   fn: () => Promise<void>
@@ -369,6 +415,11 @@ async function withEnv(
   }
 }
 
+/**
+ * 函数 `safeUnlink` 的职责说明。
+ * `safeUnlink` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 async function safeUnlink(filePath: string): Promise<void> {
   try {
     await unlink(filePath);

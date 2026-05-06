@@ -1,3 +1,4 @@
+
 import { getDb } from "../../storage/src/db";
 import type { MemoryEmbeddingRecord } from "./types";
 
@@ -15,14 +16,14 @@ export function* iterateAllEmbeddingRecords(): IterableIterator<MemoryEmbeddingR
     ORDER BY filePath ASC, chunkId ASC
   `);
 
-  for (const row of (stmt as any).iterate() as IterableIterator<any>) {
+  for (const row of stmt.iterate()) {
     yield {
-      chunkId: row.chunkId,
-      file_id: row.file_id,
-      filePath: row.filePath,
-      section: row.section,
-      content: row.content,
-      embedding: row.embedding ? (JSON.parse(row.embedding) as number[]) : undefined,
+      chunkId: String(row.chunkId),
+      file_id: String(row.file_id),
+      filePath: String(row.filePath),
+      section: String(row.section),
+      content: String(row.content),
+      embedding: row.embedding ? (JSON.parse(String(row.embedding)) as number[]) : undefined,
     };
   }
 }

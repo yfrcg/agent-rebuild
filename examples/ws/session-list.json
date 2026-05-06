@@ -1,0 +1,5 @@
+{
+  "type": "req",
+  "id": "req_session_list_001",
+  "method": "session.list"
+}

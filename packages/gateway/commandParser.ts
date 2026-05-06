@@ -1,9 +1,4 @@
-/**
- * Gateway 支持的命令类型。
- *
- * 解析器的目标，是把用户随手输入的一段文本，
- * 规范化为这组有限、可控的动作类型之一。
- */
+
 export type GatewayCommandType =
   | "exit"
   | "help"

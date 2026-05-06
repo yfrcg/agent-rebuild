@@ -1,10 +1,4 @@
-/**
- * 熔断器状态。
- *
- * - `closed`：一切正常，请求可以继续通过。
- * - `open`：上游故障过多，暂时拒绝放量请求。
- * - `half-open`：冷却期结束后进入试探阶段，允许少量请求验证上游是否恢复。
- */
+
 export type CircuitState = "closed" | "open" | "half-open";
 
 export interface CircuitCheckResult {
@@ -29,6 +23,7 @@ export class GatewayCircuitBreaker {
   private consecutiveFailures = 0;
   private openedAt = 0;
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(private readonly options: GatewayCircuitBreakerOptions) {}
 
   /**

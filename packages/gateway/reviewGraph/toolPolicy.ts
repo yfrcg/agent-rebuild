@@ -1,3 +1,4 @@
+
 import * as path from "node:path";
 
 import type { AgentDefinition, ReviewGraphState, ToolPolicyCheck } from "./types";
@@ -68,6 +69,11 @@ const DELETE_PATTERNS = [
   /unlink/i,
 ];
 
+/**
+ * 函数 `isSensitivePath` 的职责说明。
+ * `isSensitivePath` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isSensitivePath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/").toLowerCase();
   const basename = path.basename(normalized);
@@ -80,10 +86,20 @@ function isSensitivePath(filePath: string): boolean {
   );
 }
 
+/**
+ * 函数 `isDangerousCommand` 的职责说明。
+ * `isDangerousCommand` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isDangerousCommand(command: string): boolean {
   return DANGEROUS_COMMANDS.some((pattern) => pattern.test(command));
 }
 
+/**
+ * 函数 `isDeleteOperation` 的职责说明。
+ * `isDeleteOperation` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isDeleteOperation(toolName: string, args: Record<string, unknown>): boolean {
   if (toolName === "file.delete") return true;
   if (SHELL_TOOLS.includes(toolName)) {
@@ -93,6 +109,11 @@ function isDeleteOperation(toolName: string, args: Record<string, unknown>): boo
   return false;
 }
 
+/**
+ * 函数 `isGitPush` 的职责说明。
+ * `isGitPush` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function isGitPush(toolName: string, args: Record<string, unknown>): boolean {
   if (SHELL_TOOLS.includes(toolName)) {
     const cmd = String(args.command || args.cmd || "");
@@ -101,6 +122,11 @@ function isGitPush(toolName: string, args: Record<string, unknown>): boolean {
   return false;
 }
 
+/**
+ * 函数 `extractFilePaths` 的职责说明。
+ * `extractFilePaths` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function extractFilePaths(args: Record<string, unknown>): string[] {
   const paths: string[] = [];
   if (typeof args.path === "string") paths.push(args.path);
@@ -123,6 +149,11 @@ export interface CheckToolPolicyParams {
   workspaceRoot: string;
 }
 
+/**
+ * 函数 `checkToolPolicy` 的职责说明。
+ * `checkToolPolicy` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function checkToolPolicy(params: CheckToolPolicyParams): ToolPolicyCheck {
   const { agentDef, toolName, args, state, workspaceRoot } = params;
   const violations: string[] = [];
@@ -214,6 +245,11 @@ export function checkToolPolicy(params: CheckToolPolicyParams): ToolPolicyCheck 
   return { allowed: true, violations: [] };
 }
 
+/**
+ * 函数 `createRestrictedAgentDefinition` 的职责说明。
+ * `createRestrictedAgentDefinition` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createRestrictedAgentDefinition(
   base: AgentDefinition,
   overrides: Partial<AgentDefinition>

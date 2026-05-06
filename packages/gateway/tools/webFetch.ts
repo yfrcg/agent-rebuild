@@ -1,6 +1,12 @@
+
 import { createToolSecurityProfile } from "../toolSecurityProfile";
 import type { GatewayTool, GatewayToolInput, GatewayToolOutput } from "../toolTypes";
 
+/**
+ * 函数 `createWebFetchTool` 的职责说明。
+ * `createWebFetchTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createWebFetchTool(): GatewayTool[] {
   return [createWebFetch()];
 }
@@ -8,6 +14,11 @@ export function createWebFetchTool(): GatewayTool[] {
 const BLOCKED_PROTOCOLS = new Set(["file:", "ftp:", "data:", "javascript:", "vbscript:"]);
 const MAX_BODY_CHARS = 20000;
 
+/**
+ * 函数 `createWebFetch` 的职责说明。
+ * `createWebFetch` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createWebFetch(): GatewayTool {
   const schema = {
     type: "object",
@@ -51,6 +62,7 @@ function createWebFetch(): GatewayTool {
       allowHostExecution: true,
       requireApproval: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const urlStr = typeof input.url === "string" ? input.url.trim() : "";
       if (!urlStr) {
@@ -152,6 +164,11 @@ function createWebFetch(): GatewayTool {
   };
 }
 
+/**
+ * 函数 `clampNumber` 的职责说明。
+ * `clampNumber` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function clampNumber(value: unknown, defaultVal: number, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return defaultVal;
   return Math.max(min, Math.min(max, Math.floor(value)));

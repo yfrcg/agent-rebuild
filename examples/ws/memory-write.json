@@ -1,0 +1,11 @@
+{
+  "type": "req",
+  "id": "req_memory_write_001",
+  "method": "memory.write",
+  "params": {
+    "sessionId": "<SESSION_ID>",
+    "content": "Project note: prefer the WebSocket Gateway for multi-client integrations.",
+    "scope": "daily"
+  },
+  "idempotencyKey": "manual-memory-write-001"
+}

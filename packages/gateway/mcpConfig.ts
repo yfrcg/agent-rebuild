@@ -1,3 +1,4 @@
+
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -10,6 +11,11 @@ const MCP_CONFIG_FILE_PATH = path.resolve(
   "mcp.servers.json"
 );
 
+/**
+ * 函数 `getHomeDir` 的职责说明。
+ * `getHomeDir` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function getHomeDir(): string {
   return process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
 }
@@ -24,6 +30,11 @@ interface GatewayMcpConfigFile {
   servers?: unknown;
 }
 
+/**
+ * 函数 `readJsonFile` 的职责说明。
+ * `readJsonFile` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function readJsonFile(filePath: string): unknown | undefined {
   if (!fs.existsSync(filePath)) {
     return undefined;
@@ -37,6 +48,11 @@ function readJsonFile(filePath: string): unknown | undefined {
   }
 }
 
+/**
+ * 函数 `extractServersFromParsed` 的职责说明。
+ * `extractServersFromParsed` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function extractServersFromParsed(parsed: unknown): unknown[] {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return [];
@@ -231,6 +247,11 @@ function getOptionalStringRecord(
   return Object.fromEntries(parsedEntries);
 }
 
+/**
+ * 函数 `parseIsolationConfig` 的职责说明。
+ * `parseIsolationConfig` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function parseIsolationConfig(
   value: unknown,
   index: number

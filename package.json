@@ -16,6 +16,8 @@
     "backfill:embeddings": "tsx scripts/backfill-embeddings.ts",
     "scheduler": "tsx scripts/scheduler.ts",
     "gateway": "tsx apps/gateway/src/main.ts",
+    "gateway:ws": "tsx apps/gateway/src/ws-main.ts",
+    "gateway:smoke:ws": "tsx scripts/smoke-ws.ts",
     "gateway:smoke": "tsx scripts/smoke-gateway.ts",
     "typecheck": "tsc --noEmit",
     "gateway:smoke:memory-failure": "tsx scripts/smoke-gateway-memory-failure.ts",
@@ -32,6 +34,7 @@
   "license": "ISC",
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   },
@@ -39,6 +42,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.9.0",
     "dotenv": "^17.4.2",
-    "glob": "^13.0.6"
+    "glob": "^13.0.6",
+    "ws": "^8.20.0"
   }
 }

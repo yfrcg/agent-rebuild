@@ -1,0 +1,9 @@
+{
+  "type": "req",
+  "id": "req_connect_001",
+  "method": "connect",
+  "params": {
+    "protocolVersion": "1.0",
+    "clientName": "manual-test"
+  }
+}

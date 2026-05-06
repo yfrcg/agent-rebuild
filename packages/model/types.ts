@@ -1,9 +1,6 @@
-import type { ChatMessage } from "../gateway/types";
 
-/**
- * 复用 Gateway 侧定义的消息结构，避免模型层再重复定义一套。
- */
-export type { ChatMessage } from "../gateway/types";
+import type { ChatMessage } from "../core/src/types";
+export type { ChatMessage } from "../core/src/types";
 
 /**
  * 模型调用的统一返回结构。
@@ -16,6 +13,11 @@ export interface ModelResponse {
   raw?: unknown;
 }
 
+export interface ModelGenerateOptions {
+  signal?: AbortSignal;
+  onDelta?: (delta: string) => void | Promise<void>;
+}
+
 /**
  * 模型提供商协议。
  *
@@ -24,7 +26,9 @@ export interface ModelResponse {
  */
 export interface ModelProvider {
   name: string;
-  generate(messages: ChatMessage[]): Promise<ModelResponse>;
+  supportsStreaming?: boolean;
+  /** 方法 `generate`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
+  generate(messages: ChatMessage[], options?: ModelGenerateOptions): Promise<ModelResponse>;
 }
 
 /**
@@ -34,6 +38,7 @@ export interface ModelProvider {
  * 返回 AsyncIterable 逐块输出文本，适用于需要实时显示的场景。
  */
 export interface StreamingModelProvider extends ModelProvider {
+  /** 方法 `generateStream`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
   generateStream(
     messages: ChatMessage[],
     options?: { signal?: AbortSignal }

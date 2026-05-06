@@ -1,3 +1,4 @@
+
 import "dotenv/config";
 
 type EmbeddingProviderName = "dashscope" | "mock";
@@ -100,6 +101,11 @@ export async function embedText(text: string): Promise<number[]> {
   return embedding;
 }
 
+/**
+ * 函数 `readDimensions` 的职责说明。
+ * `readDimensions` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function readDimensions(env: NodeJS.ProcessEnv, fallback: number): number {
   const raw = env.DASHSCOPE_EMBED_DIMENSIONS;
   const parsed = raw ? Number(raw) : fallback;
@@ -111,6 +117,11 @@ function readDimensions(env: NodeJS.ProcessEnv, fallback: number): number {
   return parsed;
 }
 
+/**
+ * 函数 `deterministicEmbedding` 的职责说明。
+ * `deterministicEmbedding` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function deterministicEmbedding(text: string, dimensions: number): number[] {
   const vector = new Array<number>(dimensions).fill(0);
 

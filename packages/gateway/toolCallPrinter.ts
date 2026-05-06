@@ -1,5 +1,11 @@
+
 import type { GatewayToolCallRecord } from "./toolCallTypes";
 
+/**
+ * 函数 `printToolCallRecord` 的职责说明。
+ * `printToolCallRecord` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function printToolCallRecord(record: GatewayToolCallRecord): void {
   const sandboxContent = asSandboxToolContent(record.output?.content);
   const metadata = record.output?.metadata ?? {};
@@ -71,6 +77,11 @@ interface SandboxToolContent {
   artifacts: SandboxArtifactSummary[];
 }
 
+/**
+ * 函数 `asSandboxToolContent` 的职责说明。
+ * `asSandboxToolContent` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function asSandboxToolContent(value: unknown): SandboxToolContent | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -109,6 +120,11 @@ function asSandboxToolContent(value: unknown): SandboxToolContent | undefined {
   };
 }
 
+/**
+ * 函数 `readMetadataNumber` 的职责说明。
+ * `readMetadataNumber` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function readMetadataNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

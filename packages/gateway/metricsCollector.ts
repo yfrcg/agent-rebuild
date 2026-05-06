@@ -1,3 +1,4 @@
+
 import type { CircuitState } from "./circuitBreaker";
 
 /**
@@ -52,6 +53,7 @@ export class GatewayMetricsCollector {
   private rateLimitedRequests = 0;
   private circuitOpenRequests = 0;
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(private readonly options: GatewayMetricsCollectorOptions) {}
 
   /**

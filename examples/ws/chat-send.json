@@ -1,0 +1,10 @@
+{
+  "type": "req",
+  "id": "req_chat_send_001",
+  "method": "chat.send",
+  "params": {
+    "sessionId": "<SESSION_ID>",
+    "input": "Please summarize the current Gateway status in one concise sentence."
+  },
+  "idempotencyKey": "manual-chat-send-001"
+}

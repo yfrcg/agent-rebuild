@@ -1,3 +1,4 @@
+
 import {
   classifyMemory,
   classifyMemoryType,
@@ -47,6 +48,11 @@ export interface BuiltinToolRegistryOptions {
   tavilyApiKey?: string;
 }
 
+/**
+ * 函数 `createBuiltinToolRegistry` 的职责说明。
+ * `createBuiltinToolRegistry` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createBuiltinToolRegistry(
   options: BuiltinToolRegistryOptions = {}
 ): ToolRegistry {
@@ -99,6 +105,11 @@ export function createBuiltinToolRegistry(
   return registry;
 }
 
+/**
+ * 函数 `createMemorySearchTool` 的职责说明。
+ * `createMemorySearchTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createMemorySearchTool(
   memorySearch: MemorySearch | undefined,
   defaultTopK: number
@@ -122,6 +133,7 @@ function createMemorySearchTool(
     required: ["query"],
   } satisfies Record<string, unknown>;
 
+  /** 函数变量 `execute`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
   const execute = async (
     args: unknown,
     context?: GatewayToolContext
@@ -173,6 +185,7 @@ function createMemorySearchTool(
       requireApproval: false,
     }),
     execute,
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input, context) {
       const result = await execute(input, context);
       return {
@@ -187,6 +200,11 @@ function createMemorySearchTool(
   };
 }
 
+/**
+ * 函数 `createMemoryWriteTool` 的职责说明。
+ * `createMemoryWriteTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createMemoryWriteTool(): GatewayTool {
   const schema = {
     type: "object",
@@ -204,6 +222,7 @@ function createMemoryWriteTool(): GatewayTool {
     required: ["content"],
   } satisfies Record<string, unknown>;
 
+  /** 函数变量 `execute`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
   const execute = async (
     args: unknown,
     context?: GatewayToolContext
@@ -261,6 +280,7 @@ function createMemoryWriteTool(): GatewayTool {
       requireApproval: false,
     }),
     execute,
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input, context) {
       const result = await execute(input, context);
       return {
@@ -272,6 +292,11 @@ function createMemoryWriteTool(): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createSkillTool` 的职责说明。
+ * `createSkillTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createSkillTool(): GatewayTool {
   const schema = {
     type: "object",
@@ -288,6 +313,7 @@ function createSkillTool(): GatewayTool {
     required: ["skill_name"],
   } satisfies Record<string, unknown>;
 
+  /** 函数变量 `execute`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
   const execute = async (
     args: unknown,
     context?: GatewayToolContext
@@ -357,6 +383,7 @@ function createSkillTool(): GatewayTool {
       requireApproval: false,
     }),
     execute,
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input, context) {
       const result = await execute(input, context);
       return {
@@ -368,6 +395,11 @@ function createSkillTool(): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createWebSearchTool` 的职责说明。
+ * `createWebSearchTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createWebSearchTool(tavilyApiKey: string): GatewayTool {
   const schema = {
     type: "object",
@@ -404,6 +436,7 @@ function createWebSearchTool(tavilyApiKey: string): GatewayTool {
     required: ["query"],
   } satisfies Record<string, unknown>;
 
+  /** 函数变量 `execute`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
   const execute = async (
     args: unknown,
     context?: GatewayToolContext
@@ -467,6 +500,7 @@ function createWebSearchTool(tavilyApiKey: string): GatewayTool {
       requireApproval: false,
     }),
     execute,
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input, context) {
       const result = await execute(input, context);
       return {
@@ -478,6 +512,11 @@ function createWebSearchTool(tavilyApiKey: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `asToolInput` 的职责说明。
+ * `asToolInput` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function asToolInput(args: unknown): GatewayToolInput {
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     return {};
@@ -486,6 +525,11 @@ function asToolInput(args: unknown): GatewayToolInput {
   return args as GatewayToolInput;
 }
 
+/**
+ * 函数 `failToolResult` 的职责说明。
+ * `failToolResult` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function failToolResult(
   context: GatewayToolContext | undefined,
   error: string

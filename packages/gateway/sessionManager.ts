@@ -1,3 +1,4 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -67,6 +68,11 @@ export class SessionManager {
     new SessionMemoryManager(this.currentSessionId, workspaceDir).init();
   }
 
+  /**
+   * 方法 `createSession` 的职责说明。
+   * `createSession` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   createSession(name?: string): GatewaySession {
     const session = this.sessionStore.createSession({ name });
     this.currentSessionId = session.id;
@@ -131,6 +137,11 @@ export class SessionManager {
     return renamed;
   }
 
+  /**
+   * 方法 `setCurrentSessionSkills` 的职责说明。
+   * `setCurrentSessionSkills` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   setCurrentSessionSkills(skillNames: string[]): GatewaySession {
     const updated = this.sessionStore.setActiveSkills({
       id: this.currentSessionId,
@@ -144,6 +155,11 @@ export class SessionManager {
     return updated;
   }
 
+  /**
+   * 方法 `setCurrentSessionPermissionMode` 的职责说明。
+   * `setCurrentSessionPermissionMode` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   setCurrentSessionPermissionMode(
     permissionMode: GatewayPermissionMode
   ): GatewaySession {
@@ -159,6 +175,11 @@ export class SessionManager {
     return updated;
   }
 
+  /**
+   * 方法 `setCurrentSessionPlanState` 的职责说明。
+   * `setCurrentSessionPlanState` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   setCurrentSessionPlanState(
     planState: GatewayPlanState | undefined
   ): GatewaySession {
@@ -174,6 +195,11 @@ export class SessionManager {
     return updated;
   }
 
+  /**
+   * 方法 `setCurrentSessionDevTaskState` 的职责说明。
+   * `setCurrentSessionDevTaskState` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   setCurrentSessionDevTaskState(
     devTaskState: GatewaySessionDevTaskState | undefined
   ): GatewaySession {
@@ -189,6 +215,11 @@ export class SessionManager {
     return updated;
   }
 
+  /**
+   * 方法 `addCurrentSessionApproval` 的职责说明。
+   * `addCurrentSessionApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   addCurrentSessionApproval(approval: {
     token: string;
     toolName: string;
@@ -209,18 +240,65 @@ export class SessionManager {
     return updated;
   }
 
+  /**
+   * 方法 `consumeCurrentSessionApproval` 的职责说明。
+   * `consumeCurrentSessionApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   consumeCurrentSessionApproval(token: string) {
     return this.sessionStore.consumePendingApproval(this.currentSessionId, token);
   }
 
+  /**
+   * 方法 `consumeSessionApproval` 的职责说明。
+   * `consumeSessionApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
+  consumeSessionApproval(sessionId: GatewaySessionId, token: string) {
+    return this.sessionStore.consumePendingApproval(sessionId, token);
+  }
+
+  /**
+   * 方法 `rejectCurrentSessionApproval` 的职责说明。
+   * `rejectCurrentSessionApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   rejectCurrentSessionApproval(token: string) {
     return this.sessionStore.rejectPendingApproval(this.currentSessionId, token);
   }
 
+  /**
+   * 方法 `rejectSessionApproval` 的职责说明。
+   * `rejectSessionApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
+  rejectSessionApproval(sessionId: GatewaySessionId, token: string) {
+    return this.sessionStore.rejectPendingApproval(sessionId, token);
+  }
+
+  /**
+   * 方法 `listCurrentSessionApprovals` 的职责说明。
+   * `listCurrentSessionApprovals` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   listCurrentSessionApprovals() {
     return this.sessionStore.listPendingApprovals(this.currentSessionId);
   }
 
+  /**
+   * 方法 `listSessionApprovals` 的职责说明。
+   * `listSessionApprovals` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
+  listSessionApprovals(sessionId: GatewaySessionId) {
+    return this.sessionStore.listPendingApprovals(sessionId);
+  }
+
+  /**
+   * 方法 `clearCurrentSessionApprovals` 的职责说明。
+   * `clearCurrentSessionApprovals` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   clearCurrentSessionApprovals() {
     return this.sessionStore.clearPendingApprovals(this.currentSessionId);
   }
@@ -259,6 +337,11 @@ export class SessionManager {
     return updated;
   }
 
+  /**
+   * 方法 `bindProjectDir` 的职责说明。
+   * `bindProjectDir` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   bindProjectDir(
     sessionId: GatewaySessionId,
     rawProjectDir: string,
@@ -340,6 +423,11 @@ export class SessionManager {
     return { session: updatedSession, scan };
   }
 
+  /**
+   * 方法 `validateProjectDir` 的职责说明。
+   * `validateProjectDir` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private validateProjectDir(
     rawPath: string,
     allowedProjectRoots?: string[]
@@ -381,6 +469,11 @@ export class SessionManager {
     return resolved;
   }
 
+  /**
+   * 方法 `scanProjectDir` 的职责说明。
+   * `scanProjectDir` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private scanProjectDir(projectDir: string): GatewayProjectScanResult {
     const scan: GatewayProjectScanResult = {
       projectDir,
@@ -468,6 +561,11 @@ export class SessionManager {
     return scan;
   }
 
+  /**
+   * 方法 `summarizeSession` 的职责说明。
+   * `summarizeSession` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   summarizeSession(sessionId?: string): string | null {
     const targetId = sessionId ?? this.currentSessionId;
     const session = this.sessionStore.getSession(targetId);

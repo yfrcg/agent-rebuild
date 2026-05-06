@@ -1,3 +1,4 @@
+
 import { hybridSearch } from "../memory/src/hybridSearch";
 import type { MemorySearch } from "./gateway";
 import type { MemorySearchResult } from "./types";
@@ -49,6 +50,11 @@ function createMemoryResultId(
   return `${filePath}#${section ?? index + 1}`;
 }
 
+/**
+ * 函数 `inferFreshness` 的职责说明。
+ * `inferFreshness` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function inferFreshness(
   date: string | undefined,
   sourceKind: string | undefined

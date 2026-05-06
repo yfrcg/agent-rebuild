@@ -1,3 +1,4 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -33,6 +34,11 @@ interface SandboxedExecutionToolOptions {
   ) => ExecutionCommandSpec;
 }
 
+/**
+ * 函数 `createSandboxedBashTool` 的职责说明。
+ * `createSandboxedBashTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createSandboxedBashTool(
   projectRoot = resolveProjectRoot(),
   toolName = "shell.run"
@@ -72,6 +78,7 @@ export function createSandboxedBashTool(
     schema,
     timeoutMs: DEFAULT_EXECUTION_TIMEOUT_MS,
     policyTags: ["execution", "shell"],
+    /** 方法 `resolveCommand`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     resolveCommand(input, root) {
       const command = requireString(input.command, "input.command required");
       const env = normalizeEnv(input.env);
@@ -95,6 +102,11 @@ export function createSandboxedBashTool(
   });
 }
 
+/**
+ * 函数 `createSandboxedRunTestTool` 的职责说明。
+ * `createSandboxedRunTestTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createSandboxedRunTestTool(
   projectRoot = resolveProjectRoot()
 ): GatewayTool {
@@ -120,6 +132,7 @@ export function createSandboxedRunTestTool(
     schema,
     timeoutMs: 180_000,
     policyTags: ["execution", "test"],
+    /** 方法 `resolveCommand`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     resolveCommand(input, root) {
       const cwd = normalizeShellCwd(input.cwd, root);
       return {
@@ -138,6 +151,11 @@ export function createSandboxedRunTestTool(
   });
 }
 
+/**
+ * 函数 `createSandboxedNpmTestTool` 的职责说明。
+ * `createSandboxedNpmTestTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createSandboxedNpmTestTool(
   projectRoot = resolveProjectRoot()
 ): GatewayTool {
@@ -163,6 +181,7 @@ export function createSandboxedNpmTestTool(
     schema,
     timeoutMs: 180_000,
     policyTags: ["execution", "test", "npm"],
+    /** 方法 `resolveCommand`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     resolveCommand(input, root) {
       const cwd = normalizeShellCwd(input.cwd, root);
       const script =
@@ -182,6 +201,11 @@ export function createSandboxedNpmTestTool(
   });
 }
 
+/**
+ * 函数 `createSandboxedBuildTool` 的职责说明。
+ * `createSandboxedBuildTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createSandboxedBuildTool(
   projectRoot = resolveProjectRoot()
 ): GatewayTool {
@@ -207,6 +231,7 @@ export function createSandboxedBuildTool(
     schema,
     timeoutMs: 240_000,
     policyTags: ["execution", "build", "npm"],
+    /** 方法 `resolveCommand`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     resolveCommand(input, root) {
       const cwd = normalizeShellCwd(input.cwd, root);
       return {
@@ -225,6 +250,11 @@ export function createSandboxedBuildTool(
   });
 }
 
+/**
+ * 函数 `createSandboxedExecutionTool` 的职责说明。
+ * `createSandboxedExecutionTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createSandboxedExecutionTool(
   options: SandboxedExecutionToolOptions
 ): GatewayTool {
@@ -254,6 +284,7 @@ function createSandboxedExecutionTool(
       requireApproval: false,
     }),
     sandboxSpec: {
+      /** 方法 `resolve`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
       resolve(input: GatewayToolInput) {
         const spec = options.resolveCommand(input, projectRoot);
         return {
@@ -270,6 +301,7 @@ function createSandboxedExecutionTool(
         };
       },
     },
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke() {
       return {
         ok: false,
@@ -279,6 +311,11 @@ function createSandboxedExecutionTool(
   };
 }
 
+/**
+ * 函数 `resolveDefaultBuildCommand` 的职责说明。
+ * `resolveDefaultBuildCommand` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function resolveDefaultBuildCommand(projectRoot: string, cwd: string): string {
   const packageJsonPath = resolvePackageJsonPath(projectRoot, cwd);
   if (!packageJsonPath) {
@@ -311,6 +348,11 @@ function resolveDefaultBuildCommand(projectRoot: string, cwd: string): string {
   return "npm run build";
 }
 
+/**
+ * 函数 `resolvePackageJsonPath` 的职责说明。
+ * `resolvePackageJsonPath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function resolvePackageJsonPath(projectRoot: string, cwd: string): string | undefined {
   const root = path.resolve(projectRoot);
   let current = path.resolve(cwd);
@@ -331,6 +373,11 @@ function resolvePackageJsonPath(projectRoot: string, cwd: string): string | unde
   return fs.existsSync(rootCandidate) ? rootCandidate : undefined;
 }
 
+/**
+ * 函数 `normalizeEnv` 的职责说明。
+ * `normalizeEnv` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeEnv(input: unknown): Record<string, string> | undefined {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return undefined;
@@ -346,6 +393,11 @@ function normalizeEnv(input: unknown): Record<string, string> | undefined {
   return Object.keys(output).length > 0 ? output : undefined;
 }
 
+/**
+ * 函数 `normalizeShellCwd` 的职责说明。
+ * `normalizeShellCwd` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeShellCwd(input: unknown, projectRoot: string): string {
   if (typeof input !== "string" || input.trim() === "") {
     return projectRoot;
@@ -364,6 +416,11 @@ function normalizeShellCwd(input: unknown, projectRoot: string): string {
   return trimmed;
 }
 
+/**
+ * 函数 `normalizeTimeout` 的职责说明。
+ * `normalizeTimeout` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeTimeout(input: unknown, fallback: number): number {
   if (typeof input !== "number" || !Number.isFinite(input) || input <= 0) {
     return fallback;
@@ -372,6 +429,11 @@ function normalizeTimeout(input: unknown, fallback: number): number {
   return Math.floor(input);
 }
 
+/**
+ * 函数 `requireString` 的职责说明。
+ * `requireString` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function requireString(value: unknown, message: string): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(message);

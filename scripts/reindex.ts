@@ -1,3 +1,4 @@
+
 import { rebuildMemoryIndex } from "../packages/memory/src/memoryIndex";
 
 /**

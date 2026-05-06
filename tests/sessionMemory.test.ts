@@ -1,3 +1,4 @@
+
 import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -14,6 +15,11 @@ import {
   type WorkingMemory,
 } from "../packages/gateway/sessionMemoryManager";
 
+/**
+ * 函数 `createTempWorkspace` 的职责说明。
+ * `createTempWorkspace` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createTempWorkspace(): string {
   const dir = path.join(os.tmpdir(), `agent-sm-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   fs.mkdirSync(dir, { recursive: true });
@@ -22,6 +28,11 @@ function createTempWorkspace(): string {
   return dir;
 }
 
+/**
+ * 函数 `createTestProjectDir` 的职责说明。
+ * `createTestProjectDir` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createTestProjectDir(workspace: string, name = "test-project"): string {
   const projectDir = path.join(workspace, name);
   fs.mkdirSync(projectDir, { recursive: true });
@@ -29,6 +40,11 @@ function createTestProjectDir(workspace: string, name = "test-project"): string 
   return projectDir;
 }
 
+/**
+ * 函数 `createSessionManager` 的职责说明。
+ * `createSessionManager` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createSessionManager(workspace: string): SessionManager {
   const snapshotPath = path.join(workspace, "sessions.json");
   return new SessionManager(new SessionStore(snapshotPath), workspace);

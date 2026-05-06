@@ -1,3 +1,4 @@
+
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
@@ -9,6 +10,11 @@ import type { ToolCallExecutor } from "../packages/gateway/toolCallExecutor";
 import type { ToolRegistry } from "../packages/gateway/toolRegistry";
 import type { GatewayToolCallRecord } from "../packages/gateway/toolCallTypes";
 
+/**
+ * 函数 `makeSuccessRecord` 的职责说明。
+ * `makeSuccessRecord` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeSuccessRecord(toolName: string): GatewayToolCallRecord {
   return {
     id: `rec_${Date.now()}`,
@@ -20,6 +26,11 @@ function makeSuccessRecord(toolName: string): GatewayToolCallRecord {
   };
 }
 
+/**
+ * 函数 `makeToolRegistry` 的职责说明。
+ * `makeToolRegistry` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeToolRegistry(): ToolRegistry {
   const toolNames = [
     "file.read", "file.glob", "file.grep", "file.list",
@@ -44,6 +55,11 @@ function makeToolRegistry(): ToolRegistry {
   } as unknown as ToolRegistry;
 }
 
+/**
+ * 函数 `makeToolCallExecutor` 的职责说明。
+ * `makeToolCallExecutor` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeToolCallExecutor(): ToolCallExecutor {
   return {
     execute: async (req: { toolName: string }): Promise<GatewayToolCallRecord> =>
@@ -51,6 +67,11 @@ function makeToolCallExecutor(): ToolCallExecutor {
   } as unknown as ToolCallExecutor;
 }
 
+/**
+ * 函数 `makeModelProvider` 的职责说明。
+ * `makeModelProvider` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeModelProvider(responseText: string): ModelProvider {
   return {
     name: "mock-model",
@@ -60,6 +81,11 @@ function makeModelProvider(responseText: string): ModelProvider {
   } as unknown as ModelProvider;
 }
 
+/**
+ * 函数 `makeReviewGraphResponses` 的职责说明。
+ * `makeReviewGraphResponses` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeReviewGraphResponses(): string[] {
   return [
     makeFinalResp({ relevantFiles: [], evidence: [], codeStructure: {}, dependencies: [], summary: "explore" }),
@@ -72,10 +98,20 @@ function makeReviewGraphResponses(): string[] {
   ];
 }
 
+/**
+ * 函数 `makeFinalResp` 的职责说明。
+ * `makeFinalResp` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeFinalResp(data: Record<string, unknown>): string {
   return JSON.stringify({ type: "final", content: JSON.stringify(data) });
 }
 
+/**
+ * 函数 `makeSequentialModelProvider` 的职责说明。
+ * `makeSequentialModelProvider` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function makeSequentialModelProvider(responses: string[]): ModelProvider {
   let callIndex = 0;
   return {
@@ -91,6 +127,7 @@ function makeSequentialModelProvider(responses: string[]): ModelProvider {
 describe("Gateway ReviewGraph integration", () => {
   it("does not use ReviewGraph when autoReviewGraphEnabled=false", async () => {
     const modelProvider = makeModelProvider("Hello! How can I help?");
+    /** 函数变量 `memorySearch`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const memorySearch = async () => [];
 
     const gateway = new Gateway({
@@ -112,6 +149,7 @@ describe("Gateway ReviewGraph integration", () => {
   it("uses ReviewGraph for dev task when enabled", async () => {
     const responses = makeReviewGraphResponses();
     const modelProvider = makeSequentialModelProvider(responses);
+    /** 函数变量 `memorySearch`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const memorySearch = async () => [];
 
     const gateway = new Gateway({
@@ -134,6 +172,7 @@ describe("Gateway ReviewGraph integration", () => {
 
   it("does not use ReviewGraph for casual conversation", async () => {
     const modelProvider = makeModelProvider("Hi there! How can I help?");
+    /** 函数变量 `memorySearch`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const memorySearch = async () => [];
 
     const gateway = new Gateway({
@@ -155,6 +194,7 @@ describe("Gateway ReviewGraph integration", () => {
 
   it("does not use ReviewGraph for short input", async () => {
     const modelProvider = makeModelProvider("ok");
+    /** 函数变量 `memorySearch`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const memorySearch = async () => [];
 
     const gateway = new Gateway({
@@ -176,6 +216,7 @@ describe("Gateway ReviewGraph integration", () => {
 
   it("does not use ReviewGraph for questions", async () => {
     const modelProvider = makeModelProvider("Here's how to use it...");
+    /** 函数变量 `memorySearch`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const memorySearch = async () => [];
 
     const gateway = new Gateway({
@@ -198,6 +239,7 @@ describe("Gateway ReviewGraph integration", () => {
   it("uses ReviewGraph for Chinese dev tasks", async () => {
     const responses = makeReviewGraphResponses();
     const modelProvider = makeSequentialModelProvider(responses);
+    /** 函数变量 `memorySearch`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const memorySearch = async () => [];
 
     const gateway = new Gateway({
@@ -225,6 +267,7 @@ describe("Gateway ReviewGraph integration", () => {
       },
     } as unknown as ModelProvider;
 
+    /** 函数变量 `memorySearch`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const memorySearch = async () => [];
 
     const gateway = new Gateway({
@@ -247,6 +290,7 @@ describe("Gateway ReviewGraph integration", () => {
 
   it("maintains normal flow when toolRegistry not provided", async () => {
     const modelProvider = makeModelProvider("Normal response");
+    /** 函数变量 `memorySearch`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const memorySearch = async () => [];
 
     const gateway = new Gateway({
@@ -267,6 +311,7 @@ describe("Gateway ReviewGraph integration", () => {
 
   it("maintains normal flow when toolCallExecutor not provided", async () => {
     const modelProvider = makeModelProvider("Normal response");
+    /** 函数变量 `memorySearch`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const memorySearch = async () => [];
 
     const gateway = new Gateway({
@@ -289,6 +334,7 @@ describe("Gateway ReviewGraph integration", () => {
   it("preserves requestId in response", async () => {
     const responses = makeReviewGraphResponses();
     const modelProvider = makeSequentialModelProvider(responses);
+    /** 函数变量 `memorySearch`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const memorySearch = async () => [];
 
     const gateway = new Gateway({

@@ -1,0 +1,5 @@
+{
+  "type": "req",
+  "id": "req_runtime_status_001",
+  "method": "runtime.status"
+}

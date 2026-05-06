@@ -1,3 +1,4 @@
+
 //启动文件模型：告诉系统，任何被当做“启动配置文件”读取进来的对象，都必须包含这四个属性。
 export type BootstrapFile = {
   name: string;//文件名
@@ -26,3 +27,9 @@ export type SearchHit = {
   section: string;// 属于哪个标题下
   content: string;// 记忆的具体内容
 };
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  tool_call_id?: string;
+}

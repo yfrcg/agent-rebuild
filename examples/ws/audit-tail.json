@@ -1,0 +1,8 @@
+{
+  "type": "req",
+  "id": "req_audit_tail_001",
+  "method": "audit.tail",
+  "params": {
+    "limit": 20
+  }
+}

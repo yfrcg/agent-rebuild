@@ -1,3 +1,4 @@
+
 import type {
   GatewayPermissionMode,
   GatewayPlanState,
@@ -7,7 +8,7 @@ export type GatewaySessionId = string;
 
 export type GatewaySessionProjectPermission = "chat-only" | "project-write";
 
-export type GatewayProjectBindingSource = "user-path" | "cli" | "repl" | "future-gui";
+export type GatewayProjectBindingSource = "user-path" | "cli" | "repl" | "future-gui" | "ws";
 
 export interface GatewayProjectConflictError {
   code: "PROJECT_DIR_CONFLICT";
@@ -113,6 +114,11 @@ export interface GatewayProjectScanResult {
   possibleBuildCommand?: string;
 }
 
+/**
+ * 函数 `extractProjectBoundary` 的职责说明。
+ * `extractProjectBoundary` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function extractProjectBoundary(
   session: GatewaySession
 ): {

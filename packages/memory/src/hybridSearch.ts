@@ -1,3 +1,4 @@
+
 import { getDb } from "../../storage/src/db";
 import { vectorSearch } from "./vectorSearch";
 import type { MemorySearchResult } from "./types";
@@ -13,12 +14,22 @@ function rrfScore(rank: number, k = 60): number {
   return 1 / (rank + k);
 }
 
+/**
+ * 函数 `extractDateFromFilePath` 的职责说明。
+ * `extractDateFromFilePath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function extractDateFromFilePath(filePath: string): string | undefined {
   const normalized = filePath.replace(/\\/g, "/");
   const match = normalized.match(/memory\/(\d{4}-\d{2}-\d{2})\.md$/);
   return match?.[1];
 }
 
+/**
+ * 函数 `daysSince` 的职责说明。
+ * `daysSince` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function daysSince(dateString: string): number | undefined {
   const timestamp = Date.parse(`${dateString}T00:00:00+08:00`);
   if (Number.isNaN(timestamp)) {
@@ -29,6 +40,11 @@ function daysSince(dateString: string): number | undefined {
   return Math.max(0, Math.floor(diffMs / 86_400_000));
 }
 
+/**
+ * 函数 `computeRecencyBoost` 的职责说明。
+ * `computeRecencyBoost` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function computeRecencyBoost(filePath: string, date?: string): number {
   const resolvedDate = date ?? extractDateFromFilePath(filePath);
   if (!resolvedDate) {

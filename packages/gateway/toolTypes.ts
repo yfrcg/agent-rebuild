@@ -1,3 +1,4 @@
+
 import type { ToolSecurityProfile } from "./toolSecurityProfile";
 import type { GatewayToolPermissionLevel } from "./permissionTypes";
 
@@ -57,10 +58,12 @@ export interface ToolDefinition {
   description: string;
   schema?: Record<string, unknown>;
   riskLevel: ToolRiskLevel;
+  /** 方法 `execute`：负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。 */
   execute(args: unknown, context?: GatewayToolContext): Promise<ToolResult>;
 }
 
 export interface GatewayToolSandboxSpec {
+  /** 方法 `resolve`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
   resolve(
     input: GatewayToolInput,
     context?: GatewayToolContext
@@ -77,11 +80,13 @@ export interface GatewayTool {
   sideEffect?: boolean;
   requiresSandbox?: boolean;
   timeoutMs?: number;
+  /** 方法 `execute`：负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。 */
   execute?(args: unknown, context?: GatewayToolContext): Promise<ToolResult>;
   inputSchema?: Record<string, unknown>;
   policy?: GatewayToolPolicy;
   security?: ToolSecurityProfile;
   sandboxSpec?: GatewayToolSandboxSpec;
+  /** 方法 `invoke`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
   invoke?(
     input: GatewayToolInput,
     context?: GatewayToolContext

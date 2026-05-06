@@ -1,3 +1,4 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { glob } from "glob";
@@ -7,6 +8,11 @@ import { assertInsideWorkspace, isDangerousHostPath } from "../pathGuard";
 import { createToolSecurityProfile } from "../toolSecurityProfile";
 import type { GatewayTool, GatewayToolInput, GatewayToolOutput } from "../toolTypes";
 
+/**
+ * 函数 `createSandboxedFileTools` 的职责说明。
+ * `createSandboxedFileTools` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function createSandboxedFileTools(projectRoot = resolveProjectRoot()): GatewayTool[] {
   return [
     createFileReadTool(projectRoot),
@@ -20,6 +26,11 @@ export function createSandboxedFileTools(projectRoot = resolveProjectRoot()): Ga
   ];
 }
 
+/**
+ * 函数 `createFileReadTool` 的职责说明。
+ * `createFileReadTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createFileReadTool(projectRoot: string): GatewayTool {
   const schema = filePathSchema();
 
@@ -45,6 +56,7 @@ function createFileReadTool(projectRoot: string): GatewayTool {
       allowWrite: false,
     }),
     sandboxSpec: {
+      /** 方法 `resolve`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
       resolve(input) {
         const filePath = requirePath(input);
         const target = resolveWorkspaceTarget(projectRoot, filePath);
@@ -60,6 +72,7 @@ function createFileReadTool(projectRoot: string): GatewayTool {
         };
       },
     },
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const filePath = requirePath(input);
       const target = resolveWorkspaceTarget(projectRoot, filePath);
@@ -74,6 +87,11 @@ function createFileReadTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createFileWriteTool` 的职责说明。
+ * `createFileWriteTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createFileWriteTool(projectRoot: string): GatewayTool {
   const schema = {
     ...filePathSchema(),
@@ -111,6 +129,7 @@ function createFileWriteTool(projectRoot: string): GatewayTool {
       requireApproval: false,
     }),
     sandboxSpec: {
+      /** 方法 `resolve`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
       resolve(input) {
         const filePath = requirePath(input);
         const content = requireString(input.content, "input.content required");
@@ -132,6 +151,7 @@ function createFileWriteTool(projectRoot: string): GatewayTool {
         };
       },
     },
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const filePath = requirePath(input);
       const target = resolveWorkspaceTarget(projectRoot, filePath);
@@ -140,6 +160,11 @@ function createFileWriteTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createFileEditTool` 的职责说明。
+ * `createFileEditTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createFileEditTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -186,6 +211,7 @@ function createFileEditTool(projectRoot: string): GatewayTool {
       requireApproval: false,
     }),
     sandboxSpec: {
+      /** 方法 `resolve`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
       resolve(input) {
         const filePath = requirePath(input);
         const oldText = requireString(
@@ -219,6 +245,7 @@ function createFileEditTool(projectRoot: string): GatewayTool {
         };
       },
     },
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const filePath = requirePath(input);
       const target = resolveWorkspaceTarget(projectRoot, filePath);
@@ -227,6 +254,11 @@ function createFileEditTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createFileListTool` 的职责说明。
+ * `createFileListTool` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createFileListTool(projectRoot: string): GatewayTool {
   const schema = filePathSchema();
 
@@ -252,6 +284,7 @@ function createFileListTool(projectRoot: string): GatewayTool {
       allowWrite: false,
     }),
     sandboxSpec: {
+      /** 方法 `resolve`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
       resolve(input) {
         const filePath = requirePath(input);
         const target = resolveWorkspaceTarget(projectRoot, filePath);
@@ -272,6 +305,7 @@ function createFileListTool(projectRoot: string): GatewayTool {
         };
       },
     },
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const filePath = requirePath(input);
       const target = resolveWorkspaceTarget(projectRoot, filePath);
@@ -286,6 +320,11 @@ function createFileListTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `resolveWorkspaceTarget` 的职责说明。
+ * `resolveWorkspaceTarget` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function resolveWorkspaceTarget(projectRoot: string, inputPath: string): string {
   const target = path.resolve(projectRoot, inputPath);
   assertInsideWorkspace(target, projectRoot);
@@ -296,6 +335,11 @@ function resolveWorkspaceTarget(projectRoot: string, inputPath: string): string 
   return target;
 }
 
+/**
+ * 函数 `filePathSchema` 的职责说明。
+ * `filePathSchema` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function filePathSchema() {
   return {
     type: "object",
@@ -308,10 +352,20 @@ function filePathSchema() {
   } satisfies Record<string, unknown>;
 }
 
+/**
+ * 函数 `requirePath` 的职责说明。
+ * `requirePath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function requirePath(input: GatewayToolInput): string {
   return requireString(input.path, "input.path required");
 }
 
+/**
+ * 函数 `requireString` 的职责说明。
+ * `requireString` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function requireString(value: unknown, message: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(message);
@@ -320,6 +374,11 @@ function requireString(value: unknown, message: string): string {
   return value;
 }
 
+/**
+ * 函数 `successPathOutput` 的职责说明。
+ * `successPathOutput` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function successPathOutput(projectRoot: string, target: string): GatewayToolOutput {
   return {
     ok: true,
@@ -332,19 +391,39 @@ function successPathOutput(projectRoot: string, target: string): GatewayToolOutp
   };
 }
 
+/**
+ * 函数 `buildNodeCommand` 的职责说明。
+ * `buildNodeCommand` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function buildNodeCommand(lines: string[]): string {
   return `node - <<'NODE'\n${lines.join("\n")}\nNODE`;
 }
 
+/**
+ * 函数 `toContainerPath` 的职责说明。
+ * `toContainerPath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function toContainerPath(projectRoot: string, target: string): string {
   const relativePath = relativeWorkspacePath(projectRoot, target);
   return relativePath ? path.posix.join("/workspace", relativePath) : "/workspace";
 }
 
+/**
+ * 函数 `relativeWorkspacePath` 的职责说明。
+ * `relativeWorkspacePath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function relativeWorkspacePath(projectRoot: string, target: string): string {
   return path.relative(projectRoot, target).replace(/\\/g, "/");
 }
 
+/**
+ * 函数 `createFileGlobTool` 的职责说明。
+ * `createFileGlobTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createFileGlobTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -382,6 +461,7 @@ function createFileGlobTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       allowWrite: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const pattern = requireString(input.pattern, "input.pattern required");
       const maxResults = clampNumber(input.maxResults, 100, 1, 500);
@@ -408,6 +488,11 @@ function createFileGlobTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createFileGrepTool` 的职责说明。
+ * `createFileGrepTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createFileGrepTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -464,6 +549,7 @@ function createFileGrepTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       allowWrite: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const query = requireString(input.query, "input.query required");
       const searchPath = typeof input.path === "string" && input.path.trim()
@@ -494,6 +580,11 @@ function createFileGrepTool(projectRoot: string): GatewayTool {
       const results: Array<{ file: string; line: number; preview: string; context: string[] }> = [];
       let filesSearched = 0;
 
+      /**
+       * 函数 `searchDir` 的职责说明。
+       * `searchDir` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+       * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+       */
       function searchDir(dir: string) {
         let entries: fs.Dirent[];
         try {
@@ -562,6 +653,11 @@ function createFileGrepTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createFileMultiEditTool` 的职责说明。
+ * `createFileMultiEditTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createFileMultiEditTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -608,6 +704,7 @@ function createFileMultiEditTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       requireApproval: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const filePath = requirePath(input);
       const target = resolveWorkspaceTarget(projectRoot, filePath);
@@ -667,6 +764,11 @@ function createFileMultiEditTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `createFilePatchTool` 的职责说明。
+ * `createFilePatchTool` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createFilePatchTool(projectRoot: string): GatewayTool {
   const schema = {
     type: "object",
@@ -709,6 +811,7 @@ function createFilePatchTool(projectRoot: string): GatewayTool {
       allowHostExecution: true,
       requireApproval: false,
     }),
+    /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async invoke(input) {
       const filePath = requirePath(input);
       const target = resolveWorkspaceTarget(projectRoot, filePath);
@@ -725,8 +828,8 @@ function createFilePatchTool(projectRoot: string): GatewayTool {
       const lines = content.split("\n");
       const patchLines = patchContent.split("\n");
 
-      interface HunkEntry { type: "ctx" | "del" | "add"; text: string }
-      interface Hunk { start: number; entries: HunkEntry[] }
+            interface HunkEntry { type: "ctx" | "del" | "add"; text: string }
+            interface Hunk { start: number; entries: HunkEntry[] }
       const hunks: Hunk[] = [];
       let currentHunk: Hunk | null = null;
 
@@ -824,6 +927,11 @@ function createFilePatchTool(projectRoot: string): GatewayTool {
   };
 }
 
+/**
+ * 函数 `clampNumber` 的职责说明。
+ * `clampNumber` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function clampNumber(value: unknown, defaultVal: number, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return defaultVal;
   return Math.max(min, Math.min(max, Math.floor(value)));

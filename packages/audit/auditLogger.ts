@@ -1,3 +1,4 @@
+
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AuditEvent } from "./types";
@@ -9,6 +10,7 @@ import type { AuditEvent } from "./types";
  * 只要求调用方暴露一个 `log()` 方法即可。
  */
 export interface AuditLogger {
+  /** 方法 `log`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
   log(event: AuditEvent): Promise<void>;
 }
 
@@ -19,6 +21,7 @@ export interface AuditLogger {
  * 写日志失败时只打印警告，不允许影响主业务链路。
  */
 export class FileAuditLogger implements AuditLogger {
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(private readonly filePath = "logs/gateway-audit.jsonl") {}
 
   /**

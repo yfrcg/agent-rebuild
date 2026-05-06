@@ -1,16 +1,4 @@
-/**
- * fileManager.ts
- *
- * 记忆文件管理模块：负责记忆文件的元信息管理、增量索引判断、以及
- * mem_files、mem_docs、mem_fts、mem_embeddings 四张表的级联增删改操作。
- *
- * 核心设计：
- * - 以文件为粒度管理记忆，每条文件记录包含分块数量、索引状态、内容哈希等信息
- * - 通过内容哈希（MD5）判断文件是否变化，实现增量索引
- * - 分块配置版本号（chunk_config_key）和 embedding 模型版本号（embedder_key）
- *   用于判断是否需要重新分块或重新生成向量
- * - FTS 和 embedding 的状态分离追踪，各自独立管理索引生命周期
- */
+
 
 import * as fs from "fs";       // 文件操作：读取内容、获取 mtime
 import * as crypto from "crypto"; // 加密：生成文件 UUID 和内容 MD5 哈希
@@ -51,14 +39,19 @@ export interface FileRecord {
 
 /** 数据库语句接口抽象（兼容 better-sqlite3） */
 interface DbStmt {
+  /** 方法 `run`：负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。 */
   run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint };
+  /** 方法 `get`：负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。 */
   get(...params: unknown[]): unknown;
+  /** 方法 `all`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
   all(...params: unknown[]): unknown[];
 }
 
 /** 数据库连接接口抽象 */
 interface DbConn {
+  /** 方法 `exec`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
   exec(sql: string): void;
+  /** 方法 `prepare`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
   prepare(sql: string): DbStmt;
 }
 

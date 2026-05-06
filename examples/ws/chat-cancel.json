@@ -1,0 +1,8 @@
+{
+  "type": "req",
+  "id": "req_chat_cancel_001",
+  "method": "chat.cancel",
+  "params": {
+    "runId": "<RUN_ID>"
+  }
+}

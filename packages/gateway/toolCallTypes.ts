@@ -1,3 +1,4 @@
+
 import type { GatewaySandbox } from "./sandbox";
 import type {
   GatewayToolOutput,
@@ -40,6 +41,7 @@ export interface GatewayToolCallRequest extends ToolCall {
   planState?: GatewayPlanState;
   createdAt: string;
   projectBoundary?: GatewayProjectBoundary;
+  signal?: AbortSignal;
 }
 
 export interface GatewayToolCallRecord {
@@ -79,6 +81,7 @@ export interface GatewayToolCallCreateInput {
   permissionMode?: GatewayPermissionMode;
   planState?: GatewayPlanState;
   projectBoundary?: GatewayProjectBoundary;
+  signal?: AbortSignal;
 }
 
 export interface GatewayToolCallExecutorOptions {

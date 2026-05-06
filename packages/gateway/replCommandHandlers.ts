@@ -1,4 +1,6 @@
+
 import * as fs from "node:fs";
+import { randomBytes } from "node:crypto";
 
 import type { Interface as ReadlineInterface } from "node:readline";
 
@@ -88,6 +90,7 @@ export async function handleBuiltInGatewayCommand(
     context.sessionManager.incrementCurrentSessionMessageCount();
   };
 
+  /** 函数变量 `recordAudit`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
   const recordAudit = async (
     type: AuditEventType,
     message: string,
@@ -105,7 +108,7 @@ export async function handleBuiltInGatewayCommand(
     };
 
     const event = {
-      id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: `${type}-${Date.now()}-${randomBytes(6).toString("hex")}`,
       requestId: `session:${context.sessionManager.getCurrentSessionId()}`,
       type,
       message,
@@ -1284,6 +1287,11 @@ export async function handleBuiltInGatewayCommand(
   };
 }
 
+/**
+ * 函数 `createPlanState` 的职责说明。
+ * `createPlanState` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function createPlanState(
   sessionId: string,
   existing?: GatewayPlanState
@@ -1306,6 +1314,11 @@ function createPlanState(
   };
 }
 
+/**
+ * 函数 `persistPlanState` 的职责说明。
+ * `persistPlanState` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function persistPlanState(planState: GatewayPlanState): void {
   if (!planState.planPath) {
     return;
@@ -1325,6 +1338,11 @@ function persistPlanState(planState: GatewayPlanState): void {
   fs.writeFileSync(planState.planPath, body, "utf8");
 }
 
+/**
+ * 函数 `normalizePlanApprovalMode` 的职责说明。
+ * `normalizePlanApprovalMode` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizePlanApprovalMode(
   payload: string
 ): GatewayPlanApprovalMode {

@@ -1,3 +1,4 @@
+
 import { loadBootstrapContext } from "../core/src/bootstrap";
 import type { ChatMessage } from "../model/types";
 import type {
@@ -106,6 +107,7 @@ export class ContextBuilder {
     activeSkillNames?: string[];
   }) => string;
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(options: ContextBuilderOptions = {}) {
     this.maxMemoryContextChars =
       options.maxMemoryContextChars ?? DEFAULT_MAX_MEMORY_CONTEXT_CHARS;
@@ -131,6 +133,11 @@ export class ContextBuilder {
     return this.buildContext(userInput, memoryResults).messages;
   }
 
+  /**
+   * 方法 `buildContext` 的职责说明。
+   * `buildContext` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   buildContext(
     userInput: string,
     memoryResults: MemorySearchResult[] = [],
@@ -380,6 +387,11 @@ export class ContextBuilder {
   }
 }
 
+/**
+ * 函数 `buildModeContext` 的职责说明。
+ * `buildModeContext` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function buildModeContext(
   permissionMode: GatewayPermissionMode | undefined,
   planState: GatewayPlanState | undefined

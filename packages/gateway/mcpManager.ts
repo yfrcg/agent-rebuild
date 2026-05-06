@@ -1,3 +1,4 @@
+
 import { createGatewayToolsFromMcpClient } from "./mcpToolAdapter";
 import { GatewayMcpClient } from "./mcpClient";
 import type { GatewaySandbox } from "./sandbox";
@@ -123,6 +124,11 @@ export class GatewayMcpManager {
     }
   }
 
+  /**
+   * 方法 `connectSingleServer` 的职责说明。
+   * `connectSingleServer` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   private async connectSingleServer(config: GatewayMcpServerConfig): Promise<void> {
     if (!config.enabled) {
       this.statuses.set(config.id, {

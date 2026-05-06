@@ -1,3 +1,4 @@
+
 export interface RateLimitDecision {
   allowed: boolean;
   retryAfterMs: number;
@@ -22,6 +23,7 @@ export interface GatewayRateLimiterOptions {
 export class GatewayRateLimiter {
   private readonly requests = new Map<string, number[]>();
 
+  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(private readonly options: GatewayRateLimiterOptions) {}
 
   /**

@@ -1,3 +1,4 @@
+
 import type { Interface as ReadlineInterface } from "node:readline";
 
 /**
@@ -11,6 +12,7 @@ export function askReplInput(
   question: string
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
+    /** 函数变量 `handleClose`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
     const handleClose = () => {
       reject(new Error("readline closed"));
     };

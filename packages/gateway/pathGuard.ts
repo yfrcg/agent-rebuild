@@ -1,3 +1,4 @@
+
 import { existsSync, realpathSync } from "node:fs";
 import * as path from "node:path";
 
@@ -18,6 +19,11 @@ const DANGEROUS_HOME_SEGMENTS = [
   ".config",
 ];
 
+/**
+ * 函数 `normalizeSafePath` 的职责说明。
+ * `normalizeSafePath` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function normalizeSafePath(inputPath: string): string {
   const trimmed = inputPath.trim();
   if (!trimmed) {
@@ -27,6 +33,11 @@ export function normalizeSafePath(inputPath: string): string {
   return path.normalize(expandTilde(trimmed));
 }
 
+/**
+ * 函数 `assertInsideWorkspace` 的职责说明。
+ * `assertInsideWorkspace` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function assertInsideWorkspace(targetPath: string, workspaceRoot: string): void {
   const targetResolved = path.resolve(normalizeSafePath(targetPath));
   const workspaceResolved = path.resolve(normalizeSafePath(workspaceRoot));
@@ -41,6 +52,11 @@ export function assertInsideWorkspace(targetPath: string, workspaceRoot: string)
   }
 }
 
+/**
+ * 函数 `isDangerousHostPath` 的职责说明。
+ * `isDangerousHostPath` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 export function isDangerousHostPath(candidatePath: string): boolean {
   const normalized = normalizeForComparison(path.resolve(normalizeSafePath(candidatePath)));
   const homeDir = normalizeForComparison(path.resolve(expandTilde("~")));
@@ -67,6 +83,11 @@ export function isDangerousHostPath(candidatePath: string): boolean {
   });
 }
 
+/**
+ * 函数 `expandTilde` 的职责说明。
+ * `expandTilde` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function expandTilde(inputPath: string): string {
   if (
     inputPath === "~" ||
@@ -80,10 +101,20 @@ function expandTilde(inputPath: string): string {
   return inputPath;
 }
 
+/**
+ * 函数 `homeDirectory` 的职责说明。
+ * `homeDirectory` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function homeDirectory(): string {
   return process.env.USERPROFILE ?? process.env.HOME ?? path.resolve("/");
 }
 
+/**
+ * 函数 `normalizeForComparison` 的职责说明。
+ * `normalizeForComparison` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
 function normalizeForComparison(inputPath: string): string {
   return inputPath.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() || "/";
 }

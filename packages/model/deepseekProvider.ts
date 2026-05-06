@@ -1,4 +1,11 @@
-import type { ChatMessage, ModelProvider, ModelResponse, StreamingModelProvider } from "./types";
+
+import type {
+  ChatMessage,
+  ModelGenerateOptions,
+  ModelProvider,
+  ModelResponse,
+  StreamingModelProvider,
+} from "./types";
 
 /**
  * DeepSeek 提供商的可选构造参数。
@@ -53,6 +60,7 @@ interface DeepSeekStreamChunk {
  */
 export class DeepSeekProvider implements StreamingModelProvider {
   readonly name = "deepseek";
+  readonly supportsStreaming = true;
 
   private readonly apiKey?: string;
   private readonly baseUrl: string;
@@ -79,12 +87,24 @@ export class DeepSeekProvider implements StreamingModelProvider {
         "https://api.deepseek.com/v1/chat/completions"
     );
     this.model = options.model ?? process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
-    this.maxTokens =
-      options.maxTokens ?? this.readNumberEnv("DEEPSEEK_MAX_TOKENS", 1024);
-    this.temperature =
-      options.temperature ?? this.readNumberEnv("DEEPSEEK_TEMPERATURE", 0.7);
-    this.timeoutMs =
-      options.timeoutMs ?? this.readNumberEnv("DEEPSEEK_TIMEOUT_MS", 30000);
+    this.maxTokens = this.readNumberOption(
+      options.maxTokens,
+      "DEEPSEEK_MAX_TOKENS",
+      1024,
+      { min: 1, max: 128_000, integer: true }
+    );
+    this.temperature = this.readNumberOption(
+      options.temperature,
+      "DEEPSEEK_TEMPERATURE",
+      0.7,
+      { min: 0, max: 2 }
+    );
+    this.timeoutMs = this.readNumberOption(
+      options.timeoutMs,
+      "DEEPSEEK_TIMEOUT_MS",
+      30_000,
+      { min: 1000, max: 600_000 }
+    );
   }
 
   /**
@@ -92,8 +112,24 @@ export class DeepSeekProvider implements StreamingModelProvider {
    *
    * 这是对外最正式的调用入口，会同时返回文本和原始响应。
    */
-  async generate(messages: ChatMessage[]): Promise<ModelResponse> {
-    const text = await this.chat(messages);
+  async generate(
+    messages: ChatMessage[],
+    options?: ModelGenerateOptions
+  ): Promise<ModelResponse> {
+    if (options?.onDelta) {
+      let text = "";
+      for await (const delta of this.generateStream(messages, { signal: options.signal })) {
+        throwIfAborted(options.signal);
+        text += delta;
+        await options.onDelta(delta);
+      }
+      return {
+        text,
+        raw: this.lastRawResponse,
+      };
+    }
+
+    const text = await this.chat(messages, { signal: options?.signal });
     return {
       text,
       raw: this.lastRawResponse,
@@ -114,6 +150,11 @@ export class DeepSeekProvider implements StreamingModelProvider {
     return this.chat(messages);
   }
 
+  /**
+   * 方法 `generateStream` 的职责说明。
+   * `generateStream` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
   async *generateStream(
     messages: ChatMessage[],
     options?: { signal?: AbortSignal }
@@ -213,12 +254,18 @@ export class DeepSeekProvider implements StreamingModelProvider {
    * - JSON 解析
    * - 模型返回结构兼容
    */
-  async chat(messages: ChatMessage[]): Promise<string> {
+  async chat(
+    messages: ChatMessage[],
+    options?: { signal?: AbortSignal }
+  ): Promise<string> {
     this.assertConfig();
 
     const endpoint = this.resolveEndpoint(this.baseUrl);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    if (options?.signal) {
+      options.signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
 
     try {
       const response = await fetch(endpoint, {
@@ -428,7 +475,11 @@ export class DeepSeekProvider implements StreamingModelProvider {
   /**
    * 从环境变量读取数值配置，非法时回退默认值。
    */
-  private readNumberEnv(name: string, fallback: number): number {
+  private readNumberEnv(
+    name: string,
+    fallback: number,
+    opts?: { min?: number; max?: number; integer?: boolean }
+  ): number {
     const raw = process.env[name];
 
     if (!raw) {
@@ -436,7 +487,76 @@ export class DeepSeekProvider implements StreamingModelProvider {
     }
 
     const value = Number(raw);
-    return Number.isFinite(value) ? value : fallback;
+    if (!Number.isFinite(value)) {
+      return fallback;
+    }
+
+    if (opts?.integer && !Number.isInteger(value)) {
+      return fallback;
+    }
+    if (opts?.min !== undefined && value < opts.min) {
+      return fallback;
+    }
+    if (opts?.max !== undefined && value > opts.max) {
+      return fallback;
+    }
+
+    return value;
+  }
+
+  /**
+   * 方法 `readNumberOption` 的职责说明。
+   * `readNumberOption` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
+  private readNumberOption(
+    value: number | undefined,
+    envName: string,
+    fallback: number,
+    opts?: { min?: number; max?: number; integer?: boolean }
+  ): number {
+    if (value === undefined) {
+      return this.readNumberEnv(envName, fallback, opts);
+    }
+
+    return this.normalizeNumber(value, fallback, opts);
+  }
+
+  /**
+   * 方法 `normalizeNumber` 的职责说明。
+   * `normalizeNumber` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   */
+  private normalizeNumber(
+    value: number,
+    fallback: number,
+    opts?: { min?: number; max?: number; integer?: boolean }
+  ): number {
+    if (!Number.isFinite(value)) {
+      return fallback;
+    }
+    if (opts?.integer && !Number.isInteger(value)) {
+      return fallback;
+    }
+    if (opts?.min !== undefined && value < opts.min) {
+      return fallback;
+    }
+    if (opts?.max !== undefined && value > opts.max) {
+      return fallback;
+    }
+
+    return value;
+  }
+}
+
+/**
+ * 函数 `throwIfAborted` 的职责说明。
+ * `throwIfAborted` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ */
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error("RUN_CANCELLED");
   }
 }
 

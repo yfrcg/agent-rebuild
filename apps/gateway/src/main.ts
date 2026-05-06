@@ -1,142 +1,49 @@
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
 
-import { FileAuditLogger } from "../../../packages/audit/auditLogger";
-import { resolveProjectRoot } from "../../../packages/core/src/config";
-
 import { printBootstrapStatus } from "../../../packages/gateway/bootstrapPrinter";
-import { createBuiltinToolRegistry } from "../../../packages/gateway/builtinTools";
-import { GatewayCircuitBreaker } from "../../../packages/gateway/circuitBreaker";
-import { loadGatewayConfig } from "../../../packages/gateway/config";
 import { parseGatewayCommand } from "../../../packages/gateway/commandParser";
-import { loadEnvFile } from "../../../packages/gateway/env";
-import { Gateway } from "../../../packages/gateway/gateway";
-import { createGatewayMemorySearch } from "../../../packages/gateway/memoryAdapter";
-import { loadGatewayMcpServerConfigs } from "../../../packages/gateway/mcpConfig";
-import { GatewayMcpManager } from "../../../packages/gateway/mcpManager";
-import type { GatewayMcpServerConfig } from "../../../packages/gateway/mcpTypes";
-import { GatewayMetricsCollector } from "../../../packages/gateway/metricsCollector";
-import { createModelProvider } from "../../../packages/gateway/modelProviderFactory";
 import { printGatewayResponse } from "../../../packages/gateway/outputPrinter";
-import { GatewayRateLimiter } from "../../../packages/gateway/rateLimiter";
 import { createGatewayRequest } from "../../../packages/gateway/requestHandler";
 import { printGatewayHelp } from "../../../packages/gateway/replHelp";
 import { askReplInput } from "../../../packages/gateway/replInput";
 import { handleBuiltInGatewayCommand } from "../../../packages/gateway/replCommandHandlers";
+import { createGatewayRuntime } from "../../../packages/gateway/runtime";
 import { printRuntimeConfig } from "../../../packages/gateway/runtimeConfigPrinter";
-import { GatewaySandbox } from "../../../packages/gateway/sandbox";
 import { maybeAutoCompactSession } from "../../../packages/gateway/sessionAutoCompaction";
-import { SessionManager } from "../../../packages/gateway/sessionManager";
-import { SessionStore } from "../../../packages/gateway/sessionStore";
-import { ToolCallExecutor } from "../../../packages/gateway/toolCallExecutor";
 import { recordTranscript } from "../../../packages/gateway/transcriptRecorder";
 
 /**
- * 启动 Gateway 的命令行主循环。
- *
- * 这个函数负责把整个应用的依赖关系串起来：
- * 1. 先加载 `.env` 和运行时配置。
- * 2. 初始化模型、记忆检索、MCP 管理器、审计、限流、熔断、指标等基础组件。
- * 3. 进入 REPL 循环，持续读取用户输入。
- * 4. 先尝试执行内建命令，未命中时再走正常的 Gateway 对话链路。
- * 5. 将用户消息和模型回复都写入 transcript，保证后续可以做会话恢复与压缩。
+ * 函数 `main` 的职责说明。
+ * `main` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
+ * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
 async function main(): Promise<void> {
-  // 优先加载本地环境变量，让后续配置读取拥有完整上下文。
-  loadEnvFile();
+  const runtime = await createGatewayRuntime();
+  const {
+    config,
+    gateway,
+    sessionManager,
+    toolRegistry,
+    toolCallExecutor,
+    mcpManager,
+    sandbox,
+    auditLogger,
+  } = runtime;
 
-  const projectRoot = resolveProjectRoot(process.env);
-  const config = loadGatewayConfig();
-  const sessionStore = new SessionStore({
-    defaultAllowedReadRoots: config.sandboxAllowedRoots,
-    defaultAllowedWriteRoots: config.sandboxAllowedRoots,
-    defaultPermission: "project-write",
-  });
-  const sessionManager = new SessionManager(sessionStore);
-  const sandbox = new GatewaySandbox({
-    mode: config.sandboxMode,
-    allowedRoots: config.sandboxAllowedRoots,
-  });
-  let mcpConfigs: GatewayMcpServerConfig[] = [];
-
-  // MCP 配置属于增强能力，读取失败时只降级，不阻断主程序启动。
-  try {
-    mcpConfigs = loadGatewayMcpServerConfigs();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[mcp] config load failed, continue without MCP servers. ${message}`);
-  }
-
-  const mcpLazy = Boolean((config as unknown as Record<string, unknown>).mcpLazy);
-  const mcpManager = new GatewayMcpManager(mcpConfigs, sandbox, { lazy: mcpLazy });
-  const modelProvider = createModelProvider(config.model);
-  const rateLimiter = new GatewayRateLimiter({
-    maxRequests: config.rateLimitMaxRequests,
-    windowMs: config.rateLimitWindowMs,
-  });
-  const circuitBreaker = new GatewayCircuitBreaker({
-    failureThreshold: config.circuitFailureThreshold,
-    cooldownMs: config.circuitCooldownMs,
-  });
-  const metricsCollector = new GatewayMetricsCollector({
-    maxRtMs: config.sloMaxRtMs,
-    maxErrorRate: config.sloMaxErrorRate,
-  });
-
-  // 启动时先把系统上下文、配置和帮助信息打印出来，便于操作者确认环境状态。
   printBootstrapStatus();
   printRuntimeConfig(config);
   printGatewayHelp();
-
-  console.log(`[gateway] model provider: ${modelProvider.name}`);
-
-  const auditLogger = new FileAuditLogger(config.auditLogPath);
-  const memorySearch = createGatewayMemorySearch(config.memoryTopK);
-  const toolRegistry = createBuiltinToolRegistry({
-    memorySearch,
-    memoryTopK: config.memoryTopK,
-    projectRoot,
-    tavilyApiKey: config.tavilyApiKey || undefined,
-  });
-
-  if (mcpLazy) {
-    console.log("[mcp] lazy mode: servers will connect on first handle() call");
-  } else {
-    await mcpManager.connectEnabledServers();
-    await mcpManager.registerTools(toolRegistry);
-  }
-
-  const toolCallExecutor = new ToolCallExecutor({
-    registry: toolRegistry,
-    auditLogger,
-    sandbox,
-  });
-
-  const gateway = new Gateway({
-    memorySearch,
-    modelProvider,
-    toolRegistry,
-    toolCallExecutor,
-    auditLogger,
-    debug: config.debug,
-    rateLimiter,
-    circuitBreaker,
-    metricsCollector,
-    sandbox,
-    autoToolLoopEnabled: config.autoToolLoopEnabled,
-    autoToolLoopMaxSteps: config.autoToolLoopMaxSteps,
-    devTaskMaxSteps: config.devTaskMaxSteps,
-    devTaskMaxFixRounds: config.devTaskMaxFixRounds,
-    sessionManager,
-    mcpManager: mcpLazy ? mcpManager : undefined,
-  });
+  console.log(`[gateway] model provider: ${config.model}`);
 
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
   });
 
+  /** 函数变量 `maybeRunSessionCompaction`：保存可调用逻辑，调用方依赖它完成对应流程或测试夹具行为。 */
   const maybeRunSessionCompaction = (): void => {
     const activeSessionId = sessionManager.getCurrentSessionId();
     const result = maybeAutoCompactSession(activeSessionId, {
@@ -171,14 +78,12 @@ async function main(): Promise<void> {
         throw err;
       }
 
-      // 读取一行输入并去掉首尾空白，空输入直接忽略。
       const raw = rawInput.trim();
       if (!raw) continue;
 
       const command = parseGatewayCommand(raw);
       const sessionId = sessionManager.getCurrentSessionId();
 
-      // 无论是命令还是普通聊天，用户原始输入都先写入会话记录。
       recordTranscript(sessionId, "user", command.raw);
       sessionManager.incrementCurrentSessionMessageCount();
 
@@ -198,27 +103,26 @@ async function main(): Promise<void> {
         break;
       }
 
-      // 命令已处理完成时，不再进入模型对话链路。
       if (commandResult.handled) {
         maybeRunSessionCompaction();
         continue;
       }
 
+      const currentSession = sessionManager.getCurrentSession();
       const request = createGatewayRequest(command.payload ?? command.raw, {
         sessionId: sessionManager.getCurrentSessionId(),
-        activeSkills: sessionManager.getCurrentSession().activeSkills ?? [],
-        permissionMode:
-          sessionManager.getCurrentSession().permissionMode ?? "default",
-        planState: sessionManager.getCurrentSession().planState,
+        activeSkills: currentSession.activeSkills ?? [],
+        permissionMode: currentSession.permissionMode ?? "default",
+        planState: currentSession.planState,
       });
       const response = await gateway.handle(request);
 
       printGatewayResponse(response);
 
-      const currentSession = sessionManager.getCurrentSession();
-      if (currentSession.permissionMode === "plan" && currentSession.planState?.active) {
+      const sessionAfterResponse = sessionManager.getCurrentSession();
+      if (sessionAfterResponse.permissionMode === "plan" && sessionAfterResponse.planState?.active) {
         const updatedPlan = {
-          ...currentSession.planState,
+          ...sessionAfterResponse.planState,
           status: "awaiting_approval" as const,
           summary: response.text.split(/\r?\n/, 1)[0]?.slice(0, 200),
           content: response.text,
@@ -246,17 +150,14 @@ async function main(): Promise<void> {
         sessionManager.setCurrentSessionPlanState(updatedPlan);
       }
 
-
-      // 回复记录写入当前活跃会话，而不是沿用旧变量，避免命令切换会话后写错文件。
       const activeSessionId = sessionManager.getCurrentSessionId();
       recordTranscript(activeSessionId, "assistant", response.text);
       sessionManager.incrementCurrentSessionMessageCount();
       maybeRunSessionCompaction();
     }
   } finally {
-    // 退出时要主动释放终端与 MCP 连接，避免遗留后台资源。
     rl.close();
-    await mcpManager.close();
+    await runtime.close();
   }
 }
 
