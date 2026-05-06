@@ -17,6 +17,8 @@
     "scheduler": "tsx scripts/scheduler.ts",
     "gateway": "tsx apps/gateway/src/main.ts",
     "gateway:ws": "tsx apps/gateway/src/ws-main.ts",
+    "web:dev": "npm --prefix apps/web-ui run dev",
+    "web:build": "npm --prefix apps/web-ui run build",
     "gateway:smoke:ws": "tsx scripts/smoke-ws.ts",
     "gateway:smoke": "tsx scripts/smoke-gateway.ts",
     "typecheck": "tsc --noEmit",

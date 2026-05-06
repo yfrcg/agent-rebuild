@@ -236,6 +236,84 @@ export class GatewayMcpManager {
     }
   }
 
+  async addOrUpdateServer(
+    config: GatewayMcpServerConfig,
+    registry: ToolRegistry
+  ): Promise<GatewayMcpServerStatus> {
+    const existingIndex = this.configs.findIndex((item) => item.id === config.id);
+    if (existingIndex >= 0) {
+      this.configs[existingIndex] = config;
+      const existingClient = this.clients.get(config.id);
+      if (existingClient) {
+        try {
+          await existingClient.close();
+        } catch {
+          // replacing a server should not fail because the old process refused to close
+        }
+      }
+      this.clients.delete(config.id);
+      this.tools.delete(config.id);
+    } else {
+      this.configs.push(config);
+    }
+
+    this.statuses.set(config.id, {
+      id: config.id,
+      name: config.name,
+      enabled: config.enabled,
+      connected: false,
+      toolCount: 0,
+      launchMode:
+        config.isolation?.enabled && config.isolation.mode === "restricted"
+          ? "managed-runner"
+          : "direct",
+      isolationMode: !config.isolation?.enabled ? "off" : config.isolation.mode,
+      runtimeRoot: config.isolation?.runtimeRoot,
+      cwd: config.cwd,
+      command: config.command,
+      phase: config.enabled ? "configured" : "disabled",
+    });
+
+    await this.connectSingleServer(config);
+    const client = this.clients.get(config.id);
+    const status = this.statuses.get(config.id);
+    if (!client || !status?.connected) {
+      return this.statuses.get(config.id)!;
+    }
+
+    try {
+      const discoveredTools = await client.listTools();
+      this.tools.set(config.id, discoveredTools);
+      const gatewayTools = await createGatewayToolsFromMcpClient(client);
+      let registeredCount = 0;
+
+      for (const tool of gatewayTools) {
+        try {
+          registry.register(tool);
+          registeredCount += 1;
+        } catch {
+          // Duplicate tool names can happen when replacing a running server.
+        }
+      }
+
+      const nextStatus = {
+        ...client.getStatus(),
+        toolCount: registeredCount,
+      };
+      this.statuses.set(config.id, nextStatus);
+      return nextStatus;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const nextStatus = {
+        ...client.getStatus(),
+        connected: false,
+        error: `[mcp] failed to discover/register tools: ${message}`,
+      };
+      this.statuses.set(config.id, nextStatus);
+      return nextStatus;
+    }
+  }
+
   /**
    * 列出全部 MCP 服务状态。
    *

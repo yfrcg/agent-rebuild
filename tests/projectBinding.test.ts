@@ -473,7 +473,7 @@ test("bindProjectDir rejects system directories", () => {
   }
 });
 
-test("bindProjectDir rejects path outside allowed roots", () => {
+test("bindProjectDir allows existing non-system path outside configured roots", () => {
   const workspace = createTempWorkspace();
   try {
     const manager = createSessionManager(workspace);
@@ -483,10 +483,9 @@ test("bindProjectDir rejects path outside allowed roots", () => {
     const resolvedOutside = path.resolve(outsideDir);
     fs.mkdirSync(resolvedOutside, { recursive: true });
 
-    assert.throws(
-      () => manager.bindProjectDir(sessionId, resolvedOutside, [workspace]),
-      /allowed roots|Refused/
-    );
+    const { session } = manager.bindProjectDir(sessionId, resolvedOutside, [workspace]);
+    assert.equal(session.projectDir, resolvedOutside);
+    assert.equal(session.projectBound, true);
 
     fs.rmSync(resolvedOutside, { recursive: true, force: true });
   } finally {

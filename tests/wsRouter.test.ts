@@ -73,6 +73,37 @@ test("ws router creates sessions", async () => {
   });
 });
 
+test("ws router renames a specified existing session and emits update", async () => {
+  await withRouter(async ({ client, context, socket, sessionId }) => {
+    context.runtime.sessionManager.createSession("Other");
+
+    const response = await handleWsRequest(
+      client,
+      req("session.rename", { sessionId, name: "Renamed Default" }),
+      context
+    );
+    const payload = response?.payload as Record<string, unknown>;
+    const renamed = context.runtime.sessionManager
+      .listSessions()
+      .find((session) => session.id === sessionId);
+
+    assert.equal(response?.ok, true);
+    assert.equal(payload.id, sessionId);
+    assert.equal(payload.name, "Renamed Default");
+    assert.equal(payload.displayName, "Renamed Default");
+    assert.equal(renamed?.name, "Renamed Default");
+    assert.equal(
+      socket.messages.some(
+        (message) =>
+          message.event === "session.updated" &&
+          message.sessionId === sessionId &&
+          (message.payload as Record<string, unknown>).name === "Renamed Default"
+      ),
+      true
+    );
+  });
+});
+
 test("ws router lists tools", async () => {
   await withRouter(async ({ client, context }) => {
     const response = await handleWsRequest(client, req("tool.list"), context);

@@ -21,6 +21,13 @@ export type GatewayWsMethod =
   | "chat.cancel"
   | "memory.search"
   | "memory.write"
+  | "mcp.status"
+  | "mcp.tools"
+  | "mcp.config.add"
+  | "skills.list"
+  | "skills.current"
+  | "skills.use"
+  | "skills.clear"
   | "tool.list"
   | "tool.call"
   | "approval.list"
@@ -143,6 +150,13 @@ const GATEWAY_WS_METHODS = new Set<string>([
   "chat.cancel",
   "memory.search",
   "memory.write",
+  "mcp.status",
+  "mcp.tools",
+  "mcp.config.add",
+  "skills.list",
+  "skills.current",
+  "skills.use",
+  "skills.clear",
   "tool.list",
   "tool.call",
   "approval.list",

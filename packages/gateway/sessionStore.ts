@@ -167,7 +167,9 @@ export class SessionStore {
       return undefined;
     }
 
-    target.name = input.name.trim();
+    const name = input.name.trim();
+    target.name = name;
+    target.displayName = name;
     target.updatedAt = nowIso();
     this.saveSessions(sessions);
     return target;

@@ -4,6 +4,7 @@ build/
 coverage/
 .env
 *.log
+*.tsbuildinfo
 
 # Logs - ignore all content but keep directory structure via .gitkeep
 logs/*

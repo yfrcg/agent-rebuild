@@ -18,6 +18,7 @@ export interface GatewayRuntimeConfig {
   sandboxAllowedRoots: string[];
   confirmTokenTtlMs: number;
   autoToolLoopEnabled: boolean;
+  autoReviewGraphEnabled: boolean;
   autoToolLoopMaxSteps: number;
   devTaskMaxSteps: number;
   devTaskMaxFixRounds: number;
@@ -58,6 +59,7 @@ export function loadGatewayConfig(
     ),
     confirmTokenTtlMs: parsePositiveInteger(env.GATEWAY_CONFIRM_TOKEN_TTL_MS, 300_000),
     autoToolLoopEnabled: parseBoolean(env.GATEWAY_AUTO_TOOL_LOOP_ENABLED, true),
+    autoReviewGraphEnabled: parseBoolean(env.GATEWAY_AUTO_REVIEW_GRAPH_ENABLED, false),
     autoToolLoopMaxSteps: parsePositiveInteger(env.GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS, 5),
     devTaskMaxSteps: parsePositiveInteger(env.GATEWAY_DEV_TASK_MAX_STEPS, 15),
     devTaskMaxFixRounds: parsePositiveInteger(env.GATEWAY_DEV_TASK_MAX_FIX_ROUNDS, 3),

@@ -18,20 +18,15 @@ import type { GatewaySessionDevTaskState } from "./sessionTypes";
 import { resolveWorkspacePath } from "../core/src/config";
 import { readTranscript } from "../session/src/transcript";
 import { SessionMemoryManager } from "./sessionMemoryManager";
+import { isDangerousHostPath } from "./pathGuard";
 
 const FORBIDDEN_PATH_SEGMENTS = [
   "windows",
-  "users",
-  "appdata",
   "program files",
   "program files (x86)",
   "programdata",
   "$recycle.bin",
   "system volume information",
-];
-
-const DEFAULT_ALLOWED_PROJECT_ROOTS = [
-  path.resolve("D:\\WorkStation"),
 ];
 
 /**
@@ -137,6 +132,19 @@ export class SessionManager {
     return renamed;
   }
 
+  renameSession(sessionId: GatewaySessionId, name: string): GatewaySession {
+    const renamed = this.sessionStore.renameSession({
+      id: sessionId,
+      name,
+    });
+
+    if (!renamed) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    return renamed;
+  }
+
   /**
    * 方法 `setCurrentSessionSkills` 的职责说明。
    * `setCurrentSessionSkills` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
@@ -150,6 +158,19 @@ export class SessionManager {
 
     if (!updated) {
       throw new Error("Current session not found.");
+    }
+
+    return updated;
+  }
+
+  setSessionSkills(sessionId: GatewaySessionId, skillNames: string[]): GatewaySession {
+    const updated = this.sessionStore.setActiveSkills({
+      id: sessionId,
+      skillNames,
+    });
+
+    if (!updated) {
+      throw new Error(`Session not found: ${sessionId}`);
     }
 
     return updated;
@@ -337,6 +358,17 @@ export class SessionManager {
     return updated;
   }
 
+  incrementSessionMessageCount(
+    sessionId: GatewaySessionId,
+    count = 1
+  ): GatewaySession {
+    const updated = this.sessionStore.incrementMessageCount(sessionId, count);
+    if (!updated) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    return updated;
+  }
+
   /**
    * 方法 `bindProjectDir` 的职责说明。
    * `bindProjectDir` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
@@ -430,31 +462,25 @@ export class SessionManager {
    */
   private validateProjectDir(
     rawPath: string,
-    allowedProjectRoots?: string[]
+    _allowedProjectRoots?: string[]
   ): string {
     const resolved = path.resolve(rawPath);
-
-    const allowed = allowedProjectRoots ?? DEFAULT_ALLOWED_PROJECT_ROOTS;
     const lowerPath = resolved.toLowerCase().replace(/\//g, "\\");
-    const isExplicitlyAllowed = allowed.some((root) => {
-      const normalizedRoot = path.resolve(root).toLowerCase().replace(/\//g, "\\");
-      return lowerPath.startsWith(normalizedRoot + "\\") || lowerPath === normalizedRoot;
-    });
 
-    if (!isExplicitlyAllowed) {
-      for (const segment of FORBIDDEN_PATH_SEGMENTS) {
-        if (lowerPath.includes(`\\${segment}\\`) || lowerPath.endsWith(`\\${segment}`)) {
-          throw new Error(
-            `Refused to bind system directory: ${resolved} (matched forbidden segment: ${segment})`
-          );
-        }
-      }
-
-      if (!isExplicitlyAllowed) {
+    for (const segment of FORBIDDEN_PATH_SEGMENTS) {
+      if (lowerPath.includes(`\\${segment}\\`) || lowerPath.endsWith(`\\${segment}`)) {
         throw new Error(
-          `Project directory must be under one of the allowed roots: ${allowed.join(", ")}`
+          `Refused to bind system directory: ${resolved} (matched forbidden segment: ${segment})`
         );
       }
+    }
+
+    if (/^[a-z]:\\users$/i.test(lowerPath)) {
+      throw new Error(`Refused to bind system directory: ${resolved}`);
+    }
+
+    if (isDangerousHostPath(resolved)) {
+      throw new Error(`Refused to bind sensitive host directory: ${resolved}`);
     }
 
     if (!fs.existsSync(resolved)) {

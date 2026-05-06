@@ -115,6 +115,40 @@ export function getMcpConfigSources(): string[] {
   return [...MCP_CONFIG_SOURCES];
 }
 
+export function upsertProjectMcpServerConfig(
+  config: GatewayMcpServerConfig
+): { configPath: string; servers: GatewayMcpServerConfig[] } {
+  const existing = readJsonFile(MCP_CONFIG_FILE_PATH);
+  const servers = extractServersFromParsed(existing)
+    .map((entry, index) => {
+      try {
+        return parseServerConfig(entry, index);
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((entry): entry is GatewayMcpServerConfig => Boolean(entry));
+
+  const nextServers = servers.filter((server) => server.id !== config.id);
+  nextServers.push(config);
+
+  const dir = path.dirname(MCP_CONFIG_FILE_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  fs.writeFileSync(
+    MCP_CONFIG_FILE_PATH,
+    `${JSON.stringify({ servers: nextServers }, null, 2)}\n`,
+    "utf8"
+  );
+
+  return {
+    configPath: MCP_CONFIG_FILE_PATH,
+    servers: nextServers,
+  };
+}
+
 /**
  * 把单条未知结构的配置项解析成强类型 MCP 服务配置。
  *

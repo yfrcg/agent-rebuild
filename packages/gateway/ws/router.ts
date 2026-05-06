@@ -1,11 +1,15 @@
 
 import { readTranscript } from "../../session/src/transcript";
+import { discoverSkills, getSkillByName } from "../../core/src/skills";
+import { recordTranscript } from "../transcriptRecorder";
 import { readAuditTail } from "./auditTail";
 import { createGatewayRequest } from "../requestHandler";
 import { extractProjectBoundary } from "../sessionTypes";
 import { createGatewayToolCallRequest } from "../toolCallFactory";
 import type { GatewayToolCallRecord } from "../toolCallTypes";
 import type { GatewayRuntime } from "../runtime";
+import { upsertProjectMcpServerConfig } from "../mcpConfig";
+import type { GatewayMcpServerConfig } from "../mcpTypes";
 import type { ConnectionManager, WsClientConnection } from "./connectionManager";
 import type { GatewayWsAuthConfig } from "./auth";
 import type { GatewayWsMetricsCollector } from "./metrics";
@@ -70,7 +74,7 @@ export async function handleWsRequest(
     case "session.create":
       return handleSessionCreate(request, context);
     case "session.rename":
-      return handleSessionRename(request, context);
+      return handleSessionRename(client, request, context);
     case "session.bindProject":
       return handleSessionBindProject(request, context);
     case "session.getTranscript":
@@ -83,6 +87,26 @@ export async function handleWsRequest(
       return handleMemorySearch(request, context);
     case "memory.write":
       return handleMemoryWrite(request, context);
+    case "mcp.status":
+      return ok(request.id, {
+        statuses: context.runtime.mcpManager.listStatuses(),
+        total: context.runtime.mcpManager.listStatuses().length,
+      });
+    case "mcp.tools":
+      return ok(request.id, {
+        tools: context.runtime.mcpManager.listTools(),
+        total: context.runtime.mcpManager.listTools().length,
+      });
+    case "mcp.config.add":
+      return handleMcpConfigAdd(request, context);
+    case "skills.list":
+      return handleSkillsList(request);
+    case "skills.current":
+      return handleSkillsCurrent(request, context);
+    case "skills.use":
+      return handleSkillsUse(request, context);
+    case "skills.clear":
+      return handleSkillsClear(request, context);
     case "tool.list":
       return ok(request.id, context.runtime.toolRegistry.list());
     case "tool.call":
@@ -168,11 +192,16 @@ function handleConnect(
 function getRuntimeStatus(context: WsRouterContext): Record<string, unknown> {
   return {
     model: context.runtime.config.model,
+    modelProvider: context.runtime.modelProvider.name,
+    supportsStreaming: Boolean(context.runtime.modelProvider.supportsStreaming ?? false),
     debug: context.runtime.config.debug,
     sandboxMode: context.runtime.config.sandboxMode,
     toolCount: context.runtime.toolRegistry.list().length,
     sessionCount: context.runtime.sessionManager.listSessions().length,
     currentSessionId: context.runtime.sessionManager.getCurrentSessionId(),
+    autoToolLoopEnabled: context.runtime.config.autoToolLoopEnabled,
+    autoReviewGraphEnabled: context.runtime.config.autoReviewGraphEnabled,
+    sandboxAllowedRoots: context.runtime.config.sandboxAllowedRoots,
     metrics: context.runtime.metricsCollector.snapshot("closed"),
     wsMetrics: context.metrics?.snapshot(),
   };
@@ -208,15 +237,16 @@ function handleSessionCreate(request: WsRequest, context: WsRouterContext): WsRe
   return ok(request.id, session);
 }
 
-/** 重命名会话；v1 只允许操作当前会话，避免跨会话状态写入复杂化。 */
-function handleSessionRename(request: WsRequest, context: WsRouterContext): WsResponse {
+/** 重命名指定会话；未传 sessionId 时回落到当前会话。 */
+function handleSessionRename(client: WsClientConnection, request: WsRequest, context: WsRouterContext): WsResponse {
   const params = asRecord(request.params);
   const currentSessionId = context.runtime.sessionManager.getCurrentSessionId();
   const targetSessionId = typeof params?.sessionId === "string" ? params.sessionId : currentSessionId;
-  if (targetSessionId !== currentSessionId) {
-    return fail(request.id, "NOT_IMPLEMENTED", "session.rename v1 only supports the current session.");
+  if (!findSession(context.runtime, targetSessionId)) {
+    return fail(request.id, "NOT_FOUND", `Session not found: ${targetSessionId}`);
   }
-  const session = context.runtime.sessionManager.renameCurrentSession(String(params?.name));
+  const session = context.runtime.sessionManager.renameSession(targetSessionId, String(params?.name));
+  context.connections.subscribe(client.clientId, session.id);
   context.connections.broadcastToSession(session.id, {
     type: "event",
     event: "session.updated",
@@ -264,7 +294,10 @@ function handleSessionGetTranscript(request: WsRequest, context: WsRouterContext
   if (!findSession(context.runtime, sessionId)) {
     return fail(request.id, "NOT_FOUND", `Session not found: ${sessionId}`);
   }
-  return ok(request.id, readTranscript(sessionId));
+  return ok(request.id, {
+    sessionId,
+    messages: readTranscript(sessionId),
+  });
 }
 
 /**
@@ -297,6 +330,7 @@ function handleChatSend(
     return fail(request.id, "RATE_LIMITED", "Gateway has too many running chat runs.");
   }
 
+  recordSessionMessage(context, sessionId, "user", input);
   context.connections.subscribe(client.clientId, sessionId);
   const run = context.runs.createRun({ sessionId, requestId: request.id, clientId: client.clientId });
   context.metrics?.runStarted();
@@ -327,7 +361,29 @@ async function executeChatRun(
     event: "run.started",
     runId,
     sessionId: run.sessionId,
-    payload: { runId, inputPreview: input.slice(0, 200), startedAt: run.startedAt },
+    payload: {
+      runId,
+      inputPreview: input.slice(0, 200),
+      startedAt: run.startedAt,
+      model: context.runtime.config.model,
+      modelProvider: context.runtime.modelProvider.name,
+      supportsStreaming: Boolean(context.runtime.modelProvider.supportsStreaming ?? false),
+      autoToolLoopEnabled: context.runtime.config.autoToolLoopEnabled,
+      autoReviewGraphEnabled: context.runtime.config.autoReviewGraphEnabled,
+    },
+  });
+
+  context.connections.broadcastToSession(run.sessionId, {
+    type: "event",
+    event: "run.progress",
+    runId,
+    sessionId: run.sessionId,
+    payload: {
+      title: "准备上下文",
+      stage: "context",
+      state: "running",
+      detail: context.runtime.config.autoReviewGraphEnabled ? "多 Agent 编排已开启" : "单 Agent 模式",
+    },
   });
 
   try {
@@ -339,6 +395,20 @@ async function executeChatRun(
       permissionMode: session.permissionMode ?? "default",
       planState: session.planState,
     });
+
+    context.connections.broadcastToSession(run.sessionId, {
+      type: "event",
+      event: "run.progress",
+      runId,
+      sessionId: run.sessionId,
+      payload: {
+        title: "调用模型",
+        stage: "model",
+        state: "running",
+        detail: `${context.runtime.modelProvider.name} / ${context.runtime.config.model}`,
+      },
+    });
+
     const response = await context.runtime.gateway.handle(gatewayRequest, {
       signal: run.abortController.signal,
       onEvent: async (event) => {
@@ -348,7 +418,7 @@ async function executeChatRun(
             event: "chat.delta",
             runId,
             sessionId: run.sessionId,
-            payload: { delta: event.delta },
+            payload: { delta: event.delta, text: event.delta },
           });
         } else if (event.type === "tool.started") {
           context.connections.broadcastToSession(run.sessionId, {
@@ -370,6 +440,8 @@ async function executeChatRun(
       },
     });
 
+    const responseText = normalizeAssistantResponseText(response.text);
+    recordSessionMessage(context, run.sessionId, "assistant", responseText);
     context.connections.broadcastToSession(run.sessionId, {
       type: "event",
       event: "chat.completed",
@@ -377,7 +449,7 @@ async function executeChatRun(
       sessionId: run.sessionId,
       payload: {
         responseId: response.id,
-        text: response.text,
+        text: responseText,
         memoryUsed: response.memoryUsed,
         toolCalls: response.toolCalls,
         debug: response.debug,
@@ -491,6 +563,144 @@ function handleMemoryWrite(request: WsRequest, context: WsRouterContext): WsResp
     payload: auditPayload,
   });
   return ok(request.id, payload);
+}
+
+async function handleMcpConfigAdd(
+  request: WsRequest,
+  context: WsRouterContext
+): Promise<WsResponse> {
+  const existing = checkIdempotency(request, context.idempotency);
+  if (existing) return idempotencyResponse(request.id, existing);
+  const server = normalizeMcpServerConfig(asRecord(asRecord(request.params)?.server));
+  if (!server) {
+    return fail(request.id, "BAD_REQUEST", "Invalid MCP server config.");
+  }
+
+  const writeResult = upsertProjectMcpServerConfig(server);
+  const status = await context.runtime.mcpManager.addOrUpdateServer(
+    server,
+    context.runtime.toolRegistry
+  );
+  const payload = {
+    server,
+    status,
+    statuses: context.runtime.mcpManager.listStatuses(),
+    configPath: writeResult.configPath,
+  };
+  completeIdempotency(request, context.idempotency, payload);
+  return ok(request.id, payload);
+}
+
+function handleSkillsList(request: WsRequest): WsResponse {
+  const skills = discoverSkills().skills.map((skill) => ({
+    name: skill.name,
+    title: skill.title,
+    description: skill.description,
+    platform: skill.platform,
+    source: skill.source,
+    relativePath: skill.relativePath,
+    userInvocable: skill.userInvocable,
+    aliases: skill.aliases,
+    priority: skill.priority,
+  }));
+  return ok(request.id, { skills, total: skills.length });
+}
+
+function handleSkillsCurrent(request: WsRequest, context: WsRouterContext): WsResponse {
+  const sessionId = String(asRecord(request.params)?.sessionId);
+  const session = findSession(context.runtime, sessionId);
+  if (!session) return fail(request.id, "NOT_FOUND", `Session not found: ${sessionId}`);
+  return ok(request.id, {
+    sessionId,
+    activeSkills: session.activeSkills ?? [],
+  });
+}
+
+function handleSkillsUse(request: WsRequest, context: WsRouterContext): WsResponse {
+  const params = asRecord(request.params)!;
+  const sessionId = String(params.sessionId);
+  const session = findSession(context.runtime, sessionId);
+  if (!session) return fail(request.id, "NOT_FOUND", `Session not found: ${sessionId}`);
+
+  const skillName = String(params.skillName);
+  const skill = getSkillByName(skillName, discoverSkills().skills);
+  if (!skill) return fail(request.id, "NOT_FOUND", `Skill not found: ${skillName}`);
+
+  const activeSkills = [...new Set([...(session.activeSkills ?? []), skill.name])];
+  const updated = context.runtime.sessionManager.setSessionSkills(sessionId, activeSkills);
+  context.connections.broadcastToSession(sessionId, {
+    type: "event",
+    event: "session.updated",
+    sessionId,
+    payload: updated,
+  });
+  return ok(request.id, {
+    sessionId,
+    activeSkills: updated.activeSkills ?? [],
+    activated: skill.name,
+  });
+}
+
+function handleSkillsClear(request: WsRequest, context: WsRouterContext): WsResponse {
+  const sessionId = String(asRecord(request.params)?.sessionId);
+  const session = findSession(context.runtime, sessionId);
+  if (!session) return fail(request.id, "NOT_FOUND", `Session not found: ${sessionId}`);
+  const updated = context.runtime.sessionManager.setSessionSkills(sessionId, []);
+  context.connections.broadcastToSession(sessionId, {
+    type: "event",
+    event: "session.updated",
+    sessionId,
+    payload: updated,
+  });
+  return ok(request.id, {
+    sessionId,
+    activeSkills: updated.activeSkills ?? [],
+  });
+}
+
+function normalizeMcpServerConfig(
+  input: Record<string, unknown> | undefined
+): GatewayMcpServerConfig | undefined {
+  if (!input || typeof input.id !== "string" || typeof input.command !== "string") {
+    return undefined;
+  }
+
+  const id = input.id.trim();
+  const command = input.command.trim();
+  if (!id || !command) {
+    return undefined;
+  }
+
+  const isolation = asRecord(input.isolation);
+  return {
+    id,
+    name: typeof input.name === "string" && input.name.trim() ? input.name.trim() : id,
+    enabled: typeof input.enabled === "boolean" ? input.enabled : true,
+    transport: "stdio",
+    command,
+    args: Array.isArray(input.args)
+      ? input.args.filter((item): item is string => typeof item === "string" && item.trim() !== "")
+      : undefined,
+    cwd: typeof input.cwd === "string" && input.cwd.trim() ? input.cwd.trim() : undefined,
+    env: isStringRecord(input.env) ? input.env : undefined,
+    toolNamePrefix:
+      typeof input.toolNamePrefix === "string" && input.toolNamePrefix.trim()
+        ? input.toolNamePrefix.trim()
+        : `mcp.${id}`,
+    isolation: isolation
+      ? {
+          enabled: typeof isolation.enabled === "boolean" ? isolation.enabled : false,
+          mode: isolation.mode === "inherit" ? "inherit" : "restricted",
+          runtimeRoot:
+            typeof isolation.runtimeRoot === "string" && isolation.runtimeRoot.trim()
+              ? isolation.runtimeRoot.trim()
+              : undefined,
+          preserveEnvKeys: Array.isArray(isolation.preserveEnvKeys)
+            ? isolation.preserveEnvKeys.filter((item): item is string => typeof item === "string" && item.trim() !== "")
+            : undefined,
+        }
+      : { enabled: false, mode: "inherit" },
+  };
 }
 
 /**
@@ -629,6 +839,34 @@ function emitToolRecordEvent(sessionId: string, record: GatewayToolCallRecord, c
 }
 
 /** 在运行时会话列表中查找指定会话。 */
+function recordSessionMessage(
+  context: WsRouterContext,
+  sessionId: string,
+  role: "user" | "assistant",
+  content: string
+): void {
+  try {
+    recordTranscript(sessionId, role, content);
+    context.runtime.sessionManager.incrementSessionMessageCount(sessionId);
+  } catch {
+    // Transcript persistence must not break a live websocket response.
+  }
+}
+
+function normalizeAssistantResponseText(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return raw;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    if (parsed.type === "final" && typeof parsed.content === "string") {
+      return parsed.content;
+    }
+  } catch {
+    // Keep the original model output if it is not JSON.
+  }
+  return raw;
+}
+
 function findSession(runtime: GatewayRuntime, sessionId: string) {
   return runtime.sessionManager.listSessions().find((session) => session.id === sessionId);
 }
@@ -638,6 +876,17 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>).every(
+      (item) => typeof item === "string"
+    )
+  );
 }
 
 /** 统一把未知异常转换成可返回给客户端的错误文本。 */

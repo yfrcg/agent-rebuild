@@ -46,6 +46,17 @@ export function validateWsRequestParams(request: WsRequest): SchemaResult {
       return validateMemorySearch(request.params);
     case "memory.write":
       return validateMemoryWrite(request.params);
+    case "mcp.status":
+    case "mcp.tools":
+    case "skills.list":
+      return { ok: true };
+    case "mcp.config.add":
+      return validateMcpConfigAdd(request.params);
+    case "skills.current":
+    case "skills.clear":
+      return validateStringFields(request.params, ["sessionId"]);
+    case "skills.use":
+      return validateStringFields(request.params, ["sessionId", "skillName"]);
     case "tool.call":
       return validateToolCall(request.params);
     case "approval.list":
@@ -121,6 +132,9 @@ function validateSessionRename(params: unknown): SchemaResult {
   if (!result.ok) {
     return result;
   }
+  if (!isBoundedString(asRecord(params)?.name, 120)) {
+    return bad("session.rename params.name must be a string up to 120 chars.");
+  }
   return validateOptionalSessionId(params);
 }
 
@@ -166,6 +180,63 @@ function validateMemoryWrite(params: unknown): SchemaResult {
     record.scope !== "auto"
   ) {
     return bad("memory.write scope must be daily, long_term, or auto.");
+  }
+  return { ok: true };
+}
+
+/** Validate the MCP server editor payload accepted by the web UI. */
+function validateMcpConfigAdd(params: unknown): SchemaResult {
+  const record = asRecord(params);
+  const server = asRecord(record?.server);
+  if (!server) {
+    return bad("mcp.config.add params.server must be an object.");
+  }
+  for (const field of ["id", "command"]) {
+    if (!isNonEmptyString(server[field])) {
+      return bad(`mcp.config.add server.${field} is required.`);
+    }
+  }
+  for (const field of ["name", "cwd", "toolNamePrefix", "transport"]) {
+    if (server[field] !== undefined && typeof server[field] !== "string") {
+      return bad(`mcp.config.add server.${field} must be a string.`);
+    }
+  }
+  if (server.enabled !== undefined && typeof server.enabled !== "boolean") {
+    return bad("mcp.config.add server.enabled must be a boolean.");
+  }
+  if (server.transport !== undefined && server.transport !== "stdio") {
+    return bad("mcp.config.add only supports stdio transport.");
+  }
+  if (server.args !== undefined && !isStringArray(server.args)) {
+    return bad("mcp.config.add server.args must be an array of strings.");
+  }
+  if (server.env !== undefined && !isStringRecord(server.env)) {
+    return bad("mcp.config.add server.env must be an object of strings.");
+  }
+  const isolation = asRecord(server.isolation);
+  if (server.isolation !== undefined && !isolation) {
+    return bad("mcp.config.add server.isolation must be an object.");
+  }
+  if (isolation) {
+    if (isolation.enabled !== undefined && typeof isolation.enabled !== "boolean") {
+      return bad("mcp.config.add server.isolation.enabled must be a boolean.");
+    }
+    if (
+      isolation.mode !== undefined &&
+      isolation.mode !== "inherit" &&
+      isolation.mode !== "restricted"
+    ) {
+      return bad("mcp.config.add server.isolation.mode must be inherit or restricted.");
+    }
+    if (isolation.runtimeRoot !== undefined && typeof isolation.runtimeRoot !== "string") {
+      return bad("mcp.config.add server.isolation.runtimeRoot must be a string.");
+    }
+    if (
+      isolation.preserveEnvKeys !== undefined &&
+      !isStringArray(isolation.preserveEnvKeys)
+    ) {
+      return bad("mcp.config.add server.isolation.preserveEnvKeys must be an array of strings.");
+    }
   }
   return { ok: true };
 }
@@ -240,6 +311,21 @@ function isNonEmptyString(value: unknown): value is string {
 /** 判断值是否为非空且不超过上限的字符串。 */
 function isBoundedString(value: unknown, maxChars: number): value is string {
   return isNonEmptyString(value) && value.length <= maxChars;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>).every(
+      (item) => typeof item === "string"
+    )
+  );
 }
 
 /** 构造 BAD_REQUEST 校验失败结果。 */

@@ -10,5 +10,6 @@
     "resolveJsonModule": true,//允许你在TS代码里面使用import导入.json文件
     "outDir": "dist"//所有的TS代码编译乘.js后，会被统一放在dist文件夹内，不会与我的.ts源码混杂在一起
   },
-  "include": ["apps", "packages", "scripts"]//告诉编译器只要处理这三个文件夹里面的代码
+  "include": ["apps", "packages", "scripts"],//告诉编译器只要处理这三个文件夹里面的代码
+  "exclude": ["apps/web-ui"]//web-ui使用独立tsconfig(Vite/React)
 }

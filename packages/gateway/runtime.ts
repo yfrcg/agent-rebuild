@@ -127,6 +127,7 @@ export async function createGatewayRuntime(): Promise<GatewayRuntime> {
     sandbox,
     autoToolLoopEnabled: config.autoToolLoopEnabled,
     autoToolLoopMaxSteps: config.autoToolLoopMaxSteps,
+    autoReviewGraphEnabled: config.autoReviewGraphEnabled,
     devTaskMaxSteps: config.devTaskMaxSteps,
     devTaskMaxFixRounds: config.devTaskMaxFixRounds,
     sessionManager,
