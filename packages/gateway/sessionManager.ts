@@ -132,6 +132,39 @@ export class SessionManager {
     return renamed;
   }
 
+  deleteSession(sessionId: GatewaySessionId): boolean {
+    const session = this.sessionStore.getSession(sessionId);
+    if (!session) return false;
+
+    const transcriptPath = session.transcriptPath;
+    const sessionDir = resolveWorkspacePath("sessions", sessionId);
+
+    this.sessionStore.deleteSession(sessionId);
+
+    try {
+      if (transcriptPath && fs.existsSync(transcriptPath)) {
+        fs.unlinkSync(transcriptPath);
+      }
+    } catch {
+      /* transcript cleanup best-effort */
+    }
+
+    try {
+      if (fs.existsSync(sessionDir)) {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+      }
+    } catch {
+      /* session memory cleanup best-effort */
+    }
+
+    if (this.currentSessionId === sessionId) {
+      const remaining = this.sessionStore.listSessions();
+      this.currentSessionId = remaining.length > 0 ? remaining[0].id : "";
+    }
+
+    return true;
+  }
+
   renameSession(sessionId: GatewaySessionId, name: string): GatewaySession {
     const renamed = this.sessionStore.renameSession({
       id: sessionId,

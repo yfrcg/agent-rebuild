@@ -5,6 +5,7 @@ import type {
   GatewayPermissionMode,
   GatewayPlanState,
 } from "./permissionTypes";
+import type { GatewayProjectBoundary } from "./toolCallTypes";
 import type { MemorySearchResult } from "./types";
 
 /**
@@ -79,6 +80,19 @@ const DEFAULT_SYSTEM_PROMPT = [
   "- Do NOT automatically write web search results into long-term memory. Only memory.write user-confirmed facts.",
   "- When citing search results, always include the source URL so the user can verify.",
   "- memory.search = local long-term memory. web.search = external public web. Keep them separate.",
+  "",
+  "Anti-hallucination rules (CRITICAL):",
+  "- NEVER claim to see or know file contents unless you just read them with a tool.",
+  "- NEVER fabricate file contents, directory structures, or command outputs.",
+  "- If the user asks about a file, ALWAYS use file.list or file.read to check first.",
+  "- If unsure about something, use tools to verify before answering.",
+  "- Base answers ONLY on actual tool results, not memory or speculation.",
+  "",
+  "Tool trust hierarchy:",
+  "- shell.run results (dir, ls, cat, type, etc.) are the MOST trusted source of truth.",
+  "- If shell.run says a file does NOT exist, it does NOT exist. Do NOT override with file.list or memory.",
+  "- When shell.run and file.list disagree, ALWAYS trust shell.run.",
+  "- Use shell.run to verify when in doubt about file existence or directory contents.",
 ].join("\n");
 
 /**
@@ -146,6 +160,7 @@ export class ContextBuilder {
       permissionMode?: GatewayPermissionMode;
       planState?: GatewayPlanState;
       sessionMemoryContext?: string;
+      projectBoundary?: GatewayProjectBoundary;
     } = {}
   ): BuiltGatewayContext {
     const messages: ChatMessage[] = [
@@ -168,6 +183,14 @@ export class ContextBuilder {
       messages.push({
         role: "system",
         content: modeContext,
+      });
+    }
+
+    const projectContext = buildProjectContext(options.projectBoundary);
+    if (projectContext) {
+      messages.push({
+        role: "system",
+        content: projectContext,
       });
     }
 
@@ -385,6 +408,32 @@ export class ContextBuilder {
     const safeMax = Math.max(0, maxChars - suffix.length);
     return `${text.slice(0, safeMax)}${suffix}`;
   }
+}
+
+function buildProjectContext(projectBoundary?: GatewayProjectBoundary): string | undefined {
+  if (!projectBoundary?.projectDir) {
+    return undefined;
+  }
+
+  const readRoots = projectBoundary.allowedReadRoots.length
+    ? projectBoundary.allowedReadRoots.join("\n- ")
+    : "(none)";
+  const writeRoots = projectBoundary.allowedWriteRoots.length
+    ? projectBoundary.allowedWriteRoots.join("\n- ")
+    : "(none)";
+
+  return [
+    "Current project binding:",
+    `- projectDir: ${projectBoundary.projectDir}`,
+    `- permission: ${projectBoundary.permission}`,
+    `- commandCwd: ${projectBoundary.commandCwd ?? projectBoundary.projectDir}`,
+    `- allowedReadRoots:\n- ${readRoots}`,
+    `- allowedWriteRoots:\n- ${writeRoots}`,
+    "",
+    "Use this projectDir as the active workspace for file and shell tools.",
+    "For file.write/file.edit/file.read, prefer paths relative to projectDir unless the user explicitly gave an absolute path under an allowed root.",
+    "Do not claim writes are limited to D:\\WorkStation\\agent-rebuild\\workspace when this project binding is present.",
+  ].join("\n");
 }
 
 /**

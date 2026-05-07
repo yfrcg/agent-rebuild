@@ -93,7 +93,7 @@ export interface GatewayDebugInfo {
     }>;
     decisionTrace?: Array<{
       step: number;
-      action: "respond" | "tool" | "error";
+      action: "respond" | "tool" | "error" | "retry";
       toolName?: string;
       reason?: string;
       status?: string;

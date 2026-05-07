@@ -35,10 +35,16 @@ export interface GatewayMethodParams {
   };
   ping: Record<string, never>;
   "runtime.status": Record<string, never>;
+  "runtime.updateConfig": {
+    autoToolLoopEnabled?: boolean;
+    autoReviewGraphEnabled?: boolean;
+    model?: "mock" | "deepseek" | "tokenplan" | "minimax";
+  };
   "session.list": Record<string, never>;
   "session.get": { sessionId?: string };
   "session.create": { name?: string };
   "session.rename": { name: string; sessionId?: string };
+  "session.delete": { sessionId: string };
   "session.bindProject": { sessionId: string; projectDir: string };
   "session.getTranscript": { sessionId: string };
   "chat.send": { sessionId: string; input: string };
@@ -102,10 +108,12 @@ export interface GatewayMethodResult {
   };
   ping: { pong: true; serverTime: string };
   "runtime.status": Record<string, unknown>;
+  "runtime.updateConfig": Record<string, unknown>;
   "session.list": Array<Record<string, unknown>>;
   "session.get": Record<string, unknown>;
   "session.create": Record<string, unknown> & { id?: string; sessionId?: string };
   "session.rename": Record<string, unknown>;
+  "session.delete": { deleted: boolean; sessionId: string };
   "session.bindProject": {
     sessionId: string;
     projectDir: string;

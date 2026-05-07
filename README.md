@@ -691,6 +691,138 @@ SKILL.md 支持 frontmatter 元数据（`when-to-use`、`allowed-tools`、`conte
 - 分页读取策略：小文件（<=512KB）全量读取，大文件优先头部
 - Gateway 路径守卫安全拦截规则更新
 
+## Production-Grade Prompt
+
+Use the prompt below when you want an agent to evolve `agent-rebuild` from a working local agent gateway into a production-grade system for large repositories.
+
+```text
+You are the principal engineer responsible for evolving the project `agent-rebuild` into a production-grade AI agent platform for large repositories and long-running maintenance work.
+
+Your job is not to make cosmetic improvements. Your job is to design and implement the changes required for:
+
+1. large-codebase scalability
+2. strict token and cost control
+3. reliable tool execution
+4. production observability
+5. safe multi-session and multi-client behavior
+6. maintainable architecture under continuous change
+
+Context:
+- The project already has a Gateway, AgentRunner, ToolCallExecutor, memory search/write, session memory, transcript compaction, WebSocket transport, and a local Windows execution model.
+- It is functional, but not yet mature enough for production use on large projects.
+- The current system has basic context compression and memory retrieval, but it does not yet have a complete codebase indexing layer, model-response caching, retrieval caching, or token/cost observability.
+
+What "production-grade" means in this project:
+- The agent must remain effective on repositories with thousands of files and large individual files.
+- The system must avoid sending raw large context to the model when summaries, indexes, or targeted retrieval are sufficient.
+- The system must expose measurable operational signals: prompt tokens, completion tokens, request cost, cache hit rate, latency, tool failure rate, retry rate, and memory/index freshness.
+- The system must support repeatable recovery after restarts and safe handling of concurrent sessions.
+- The system must degrade gracefully when search, memory, model, or tool layers are partially unavailable.
+
+Your required deliverables:
+
+A. Architecture review
+- Audit the current design and identify the top production risks.
+- Group risks into: context scaling, retrieval quality, caching, reliability, observability, safety, testing, developer ergonomics, and deployment.
+
+B. Target architecture
+- Propose a production architecture with clear boundaries for:
+  - request orchestration
+  - context assembly
+  - codebase indexing
+  - memory/index storage
+  - cache layers
+  - tool execution
+  - eventing
+  - metrics and audit
+- Explain which parts stay synchronous and which must move to background jobs.
+
+C. Context strategy for large repositories
+- Design a layered context model:
+  - stable system context
+  - repository map
+  - module summaries
+  - task working set
+  - recent transcript
+  - tool-result evidence
+- Define token budgets for each layer.
+- Add a rule for when to include raw file contents vs summaries vs symbols only.
+
+D. Codebase intelligence
+- Add a repository indexing strategy for source files, not just memory markdown files.
+- Include:
+  - file summaries keyed by file hash
+  - symbol index
+  - module/dependency map
+  - git-aware invalidation
+  - incremental rebuilds
+- Make the retrieval path explicit: query -> repo map -> candidate files -> symbol hits -> summary expansion -> raw file read only when needed.
+
+E. Cost control and caching
+- Design and implement cache layers for:
+  - file summary cache
+  - retrieval cache
+  - normalized prompt prefix cache
+  - optional response cache for deterministic subproblems
+- Add invalidation rules.
+- Add instrumentation for:
+  - prompt tokens
+  - completion tokens
+  - estimated request cost
+  - cache hit/miss
+  - per-tool retry count
+
+F. Reliability and production operations
+- Define production requirements for:
+  - idempotency
+  - retries
+  - circuit breaking
+  - timeout policy
+  - event durability
+  - restart recovery
+  - backpressure
+  - concurrent sessions
+- Make sure WS and CLI paths behave consistently where they should.
+
+G. Testing and rollout
+- Build a rollout plan with:
+  - unit tests
+  - integration tests
+  - large-repo evaluation scenarios
+  - regression tests for tool-call correctness
+  - load and soak tests
+- Add acceptance criteria for each milestone.
+
+Execution rules:
+- Do not propose vague improvements. Every proposal must map to concrete files, modules, data structures, and runtime behavior.
+- Prefer incremental migration over rewrite.
+- Preserve working existing behavior unless the new design intentionally replaces it.
+- For each recommendation, label:
+  - priority: P0 / P1 / P2
+  - effort: S / M / L
+  - risk: low / medium / high
+  - expected impact
+
+Output format:
+1. Executive summary
+2. Current gaps
+3. Target production architecture
+4. Context-window strategy for large codebases
+5. Caching and token-control plan
+6. Reliability and observability plan
+7. Phased implementation roadmap
+8. Specific file/module change list
+9. Test and rollout checklist
+
+If implementation is requested, start with the highest-leverage P0 changes first:
+- token/cost observability
+- source-code indexing and repo map
+- file summary cache
+- retrieval cache
+- stronger context assembly rules
+- durable event and recovery path
+```
+
 ## License
 
 ISC

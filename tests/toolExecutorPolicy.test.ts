@@ -280,6 +280,37 @@ test("shell.run executes locally when no sandbox is configured", async () => {
   }
 });
 
+test("shell.run supports shell-style && chaining on Windows", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-shell-chain-"));
+
+  try {
+    const registry = new ToolRegistry();
+    registry.register(createSandboxedBashTool(tempDir, "shell.run"));
+    const executor = new ToolCallExecutor({
+      registry,
+      projectRoot: tempDir,
+    });
+
+    const record = await executor.execute(
+      createGatewayToolCallRequest({
+        toolName: "shell.run",
+        input: {
+          command: "echo first && echo second",
+        },
+        approved: true,
+      })
+    );
+
+    assert.equal(record.status, "success");
+    const output = record.result?.result as Record<string, unknown> | undefined;
+    const stdout = String(output?.stdoutPreview ?? output?.stdout ?? "");
+    assert.match(stdout, /first/i);
+    assert.match(stdout, /second/i);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("npm_test executes locally when no sandbox is configured", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-npm-test-local-"));
 

@@ -1,5 +1,6 @@
 
 import type { GatewayWsErrorCode, WsRequest } from "./protocol";
+import { normalizeGatewayModelName } from "../config";
 
 /** 单次聊天输入的最大字符数，防止用户消息直接撑爆模型上下文或内存。 */
 export const WS_MAX_CHAT_INPUT_CHARS = 64 * 1024;
@@ -28,12 +29,16 @@ export function validateWsRequestParams(request: WsRequest): SchemaResult {
     case "session.list":
     case "tool.list":
       return { ok: true };
+    case "runtime.updateConfig":
+      return validateRuntimeUpdateConfig(request.params);
     case "session.get":
       return validateOptionalSessionId(request.params);
     case "session.create":
       return validateSessionCreate(request.params);
     case "session.rename":
       return validateSessionRename(request.params);
+    case "session.delete":
+      return validateStringFields(request.params, ["sessionId"]);
     case "session.bindProject":
       return validateStringFields(request.params, ["sessionId", "projectDir"]);
     case "session.getTranscript":
@@ -326,6 +331,37 @@ function isStringRecord(value: unknown): value is Record<string, string> {
       (item) => typeof item === "string"
     )
   );
+}
+
+const UPDATABLE_RUNTIME_KEYS = new Set([
+  "autoToolLoopEnabled",
+  "autoReviewGraphEnabled",
+  "model",
+]);
+
+function validateRuntimeUpdateConfig(params: unknown): SchemaResult {
+  const record = asRecord(params);
+  if (!record) {
+    return bad("runtime.updateConfig params must be an object.");
+  }
+  let hasValid = false;
+  for (const [key, value] of Object.entries(record)) {
+    if (key === "model") {
+      if (typeof value !== "string" || !normalizeGatewayModelName(value)) {
+        return bad("runtime.updateConfig model must be mock, deepseek, or tokenplan.");
+      }
+      hasValid = true;
+    } else if (UPDATABLE_RUNTIME_KEYS.has(key)) {
+      if (typeof value !== "boolean") {
+        return bad(`runtime.updateConfig ${key} must be a boolean.`);
+      }
+      hasValid = true;
+    }
+  }
+  if (!hasValid) {
+    return bad("runtime.updateConfig requires at least one valid key.");
+  }
+  return { ok: true };
 }
 
 /** 构造 BAD_REQUEST 校验失败结果。 */

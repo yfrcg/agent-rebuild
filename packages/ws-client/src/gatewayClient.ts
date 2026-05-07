@@ -180,6 +180,15 @@ export class GatewayClient {
     );
   }
 
+  runtimeUpdateConfig(
+    updates: GatewayMethodParams["runtime.updateConfig"]
+  ): Promise<GatewayMethodResult["runtime.updateConfig"]> {
+    return this.request(
+      "runtime.updateConfig",
+      updates
+    );
+  }
+
   sessionList(): Promise<GatewayMethodResult["session.list"]> {
     return this.request(
       "session.list",
@@ -204,6 +213,12 @@ export class GatewayClient {
     sessionId?: string
   ): Promise<GatewayMethodResult["session.rename"]> {
     return this.request("session.rename", { name, sessionId });
+  }
+
+  sessionDelete(
+    sessionId: string
+  ): Promise<GatewayMethodResult["session.delete"]> {
+    return this.request("session.delete", { sessionId });
   }
 
   sessionBindProject(

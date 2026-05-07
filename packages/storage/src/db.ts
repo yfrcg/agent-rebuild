@@ -47,16 +47,56 @@ export function getDb(): Database.Database {
   /**
    * mem_fts：
    * 基于 FTS5 的全文检索虚拟表，用来做关键词检索加速。
+   * 使用 trigram 分词器以支持中文等 CJK 文本的子串匹配。
    */
-  _db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS mem_fts USING fts5(
-      chunkId,
-      file_id,
-      filePath,
-      section,
-      content
-    );
-  `);
+  const needsFtsMigration = (() => {
+    try {
+      const row = _db.prepare(
+        `SELECT sql FROM sqlite_master WHERE type='table' AND name='mem_fts'`
+      ).get() as { sql: string } | undefined;
+      return row ? !row.sql.includes("trigram") : false;
+    } catch {
+      return false;
+    }
+  })();
+
+  if (needsFtsMigration) {
+    _db.exec(`DROP TABLE IF EXISTS mem_fts`);
+    _db.exec(`
+      CREATE VIRTUAL TABLE mem_fts USING fts5(
+        chunkId,
+        file_id,
+        filePath,
+        section,
+        content,
+        tokenize='trigram'
+      );
+    `);
+  } else {
+    _db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS mem_fts USING fts5(
+        chunkId,
+        file_id,
+        filePath,
+        section,
+        content,
+        tokenize='trigram'
+      );
+    `);
+  }
+
+  try {
+    const ftsCount = (_db.prepare("SELECT COUNT(*) as c FROM mem_fts").get() as { c: number }).c;
+    const docsCount = (_db.prepare("SELECT COUNT(*) as c FROM mem_docs").get() as { c: number }).c;
+    if (ftsCount === 0 && docsCount > 0) {
+      _db.exec(`
+        INSERT INTO mem_fts (chunkId, file_id, filePath, section, content)
+        SELECT chunkId, file_id, filePath, section, content FROM mem_docs
+      `);
+    }
+  } catch {
+    /* tables may not exist yet */
+  }
 
   /**
    * mem_embeddings：

@@ -1,12 +1,13 @@
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import type WebSocket from "ws";
 
 import type { GatewayRuntime } from "../packages/gateway/runtime";
+import type { GatewayRequest } from "../packages/gateway/types";
 import { closeDb } from "../packages/storage/src/db";
 import { SessionManager } from "../packages/gateway/sessionManager";
 import { SessionStore } from "../packages/gateway/sessionStore";
@@ -47,6 +48,22 @@ test("ws router returns runtime status", async () => {
     assert.equal(response?.ok, true);
     assert.equal(payload.model, "mock");
     assert.equal(payload.toolCount, 1);
+  });
+});
+
+test("ws router updates runtime model provider", async () => {
+  await withRouter(async ({ client, context }) => {
+    const response = await handleWsRequest(
+      client,
+      req("runtime.updateConfig", { model: "tokenplan" }),
+      context
+    );
+    const payload = response?.payload as Record<string, unknown>;
+
+    assert.equal(response?.ok, true);
+    assert.equal(payload.model, "tokenplan");
+    assert.equal(payload.modelProvider, "tokenplan");
+    assert.equal(context.runtime.config.model, "tokenplan");
   });
 });
 
@@ -144,6 +161,39 @@ test("ws router chat.send returns run id and emits lifecycle events", async () =
     assert.equal(socket.messages.some((message) => message.event === "chat.delta"), true);
     assert.equal(socket.messages.some((message) => message.event === "chat.completed"), true);
     assert.equal(socket.messages.some((message) => message.event === "run.finished"), true);
+  });
+});
+
+test("ws router chat.send auto-binds an explicit project path and passes boundary", async () => {
+  await withRouter(async ({ client, context, socket, sessionId, handledRequests }) => {
+    const projectDir = path.join(process.cwd(), "CoLab");
+    await mkdir(projectDir, { recursive: true });
+
+    const response = await handleWsRequest(
+      client,
+      req("chat.send", { sessionId, input: `请在 \`${projectDir}\` 下创建 hello.py` }),
+      context
+    );
+
+    assert.equal(response?.ok, true);
+    await waitFor(() => socket.messages.some((message) => message.event === "run.finished"));
+
+    const session = context.runtime.sessionManager
+      .listSessions()
+      .find((item) => item.id === sessionId);
+    assert.equal(session?.projectBound, true);
+    assert.equal(session?.projectDir, projectDir);
+    assert.equal(handledRequests[0]?.projectBoundary?.projectDir, projectDir);
+    assert.deepEqual(handledRequests[0]?.projectBoundary?.allowedWriteRoots, [projectDir]);
+    assert.equal(
+      socket.messages.some(
+        (message) =>
+          message.event === "session.updated" &&
+          message.sessionId === sessionId &&
+          (message.payload as Record<string, unknown>).projectDir === projectDir
+      ),
+      true
+    );
   });
 });
 
@@ -317,6 +367,7 @@ async function withRouter(
     socket: WebSocket & { messages: Array<Record<string, unknown>> };
     sessionId: string;
     executedTools: GatewayToolCallRequest[];
+    handledRequests: GatewayRequest[];
   }) => Promise<void>
 ): Promise<void> {
   await withTempWorkspace(async () => {
@@ -325,7 +376,8 @@ async function withRouter(
     );
     const sessionId = sessionManager.getCurrentSessionId();
     const executedTools: GatewayToolCallRequest[] = [];
-    const runtime = createRuntimeDouble(sessionManager, executedTools);
+    const handledRequests: GatewayRequest[] = [];
+    const runtime = createRuntimeDouble(sessionManager, executedTools, handledRequests);
     const connections = new ConnectionManager();
     const socket = createSocket();
     const client = connections.add(socket);
@@ -336,7 +388,7 @@ async function withRouter(
       idempotency: new IdempotencyStore(),
     };
 
-    await run({ runtime, context, client, socket, sessionId, executedTools });
+    await run({ runtime, context, client, socket, sessionId, executedTools, handledRequests });
   });
 }
 
@@ -347,7 +399,8 @@ async function withRouter(
  */
 function createRuntimeDouble(
   sessionManager: SessionManager,
-  executedTools: GatewayToolCallRequest[]
+  executedTools: GatewayToolCallRequest[],
+  handledRequests: GatewayRequest[]
 ): GatewayRuntime {
   return {
     projectRoot: process.cwd(),
@@ -377,6 +430,7 @@ function createRuntimeDouble(
     gateway: {
       /** 方法 `handle`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
       async handle(_request: unknown, options?: { signal?: AbortSignal; onEvent?: (event: { type: "chat.delta"; delta: string }) => void }) {
+        handledRequests.push(_request as GatewayRequest);
         await options?.onEvent?.({ type: "chat.delta", delta: "hello " });
         if (
           _request &&
@@ -402,6 +456,7 @@ function createRuntimeDouble(
       },
     },
     modelProvider: {
+      name: "mock",
       supportsStreaming: true,
     },
     memorySearch: async (query: string) => [
@@ -450,6 +505,10 @@ function createRuntimeDouble(
     sandbox: {},
     auditLogger: { async log() {} },
     mcpManager: { async close() {} },
+    setModelProvider(model: "mock" | "deepseek" | "tokenplan") {
+      this.config.model = model;
+      this.modelProvider.name = model;
+    },
     /** 方法 `close`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     async close() {},
   } as unknown as GatewayRuntime;

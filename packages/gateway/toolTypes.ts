@@ -1,6 +1,7 @@
 
 import type { ToolSecurityProfile } from "./toolSecurityProfile";
 import type { GatewayToolPermissionLevel } from "./permissionTypes";
+import type { GatewayProjectBoundary } from "./toolCallTypes";
 
 export type GatewayToolName = string;
 export type GatewayToolInput = Record<string, unknown>;
@@ -43,6 +44,7 @@ export interface GatewayToolOutput {
 export interface GatewayToolContext {
   sessionId?: string;
   requestId?: string;
+  projectBoundary?: GatewayProjectBoundary;
 }
 
 export interface GatewayToolMetadata {

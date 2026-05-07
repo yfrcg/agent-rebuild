@@ -15,10 +15,18 @@ type ChatMessage = {
   text: string;
 };
 
+type ToolCallActivityItem = {
+  id: string;
+  tool: string;
+  status: "running" | "done" | "failed";
+  detail?: string;
+};
+
 type RuntimeInfo = {
   model?: string;
   modelProvider?: string;
   supportsStreaming?: boolean;
+  availableModels?: Array<{ id: string; label: string }>;
   autoToolLoopEnabled?: boolean;
   autoReviewGraphEnabled?: boolean;
   sandboxAllowedRoots?: string[];
@@ -94,35 +102,72 @@ function App() {
   );
 }
 
+type ToastItem = { id: number; message: string; tone: "success" | "error" | "warning" | "info" };
+
+let toastIdCounter = 0;
+
 function ConsoleApp() {
   const [activePage, setActivePage] = useState<PageId>("chat");
   const [eventsOpen, setEventsOpen] = useState(false);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [pageKey, setPageKey] = useState(0);
   const sessions = useSessionStore((s) => s.sessions);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
+
+  const addToast = (message: string, tone: ToastItem["tone"] = "info") => {
+    const id = ++toastIdCounter;
+    setToasts((prev) => [...prev, { id, message, tone }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3500);
+  };
+
+  const removeToast = (id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const handlePageChange = (page: PageId) => {
+    if (page !== activePage) {
+      setActivePage(page);
+      setPageKey((k) => k + 1);
+    }
+  };
 
   useEffect(() => {
     if (!currentSessionId && sessions[0]) setCurrentSession(sessions[0].id);
   }, [currentSessionId, sessions, setCurrentSession]);
 
   const content = {
-    chat: <ChatPage goTo={setActivePage} />,
-    overview: <OverviewPage goTo={setActivePage} />,
-    resources: <ResourcesPage />,
-    approvals: <ApprovalsPage />,
-    memory: <MemoryPage />,
+    chat: <ChatPage goTo={handlePageChange} addToast={addToast} />,
+    overview: <OverviewPage goTo={handlePageChange} />,
+    resources: <ResourcesPage addToast={addToast} />,
+    approvals: <ApprovalsPage addToast={addToast} />,
+    memory: <MemoryPage addToast={addToast} />,
     audit: <AuditPage />,
   }[activePage];
 
   return (
     <div className="app-shell">
       <div className="app-body">
-        <SessionSidebar activePage={activePage} onPageChange={setActivePage} />
+        <SessionSidebar activePage={activePage} onPageChange={handlePageChange} />
         <main className="workspace">
-          <section className="page-surface">{content}</section>
+          <section className={`page-surface${activePage === "chat" ? " page-surface--chat" : ""}`} key={pageKey}>
+            <div className="page-enter">{content}</div>
+          </section>
         </main>
         <EventInspector collapsed={!eventsOpen} onToggle={() => setEventsOpen((v) => !v)} />
       </div>
+      {toasts.length > 0 && (
+        <div className="toast-container">
+          {toasts.map((toast) => (
+            <div key={toast.id} className={`toast ${toast.tone}`} onClick={() => removeToast(toast.id)}>
+              <Icon name={toast.tone === "success" ? "check" : toast.tone === "error" ? "x" : toast.tone === "warning" ? "shield" : "pulse"} />
+              <span>{toast.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -183,6 +228,7 @@ function SessionSidebar({
   const [error, setError] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const filtered = sessions.filter((session) =>
     displaySessionName(session).toLowerCase().includes(query.toLowerCase())
@@ -269,6 +315,26 @@ function SessionSidebar({
       void refreshSessions();
     } catch (err) {
       setError(errorMessage(err, "绑定项目目录失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmDelete = async (sessionId: string) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.sessionDelete(sessionId);
+      setSessions(sessions.filter((s) => s.id !== sessionId));
+      if (currentSessionId === sessionId) {
+        const remaining = sessions.filter((s) => s.id !== sessionId);
+        if (remaining.length > 0) setCurrentSession(remaining[0].id);
+      }
+      setDeleteConfirmId(null);
+      void refreshSessions();
+    } catch (err) {
+      setError(errorMessage(err, "删除会话失败"));
     } finally {
       setBusy(false);
     }
@@ -370,7 +436,22 @@ function SessionSidebar({
                   </span>
                 </span>
               </div>
-              {isRenaming ? (
+              {deleteConfirmId === session.id ? (
+                <span className="session-actions">
+                  <button
+                    className="session-action"
+                    title="确认删除"
+                    onClick={() => void confirmDelete(session.id)}
+                    disabled={busy}
+                    style={{ color: "var(--danger)" }}
+                  >
+                    <Icon name="check" />
+                  </button>
+                  <button className="session-action" title="取消删除" onClick={() => setDeleteConfirmId(null)} disabled={busy}>
+                    <Icon name="x" />
+                  </button>
+                </span>
+              ) : isRenaming ? (
                 <span className="session-actions">
                   <button
                     className="session-action"
@@ -391,6 +472,9 @@ function SessionSidebar({
                   </button>
                   <button className="session-action" title="绑定工作目录" onClick={() => openBind(session)}>
                     <Icon name="folder" />
+                  </button>
+                  <button className="session-action" title="删除会话" onClick={() => setDeleteConfirmId(session.id)}>
+                    <Icon name="trash" />
                   </button>
                 </span>
               )}
@@ -428,7 +512,7 @@ function SessionSidebar({
   );
 }
 
-function ChatPage({ goTo }: { goTo: (page: PageId) => void }) {
+function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: (msg: string, tone?: ToastItem["tone"]) => void }) {
   const client = useGateway();
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const sessions = useSessionStore((s) => s.sessions);
@@ -446,6 +530,8 @@ function ChatPage({ goTo }: { goTo: (page: PageId) => void }) {
   const [playbackText, setPlaybackText] = useState("");
   const [playbackActive, setPlaybackActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [activeToolCalls, setActiveToolCalls] = useState<ToolCallActivityItem[]>([]);
   const lastFinalRef = useRef("");
   const sawDeltaRef = useRef(false);
   const streamEndRef = useRef<HTMLDivElement | null>(null);
@@ -463,12 +549,59 @@ function ChatPage({ goTo }: { goTo: (page: PageId) => void }) {
       .reverse();
   }, [events, currentSessionId, runId]);
 
+  const prevRunIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (runId !== prevRunIdRef.current) {
+      prevRunIdRef.current = runId;
+      if (isRunning) {
+        setActiveToolCalls([]);
+      }
+    }
+    const toolEvents = [...runEvents]
+      .reverse()
+      .filter((event) => event.event.startsWith("tool."));
+    if (toolEvents.length === 0 && !isRunning) return;
+    const calls = new Map<string, ToolCallActivityItem>();
+    for (const ev of toolEvents) {
+      const payload = ev.payload as Record<string, unknown> | undefined;
+      const name = (payload?.toolName ?? payload?.tool ?? "unknown") as string;
+      const callId = String(payload?.toolCallId ?? payload?.id ?? `${name}-${ev.seq}`);
+      if (ev.event === "tool.started") {
+        calls.set(callId, {
+          id: callId,
+          tool: name,
+          status: "running",
+          detail: summarizeToolInput(payload?.inputPreview ?? payload?.input),
+        });
+      } else if (ev.event === "tool.finished") {
+        const previous = calls.get(callId);
+        calls.set(callId, {
+          id: callId,
+          tool: previous?.tool ?? name,
+          status: "done",
+          detail: formatToolCompletion(payload?.durationMs),
+        });
+      } else if (ev.event === "tool.failed") {
+        const msg = (payload?.error ?? payload?.message ?? "failed") as string;
+        const previous = calls.get(callId);
+        calls.set(callId, {
+          id: callId,
+          tool: previous?.tool ?? name,
+          status: "failed",
+          detail: msg,
+        });
+      }
+    }
+    setActiveToolCalls(Array.from(calls.values()).slice(-4));
+  }, [runEvents, isRunning, runId]);
+
   useEffect(() => {
     let cancelled = false;
     if (!currentSessionId) {
       setMessages([]);
       return;
     }
+    setTranscriptLoading(true);
     client.sessionGetTranscript(currentSessionId)
       .then((payload) => {
         if (cancelled) return;
@@ -479,6 +612,9 @@ function ChatPage({ goTo }: { goTo: (page: PageId) => void }) {
       })
       .catch(() => {
         if (!cancelled) setMessages([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTranscriptLoading(false);
       });
     return () => {
       cancelled = true;
@@ -536,12 +672,16 @@ function ChatPage({ goTo }: { goTo: (page: PageId) => void }) {
   }, [phase, finalText, runId]);
 
   useEffect(() => {
-    streamEndRef.current?.scrollIntoView({ block: "end" });
+    streamEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [messages.length, liveText, runEvents.length, phase]);
 
   const send = async () => {
     const text = input.trim();
     if (!text || !currentSessionId || !ready || isRunning) return;
+    if (!currentSessionId) {
+      addToast("请先选择一个会话", "warning");
+      return;
+    }
     setInput("");
     setError(null);
     setPlaybackText("");
@@ -552,7 +692,9 @@ function ChatPage({ goTo }: { goTo: (page: PageId) => void }) {
       const result = await client.chatSend(currentSessionId, text);
       startRun(result.runId, result.sessionId, result.requestId);
     } catch (err) {
-      setError(errorMessage(err, "发送失败"));
+      const msg = errorMessage(err, "发送失败");
+      setError(msg);
+      addToast(msg, "error");
     }
   };
 
@@ -565,6 +707,27 @@ function ChatPage({ goTo }: { goTo: (page: PageId) => void }) {
     }
   };
 
+  const toggleConfig = async (key: "autoToolLoopEnabled" | "autoReviewGraphEnabled", value: boolean) => {
+    try {
+      const result = await client.runtimeUpdateConfig({ [key]: value });
+      setRuntime((prev) => ({ ...prev, ...result }));
+    } catch (err) {
+      addToast(errorMessage(err, "切换失败"), "error");
+    }
+  };
+
+  const changeModelProvider = async (model: string) => {
+    try {
+      const result = await client.runtimeUpdateConfig({
+        model: model as "mock" | "deepseek" | "tokenplan" | "minimax",
+      });
+      setRuntime((prev) => ({ ...prev, ...result }));
+      addToast(`模型供应商已切换为 ${labelForModel(model, runtime?.availableModels)}`, "success");
+    } catch (err) {
+      addToast(errorMessage(err, "切换模型供应商失败"), "error");
+    }
+  };
+
   return (
     <div className="chat-layout">
       <section className="chat-main">
@@ -573,11 +736,42 @@ function ChatPage({ goTo }: { goTo: (page: PageId) => void }) {
             <span className="eyebrow">当前会话</span>
             <h1>{current ? displaySessionName(current) : "选择或创建会话"}</h1>
             <div className="chat-topline">
-              <span>模型 {String(runtime?.model ?? runtime?.modelProvider ?? "未知")}</span>
-              <span>{runtime?.supportsStreaming ? "原生流式" : "模拟流式"}</span>
-              <span>工具循环 {runtime?.autoToolLoopEnabled ? "开启" : "关闭"}</span>
-              <span>多 Agent {runtime?.autoReviewGraphEnabled ? "开启" : "关闭"}</span>
-              <span>工作目录 {current?.projectDir ? shortPath(current.projectDir) : "未绑定"}</span>
+              <label className="topline-item provider-select">
+                <span>模型</span>
+                <select
+                  value={String(runtime?.model ?? runtime?.modelProvider ?? "deepseek")}
+                  disabled={!runtime || isRunning}
+                  onChange={(e) => changeModelProvider(e.target.value)}
+                >
+                  {providerOptions(runtime).map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <span className="topline-sep" />
+              <span className="topline-item">{runtime?.supportsStreaming ? "原生流式" : "模拟流式"}</span>
+              <span className="topline-sep" />
+              <label className="topline-item topline-toggle">
+                工具循环
+                <input
+                  type="checkbox"
+                  checked={runtime?.autoToolLoopEnabled ?? true}
+                  onChange={(e) => toggleConfig("autoToolLoopEnabled", e.target.checked)}
+                />
+                <span className="toggle-track" />
+              </label>
+              <span className="topline-sep" />
+              <label className="topline-item topline-toggle">
+                多 Agent
+                <input
+                  type="checkbox"
+                  checked={runtime?.autoReviewGraphEnabled ?? false}
+                  onChange={(e) => toggleConfig("autoReviewGraphEnabled", e.target.checked)}
+                />
+                <span className="toggle-track" />
+              </label>
+              <span className="topline-sep" />
+              <span className="topline-item">工作目录 {current?.projectDir ? shortPath(current.projectDir) : "未绑定"}</span>
             </div>
           </div>
           <div className="toolbar-meta">
@@ -585,7 +779,26 @@ function ChatPage({ goTo }: { goTo: (page: PageId) => void }) {
           </div>
         </div>
         <div className="message-stream">
-          {messages.length === 0 && !liveText && runEvents.length === 0 && (
+          {transcriptLoading && messages.length === 0 && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "34px minmax(0, 1fr)", gap: 10 }}>
+                <div className="skeleton skeleton-avatar" />
+                <div>
+                  <div className="skeleton skeleton-text short" />
+                  <div className="skeleton skeleton-text long" />
+                  <div className="skeleton skeleton-text medium" />
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 34px", gap: 10 }}>
+                <div>
+                  <div className="skeleton skeleton-text medium" />
+                  <div className="skeleton skeleton-text short" />
+                </div>
+                <div className="skeleton skeleton-avatar" />
+              </div>
+            </>
+          )}
+          {messages.length === 0 && !liveText && runEvents.length === 0 && !transcriptLoading && (
             <EmptyState
               icon="message"
               title="开始一次任务"
@@ -602,6 +815,9 @@ function ChatPage({ goTo }: { goTo: (page: PageId) => void }) {
               runtime={runtime}
               liveTextAvailable={Boolean(liveText)}
             />
+          )}
+          {activeToolCalls.length > 0 && (
+            <ToolCallActivity calls={activeToolCalls} running={isRunning} />
           )}
           {liveText && <MessageBubble role="assistant" text={liveText} active={isRunning || playbackActive} />}
           {(error || runError) && <div className="inline-error">{error ?? runError}</div>}
@@ -686,7 +902,7 @@ function ProcessTimeline({
                 <small>{summary.detail} · {formatTime(event.createdAt)}</small>
               </span>
               <span className="step-state">{summary.state}</span>
-              {expanded === key && <pre>{safeJson(event.payload)}</pre>}
+              {expanded === key && <pre>{safeJson(formatEventPayloadForDisplay(event))}</pre>}
             </button>
           );
         })}
@@ -722,6 +938,7 @@ function OverviewPage({ goTo }: { goTo: (page: PageId) => void }) {
   const approvals = useApprovalStore((s) => s.approvals);
   const [runtime, setRuntime] = useState<RuntimeInfo | null>(null);
   const [tools, setTools] = useState<ToolInfo[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -731,7 +948,8 @@ function OverviewPage({ goTo }: { goTo: (page: PageId) => void }) {
         setRuntime(status as RuntimeInfo);
         setTools(normalizeTools((toolList as Record<string, unknown>).tools as Array<Record<string, unknown>>));
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => {
       cancelled = true;
     };
@@ -748,10 +966,16 @@ function OverviewPage({ goTo }: { goTo: (page: PageId) => void }) {
         </div>
       </div>
       <div className="overview-grid">
-        <MetricCard label="会话" value={sessions.length} hint="已持久化会话数" icon="message" />
-        <MetricCard label="工具" value={tools.length || Number(runtime?.toolCount ?? 0)} hint="可调用工具总数" icon="wrench" />
-        <MetricCard label="事件" value={events.length} hint="当前前端缓存事件" icon="pulse" />
-        <MetricCard label="异常" value={failedEvents.length} hint="失败事件数量" icon="shield" tone={failedEvents.length ? "danger" : "success"} />
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => <div className="skeleton skeleton-card" key={i} />)
+        ) : (
+          <>
+            <MetricCard label="会话" value={sessions.length} hint="已持久化会话数" icon="message" />
+            <MetricCard label="工具" value={tools.length || Number(runtime?.toolCount ?? 0)} hint="可调用工具总数" icon="wrench" />
+            <MetricCard label="事件" value={events.length} hint="当前前端缓存事件" icon="pulse" />
+            <MetricCard label="异常" value={failedEvents.length} hint="失败事件数量" icon="shield" tone={failedEvents.length ? "danger" : "success"} />
+          </>
+        )}
       </div>
       <section className="panel wide">
         <div className="panel-head compact">
@@ -761,10 +985,16 @@ function OverviewPage({ goTo }: { goTo: (page: PageId) => void }) {
           </div>
         </div>
         <div className="kv-grid">
-          <KeyValue label="模型" value={String(runtime?.model ?? "未知")} />
-          <KeyValue label="流式能力" value={runtime?.supportsStreaming ? "原生流式" : "模拟流式"} />
-          <KeyValue label="工具循环" value={runtime?.autoToolLoopEnabled ? "开启" : "关闭"} />
-          <KeyValue label="多 Agent" value={runtime?.autoReviewGraphEnabled ? "开启" : "关闭"} />
+          {loading ? (
+            Array.from({ length: 4 }).map((_, i) => <div className="skeleton" style={{ height: 60 }} key={i} />)
+          ) : (
+            <>
+              <KeyValue label="模型" value={String(runtime?.model ?? "未知")} />
+              <KeyValue label="流式能力" value={runtime?.supportsStreaming ? "原生流式" : "模拟流式"} />
+              <KeyValue label="工具循环" value={runtime?.autoToolLoopEnabled ? "开启" : "关闭"} />
+              <KeyValue label="多 Agent" value={runtime?.autoReviewGraphEnabled ? "开启" : "关闭"} />
+            </>
+          )}
         </div>
       </section>
       <div className="button-row">
@@ -775,15 +1005,17 @@ function OverviewPage({ goTo }: { goTo: (page: PageId) => void }) {
   );
 }
 
-function ResourcesPage() {
+function ResourcesPage({ addToast }: { addToast: (msg: string, tone?: ToastItem["tone"]) => void }) {
   const client = useGateway();
   const [tab, setTab] = useState<"tools" | "skills" | "mcp">("tools");
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [mcp, setMcp] = useState<McpStatus[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
+    setLoading(true);
     try {
       const [toolPayload, skillPayload, mcpPayload] = await Promise.all([
         client.toolList(),
@@ -796,7 +1028,11 @@ function ResourcesPage() {
       setMcp(statuses.map((item) => item as McpStatus));
       setError("");
     } catch (err) {
-      setError(errorMessage(err, "资源读取失败"));
+      const msg = errorMessage(err, "资源读取失败");
+      setError(msg);
+      addToast(msg, "error");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -821,24 +1057,28 @@ function ResourcesPage() {
       {error && <div className="inline-error">{error}</div>}
       {tab === "tools" && (
         <div className="tool-grid">
-          {tools.map((tool) => (
-            <div className="tool-card" key={tool.name}>
-              <strong>{tool.name}</strong>
-              <p>{tool.description || "暂无描述"}</p>
-              <span>{tool.riskLevel ?? tool.category ?? tool.source ?? "tool"}</span>
-            </div>
-          ))}
+          {loading
+            ? Array.from({ length: 8 }).map((_, i) => <div className="skeleton skeleton-card" key={i} />)
+            : tools.map((tool, i) => (
+                 <div className={`tool-card animate-fade-in-up stagger-${Math.min(i % 5 + 1, 5)}`} key={tool.name}>
+                  <strong>{tool.name}</strong>
+                  <p>{tool.description || "暂无描述"}</p>
+                  <span>{tool.riskLevel ?? tool.category ?? tool.source ?? "tool"}</span>
+                </div>
+              ))}
         </div>
       )}
       {tab === "skills" && (
         <div className="data-grid">
-          {skills.map((skill) => (
-            <div className="data-card" key={skill.name}>
-              <strong>{skill.title ?? skill.name}</strong>
-              <p>{skill.description ?? "暂无描述"}</p>
-              <small>{skill.source ?? skill.platform ?? "skill"}</small>
-            </div>
-          ))}
+          {loading
+            ? Array.from({ length: 6 }).map((_, i) => <div className="skeleton skeleton-card" key={i} />)
+            : skills.map((skill, i) => (
+                 <div className={`data-card animate-fade-in-up stagger-${Math.min(i % 5 + 1, 5)}`} key={skill.name}>
+                  <strong>{skill.title ?? skill.name}</strong>
+                  <p>{skill.description ?? "暂无描述"}</p>
+                  <small>{skill.source ?? skill.platform ?? "skill"}</small>
+                </div>
+              ))}
         </div>
       )}
       {tab === "mcp" && <DataList rows={mcp as Array<Record<string, unknown>>} empty="暂无 MCP 状态。" />}
@@ -846,12 +1086,13 @@ function ResourcesPage() {
   );
 }
 
-function ApprovalsPage() {
+function ApprovalsPage({ addToast }: { addToast: (msg: string, tone?: ToastItem["tone"]) => void }) {
   const client = useGateway();
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const approvals = useApprovalStore((s) => s.approvals);
   const [processing, setProcessing] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [confirmReject, setConfirmReject] = useState<ApprovalEntry | null>(null);
 
   const act = async (approval: ApprovalEntry, action: "confirm" | "reject") => {
     if (!currentSessionId) return;
@@ -860,14 +1101,23 @@ function ApprovalsPage() {
     try {
       if (action === "confirm") {
         await client.approvalConfirm(currentSessionId, approval.token);
+        addToast(`已批准 ${approval.toolName}`, "success");
       } else {
         await client.approvalReject(currentSessionId, approval.token);
+        addToast(`已拒绝 ${approval.toolName}`, "info");
       }
     } catch (err) {
-      setError(errorMessage(err, "审批操作失败"));
+      const msg = errorMessage(err, "审批操作失败");
+      setError(msg);
+      addToast(msg, "error");
     } finally {
       setProcessing(null);
+      setConfirmReject(null);
     }
+  };
+
+  const handleReject = (approval: ApprovalEntry) => {
+    setConfirmReject(approval);
   };
 
   return (
@@ -892,7 +1142,7 @@ function ApprovalsPage() {
               <button className="primary" disabled={Boolean(processing)} onClick={() => void act(approval, "confirm")}>
                 {processing === `${approval.token}:confirm` ? "批准中" : "批准"}
               </button>
-              <button className="danger" disabled={Boolean(processing)} onClick={() => void act(approval, "reject")}>
+              <button className="danger" disabled={Boolean(processing)} onClick={() => handleReject(approval)}>
                 {processing === `${approval.token}:reject` ? "拒绝中" : "拒绝"}
               </button>
             </div>
@@ -900,11 +1150,25 @@ function ApprovalsPage() {
         ))}
         {approvals.length === 0 && <EmptyState icon="shield" title="暂无待审批项" text="需要人工确认的工具调用会出现在这里。" />}
       </div>
+      {confirmReject && (
+        <div className="confirm-overlay" onClick={() => setConfirmReject(null)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <strong>确认拒绝</strong>
+            <p>确定要拒绝 {confirmReject.toolName} 的调用吗？此操作不可撤销。</p>
+            <div className="button-row">
+              <button className="secondary" onClick={() => setConfirmReject(null)}>取消</button>
+              <button className="danger" disabled={Boolean(processing)} onClick={() => void act(confirmReject, "reject")}>
+                {processing ? "拒绝中..." : "确认拒绝"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function MemoryPage() {
+function MemoryPage({ addToast }: { addToast: (msg: string, tone?: ToastItem["tone"]) => void }) {
   const client = useGateway();
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const [query, setQuery] = useState("");
@@ -912,26 +1176,58 @@ function MemoryPage() {
   const [scope, setScope] = useState<"auto" | "daily" | "long_term">("auto");
   const [results, setResults] = useState<Array<Record<string, unknown>>>([]);
   const [message, setMessage] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [writing, setWriting] = useState(false);
+  const [queryError, setQueryError] = useState("");
+  const [contentError, setContentError] = useState("");
 
   const search = async () => {
-    if (!query.trim()) return;
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setQueryError("请输入搜索关键词");
+      return;
+    }
+    setQueryError("");
+    setSearching(true);
     try {
-      const payload = await client.memorySearch(query.trim());
+      const payload = await client.memorySearch(trimmed);
       setResults(((payload.results ?? []) as unknown[]) as Array<Record<string, unknown>>);
       setMessage("");
+      if (((payload.results ?? []) as unknown[]).length === 0) {
+        addToast("未找到相关记忆", "info");
+      }
     } catch (err) {
-      setMessage(errorMessage(err, "搜索失败"));
+      const msg = errorMessage(err, "搜索失败");
+      setMessage(msg);
+      addToast(msg, "error");
+    } finally {
+      setSearching(false);
     }
   };
 
   const write = async () => {
-    if (!currentSessionId || !content.trim()) return;
+    const trimmed = content.trim();
+    if (!trimmed) {
+      setContentError("请输入要保存的内容");
+      return;
+    }
+    if (!currentSessionId) {
+      addToast("请先选择一个会话", "warning");
+      return;
+    }
+    setContentError("");
+    setWriting(true);
     try {
-      const payload = await client.memoryWrite(currentSessionId, content.trim(), scope);
+      const payload = await client.memoryWrite(currentSessionId, trimmed, scope);
       setMessage(`已写入 ${payload.filePath ?? payload.scope}`);
       setContent("");
+      addToast("记忆已保存", "success");
     } catch (err) {
-      setMessage(errorMessage(err, "写入失败"));
+      const msg = errorMessage(err, "写入失败");
+      setMessage(msg);
+      addToast(msg, "error");
+    } finally {
+      setWriting(false);
     }
   };
 
@@ -939,11 +1235,14 @@ function MemoryPage() {
     <div className="resource-grid">
       <section className="panel">
         <div className="panel-head compact"><div><span className="eyebrow">Search</span><h2>搜索记忆</h2></div></div>
-        <div className="search-box large">
+        <div className={`search-box large ${queryError ? "input-error" : ""}`}>
           <Icon name="search" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void search()} placeholder="输入关键词" />
+          <input value={query} onChange={(e) => { setQuery(e.target.value); setQueryError(""); }} onKeyDown={(e) => e.key === "Enter" && void search()} placeholder="输入关键词" />
         </div>
-        <button className="primary full" onClick={() => void search()} disabled={!query.trim()}>搜索</button>
+        {queryError && <div className="input-hint error">{queryError}</div>}
+        <button className="primary full" onClick={() => void search()} disabled={!query.trim() || searching}>
+          {searching ? <><span className="loading-spinner small" /> 搜索中...</> : "搜索"}
+        </button>
         <div className="memory-results">
           {results.map((result, index) => (
             <div className="memory-card" key={String(result.chunkId ?? result.id ?? index)}>
@@ -955,7 +1254,8 @@ function MemoryPage() {
       </section>
       <section className="panel">
         <div className="panel-head compact"><div><span className="eyebrow">Write</span><h2>写入记忆</h2></div></div>
-        <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={9} placeholder="记录需要长期保留的背景、约束或偏好" />
+        <textarea className={contentError ? "input-error" : ""} value={content} onChange={(e) => { setContent(e.target.value); setContentError(""); }} rows={9} placeholder="记录需要长期保留的背景、约束或偏好" />
+        {contentError && <div className="input-hint error">{contentError}</div>}
         <div className="segmented stretch">
           {[
             ["auto", "自动"],
@@ -965,7 +1265,9 @@ function MemoryPage() {
             <button key={id} className={scope === id ? "active" : ""} onClick={() => setScope(id as typeof scope)}>{label}</button>
           ))}
         </div>
-        <button className="primary full" onClick={() => void write()} disabled={!currentSessionId || !content.trim()}>保存记忆</button>
+        <button className="primary full" onClick={() => void write()} disabled={!currentSessionId || !content.trim() || writing}>
+          {writing ? <><span className="loading-spinner small" /> 保存中...</> : "保存记忆"}
+        </button>
         {message && <div className={message.startsWith("已") ? "inline-success" : "inline-error"}>{message}</div>}
       </section>
     </div>
@@ -979,14 +1281,18 @@ function AuditPage() {
   const [type, setType] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
+    setLoading(true);
     try {
       const payload = await client.auditTail({ limit, type: type || undefined });
       setEntries(normalizeAuditPayload(payload));
       setError("");
     } catch (err) {
       setError(errorMessage(err, "读取审计日志失败"));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1008,7 +1314,15 @@ function AuditPage() {
       </div>
       {error && <div className="inline-error">{error}</div>}
       <div className="audit-table">
-        {entries.map((entry, index) => (
+        {loading ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 12px" }}>
+              <div className="skeleton" style={{ width: 60, height: 22, borderRadius: 999 }} />
+              <div className="skeleton skeleton-text long" style={{ flex: 1 }} />
+              <div className="skeleton" style={{ width: 80, height: 14 }} />
+            </div>
+          ))
+        ) : entries.map((entry, index) => (
           <div className="audit-row" key={index}>
             <button onClick={() => setExpanded(expanded === index ? null : index)}>
               <StatusPill tone="neutral">{String(entry.type ?? "unknown")}</StatusPill>
@@ -1069,7 +1383,7 @@ function EventInspector({
                 <strong>{event.event}</strong>
                 <small>#{event.seq} · {formatTime(event.createdAt)}</small>
               </span>
-              {expanded === key && <pre>{safeJson(event.payload)}</pre>}
+              {expanded === key && <pre>{safeJson(formatEventPayloadForDisplay(event))}</pre>}
             </button>
           );
         })}
@@ -1080,15 +1394,99 @@ function EventInspector({
 }
 
 function MessageBubble({ role, text, active }: { role: MessageRole; text: string; active?: boolean }) {
-  const displayText = role === "assistant" ? cleanAgentText(text) : text;
+  const processed = role === "assistant" ? extractThinking(text) : { thinking: null, content: text };
+  const [thinkOpen, setThinkOpen] = useState(false);
+  const segments = role === "assistant" ? parseMessageSegments(processed.content) : null;
+  const hasCards = segments?.some((s) => s.type === "tool_card") ?? false;
   return (
     <article className={`message-bubble ${role}`}>
       <div className="bubble-avatar"><Icon name={role === "user" ? "user" : "spark"} /></div>
       <div className="bubble-body">
         <strong>{role === "user" ? "你" : "Assistant"}</strong>
-        <p>{displayText}{active && <span className="cursor">|</span>}</p>
+        {processed.thinking && (
+          <div className="thinking-block">
+            <button className="thinking-toggle" onClick={() => setThinkOpen(!thinkOpen)}>
+              <Icon name={thinkOpen ? "chevron-up" : "chevron-down"} />
+              <span>思考过程</span>
+              <small>{thinkOpen ? "收起" : "展开"}</small>
+            </button>
+            {thinkOpen && <div className="thinking-content">{processed.thinking}</div>}
+          </div>
+        )}
+        {hasCards ? (
+          <div className="bubble-segments">
+            {segments!.map((seg, i) => seg.type === "tool_card"
+              ? <ToolCallCard key={i} tool={seg.tool} args={seg.args} />
+              : seg.text.trim() ? <p key={i}>{seg.text}{active && i === segments!.length - 1 && <span className="cursor">|</span>}</p> : null
+            )}
+          </div>
+        ) : (
+          <p>{processed.content}{active && <span className="cursor">|</span>}</p>
+        )}
       </div>
     </article>
+  );
+}
+
+function ToolCallCard({ tool, args }: { tool: string; args: Record<string, unknown> }) {
+  const friendly: Record<string, { icon: IconName; label: string; desc: (a: Record<string, unknown>) => string }> = {
+    "file.read": { icon: "file", label: "读取文件", desc: (a) => String(a.path ?? "") },
+    "file.write": { icon: "file", label: "写入文件", desc: (a) => String(a.path ?? "") },
+    "file.edit": { icon: "edit", label: "编辑文件", desc: (a) => String(a.path ?? "") },
+    "file.list": { icon: "folder", label: "列出目录", desc: (a) => String(a.dir ?? a.path ?? ".") },
+    "file.glob": { icon: "search", label: "搜索文件", desc: (a) => String(a.pattern ?? "") },
+    "file.grep": { icon: "search", label: "搜索内容", desc: (a) => `${a.pattern ?? ""} in ${a.dir ?? "."}` },
+    "shell.run": { icon: "wrench", label: "执行命令", desc: (a) => String(a.command ?? "") },
+    "memory.search": { icon: "brain", label: "搜索记忆", desc: (a) => String(a.query ?? "") },
+    "memory.write": { icon: "brain", label: "写入记忆", desc: (a) => String(a.content ?? "").slice(0, 60) },
+    "web.search": { icon: "search", label: "网页搜索", desc: (a) => String(a.query ?? "") },
+  };
+  const info = friendly[tool] ?? { icon: "wrench" as IconName, label: tool, desc: () => JSON.stringify(args).slice(0, 80) };
+  return (
+    <div className="tool-call-card">
+      <span className="tool-call-card-icon"><Icon name={info.icon} /></span>
+      <div className="tool-call-card-body">
+        <strong>{info.label}</strong>
+        <code>{info.desc(args)}</code>
+      </div>
+    </div>
+  );
+}
+
+function ToolCallActivity({ calls, running }: { calls: ToolCallActivityItem[]; running: boolean }) {
+  const runningCount = calls.filter((call) => call.status === "running").length;
+  const doneCount = calls.filter((call) => call.status === "done").length;
+  const failedCount = calls.filter((call) => call.status === "failed").length;
+  return (
+    <section className="tool-activity" aria-label="工具调用状态">
+      <div className="tool-activity-head">
+        <span className="tool-activity-mark">
+          {runningCount > 0 ? <span className="tool-call-spinner" /> : failedCount > 0 ? <Icon name="shield" /> : <Icon name="check" />}
+        </span>
+        <div>
+          <strong>{runningCount > 0 ? "正在调用工具" : failedCount > 0 ? "工具调用出错" : "工具调用已完成"}</strong>
+          <small>
+            {runningCount > 0
+              ? `${runningCount} 个工具运行中 · ${doneCount} 个已完成`
+              : failedCount > 0
+                ? `${failedCount} 个失败 · ${doneCount} 个成功`
+                : `${calls.length} 个工具已返回`}
+          </small>
+        </div>
+      </div>
+      <div className="tool-activity-list">
+        {calls.map((call) => (
+          <div key={call.id} className={`tool-call-item ${call.status}`}>
+            <span className="tool-call-icon"><Icon name={toolCallIcon(call.status)} /></span>
+            <span className="tool-call-copy">
+              <strong>{call.tool}</strong>
+              {call.detail && <small>{call.detail}</small>}
+            </span>
+            <span className="tool-call-state">{toolCallStateLabel(call.status)}</span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1203,8 +1601,60 @@ function normalizeAuditPayload(payload: unknown): Array<Record<string, unknown>>
 }
 
 function cleanAgentText(raw: string): string {
-  const unwrapped = unwrapFinalJson(raw).replace(/\uFFFD/g, "").trim();
-  return unwrapped;
+  return sanitizeStructuredAgentText(raw);
+}
+
+type MessageSegment =
+  | { type: "text"; text: string }
+  | { type: "tool_card"; tool: string; args: Record<string, unknown> };
+
+function parseMessageSegments(raw: string): MessageSegment[] | null {
+  const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/\uFFFD/g, "").trim();
+  if (!cleaned) return null;
+
+  const segments: MessageSegment[] = [];
+  const jsonRanges = extractStructuredJsonRanges(cleaned);
+  let lastIndex = 0;
+  let hasToolCard = false;
+
+  for (const range of jsonRanges) {
+    const before = cleaned.slice(lastIndex, range.start).trim();
+    if (before) segments.push({ type: "text", text: before });
+
+    const parsed = tryParseStructuredPayload(range.json);
+    if (parsed?.type === "tool_call" && typeof parsed.tool === "string") {
+      segments.push({
+        type: "tool_card",
+        tool: parsed.tool,
+        args: (parsed.args ?? {}) as Record<string, unknown>,
+      });
+      hasToolCard = true;
+    } else if (parsed?.type === "final" && typeof parsed.content === "string") {
+      if (parsed.content.trim()) {
+        segments.push({ type: "text", text: parsed.content });
+      }
+    } else {
+      segments.push({ type: "text", text: range.json });
+    }
+    lastIndex = range.end;
+  }
+
+  const tail = cleaned.slice(lastIndex).trim();
+  if (tail) segments.push({ type: "text", text: tail });
+
+  if (!hasToolCard && segments.length === 1 && segments[0].type === "text") return null;
+  return segments.length > 0 ? segments : null;
+}
+
+function extractThinking(raw: string): { thinking: string | null; content: string } {
+  const cleaned = raw.replace(/\uFFFD/g, "").trim();
+  const thinkMatch = cleaned.match(/<think>([\s\S]*?)<\/think>/);
+  if (thinkMatch) {
+    const thinking = thinkMatch[1].trim();
+    const content = sanitizeStructuredAgentText(cleaned.replace(/<think>[\s\S]*?<\/think>/, "").trim());
+    return { thinking: thinking || null, content: content || cleaned };
+  }
+  return { thinking: null, content: sanitizeStructuredAgentText(cleaned) };
 }
 
 function unwrapFinalJson(raw: string): string {
@@ -1217,6 +1667,94 @@ function unwrapFinalJson(raw: string): string {
     // Keep non-JSON model output unchanged.
   }
   return raw;
+}
+
+function sanitizeStructuredAgentText(
+  raw: string,
+  options: { preserveThinking?: boolean } = {}
+): string {
+  let text = unwrapFinalJson(raw).replace(/\uFFFD/g, "");
+  if (!options.preserveThinking) {
+    text = text.replace(/<think>[\s\S]*?<\/think>/g, "");
+  }
+
+  const ranges = extractStructuredJsonRanges(text)
+    .map((range) => ({
+      ...range,
+      parsed: tryParseStructuredPayload(range.json),
+    }));
+  const finalPayload = [...ranges]
+    .reverse()
+    .find((range) => range.parsed?.type === "final" && typeof range.parsed.content === "string" && range.parsed.content.trim() !== "");
+  if (finalPayload?.parsed && typeof finalPayload.parsed.content === "string") {
+    return finalPayload.parsed.content.trim();
+  }
+
+  for (const range of [...ranges].reverse()) {
+    if (range.parsed?.type === "tool_call" || range.parsed?.type === "final") {
+      text = text.slice(0, range.start) + text.slice(range.end);
+    }
+  }
+
+  return text
+    .replace(/\[Tool Result\][\s\S]*?\[\/Tool Result\]/g, "")
+    .replace(/^\[[^\]]*JSON[^\]]*\]\s*$/gim, "")
+    .replace(/^\[TOOL_CALL\]\s*/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function extractStructuredJsonRanges(raw: string): Array<{ json: string; start: number; end: number }> {
+  const results: Array<{ json: string; start: number; end: number }> = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === "\\" && inString) {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        results.push({ json: raw.slice(start, index + 1), start, end: index + 1 });
+        start = -1;
+      }
+    }
+  }
+
+  return results;
+}
+
+function tryParseStructuredPayload(raw: string): Record<string, unknown> | undefined {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeSessions(list: Array<Record<string, unknown>>): SessionEntry[] {
@@ -1343,6 +1881,32 @@ function safeJson(value: unknown) {
   }
 }
 
+function formatEventPayloadForDisplay(event: EventEntry): unknown {
+  const payload =
+    event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)
+      ? { ...(event.payload as Record<string, unknown>) }
+      : event.payload;
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (event.event === "chat.completed" && typeof payload.text === "string") {
+    payload.text = sanitizeStructuredAgentText(payload.text);
+  }
+
+  if (event.event === "chat.delta") {
+    if (typeof payload.text === "string") {
+      payload.text = sanitizeStructuredAgentText(payload.text);
+    }
+    if (typeof payload.delta === "string") {
+      payload.delta = sanitizeStructuredAgentText(payload.delta);
+    }
+  }
+
+  return payload;
+}
+
 function shortPath(value: string) {
   const normalized = value.replace(/\//g, "\\");
   const parts = normalized.split("\\").filter(Boolean);
@@ -1350,10 +1914,59 @@ function shortPath(value: string) {
   return `${parts[0]}\\...\\${parts.slice(-2).join("\\")}`;
 }
 
+function providerOptions(runtime: RuntimeInfo | null): Array<{ id: string; label: string }> {
+  const fromRuntime = runtime?.availableModels;
+  if (Array.isArray(fromRuntime) && fromRuntime.length > 0) {
+    return fromRuntime.filter((option) => option.id && option.label);
+  }
+  return [
+    { id: "deepseek", label: "DeepSeek" },
+    { id: "tokenplan", label: "MiniMax TokenPlan" },
+    { id: "mock", label: "Mock" },
+  ];
+}
+
+function labelForModel(
+  model: string,
+  options?: Array<{ id: string; label: string }>
+): string {
+  const option = options?.find((item) => item.id === model);
+  if (option) return option.label;
+  if (model === "tokenplan" || model === "minimax") return "MiniMax TokenPlan";
+  if (model === "deepseek") return "DeepSeek";
+  if (model === "mock") return "Mock";
+  return model;
+}
+
 function previewInput(value: unknown) {
   if (value === undefined || value === null) return "无输入预览";
   const raw = typeof value === "string" ? value : safeJson(value);
   return raw.length > 90 ? `${raw.slice(0, 90)}...` : raw;
+}
+
+function summarizeToolInput(value: unknown): string {
+  if (value === undefined || value === null) {
+    return "等待工具返回";
+  }
+  return previewInput(value);
+}
+
+function formatToolCompletion(durationMs: unknown): string {
+  return typeof durationMs === "number"
+    ? `完成，用时 ${formatDuration(durationMs)}`
+    : "已返回结果";
+}
+
+function toolCallStateLabel(status: ToolCallActivityItem["status"]): string {
+  if (status === "running") return "运行中";
+  if (status === "done") return "完成";
+  return "失败";
+}
+
+function toolCallIcon(status: ToolCallActivityItem["status"]): IconName {
+  if (status === "done") return "check";
+  if (status === "failed") return "x";
+  return "wrench";
 }
 
 type IconName =
@@ -1377,7 +1990,9 @@ type IconName =
   | "trash"
   | "user"
   | "edit"
-  | "check";
+  | "check"
+  | "chevron-up"
+  | "chevron-down";
 
 function Icon({ name }: { name: IconName }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
@@ -1403,6 +2018,8 @@ function Icon({ name }: { name: IconName }) {
     user: <><circle {...common} cx="12" cy="8" r="4" /><path {...common} d="M4 21a8 8 0 0 1 16 0" /></>,
     edit: <><path {...common} d="M12 20h9" /><path {...common} d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></>,
     check: <path {...common} d="M20 6 9 17l-5-5" />,
+    "chevron-up": <path {...common} d="m18 15-6-6-6 6" />,
+    "chevron-down": <path {...common} d="m6 9 6 6 6-6" />,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }

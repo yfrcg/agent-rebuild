@@ -126,7 +126,8 @@ export class ToolCallExecutor {
             const mutationPreflight = this.captureMutationPreflight(
               request.sessionId,
               request.toolName,
-              normalizedInput
+              normalizedInput,
+              request.projectBoundary
             );
             throwIfAborted(request.signal);
             await this.executeAllowedTool(
@@ -139,7 +140,12 @@ export class ToolCallExecutor {
               tool
             );
             throwIfAborted(request.signal);
-            await this.afterToolExecution(record, request.sessionId, mutationPreflight);
+            await this.afterToolExecution(
+              record,
+              request.sessionId,
+              mutationPreflight,
+              request.projectBoundary
+            );
           }
           }
         }
@@ -189,13 +195,17 @@ export class ToolCallExecutor {
   private captureMutationPreflight(
     sessionId: string | undefined,
     toolName: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    projectBoundary: GatewayProjectBoundary | undefined
   ) {
     if (!sessionId || !isFileMutationTool(toolName)) {
       return undefined;
     }
 
-    const filePath = resolveInputFilePath(this.projectRoot, input);
+    const filePath = resolveInputFilePath(
+      this.resolveProjectRootFromBoundary(projectBoundary),
+      input
+    );
     if (!filePath) {
       return undefined;
     }
@@ -225,10 +235,14 @@ export class ToolCallExecutor {
           filePath: string;
           preflight: ReturnType<FileAccessTracker["capturePreflight"]>;
         }
-      | undefined
+      | undefined,
+    projectBoundary: GatewayProjectBoundary | undefined
   ): Promise<void> {
     if (record.status === "success" && sessionId && record.toolName === "file.read") {
-      const filePath = resolveInputFilePath(this.projectRoot, record.input);
+      const filePath = resolveInputFilePath(
+        this.resolveProjectRootFromBoundary(projectBoundary),
+        record.input
+      );
       if (filePath) {
         this.fileAccessTracker.recordRead(sessionId, filePath);
       }
@@ -279,11 +293,18 @@ export class ToolCallExecutor {
     const result = await tool.execute(request.input, {
       sessionId: request.sessionId,
       requestId: request.requestId,
+      projectBoundary: request.projectBoundary,
     });
     this.applyToolResult(record, {
       ...result,
       toolCallId: request.id,
     });
+  }
+
+  private resolveProjectRootFromBoundary(
+    boundary: GatewayProjectBoundary | undefined
+  ): string {
+    return boundary?.projectDir ?? this.projectRoot;
   }
 
   /**
@@ -691,7 +712,12 @@ export class ToolCallExecutor {
     const isFileTool =
       toolName === "file.read" ||
       toolName === "file.write" ||
-      toolName === "file.edit";
+      toolName === "file.edit" ||
+      toolName === "file.list" ||
+      toolName === "file.glob" ||
+      toolName === "file.grep" ||
+      toolName === "file.multi_edit" ||
+      toolName === "file.patch";
     const isShellTool =
       toolName === "shell.run" ||
       toolName === "bash.run" ||
@@ -965,7 +991,12 @@ function normalizeShellCwd(input: unknown, projectRoot: string): string {
  * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
 function isFileMutationTool(toolName: string): boolean {
-  return toolName === "file.write" || toolName === "file.edit";
+  return (
+    toolName === "file.write" ||
+    toolName === "file.edit" ||
+    toolName === "file.multi_edit" ||
+    toolName === "file.patch"
+  );
 }
 
 /**

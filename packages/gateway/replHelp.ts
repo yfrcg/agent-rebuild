@@ -55,7 +55,7 @@ Normal chat path:
 - User Input -> Gateway -> memory.search -> contextBuilder -> modelProvider -> auditLogger -> response
 
 Runtime config:
-- GATEWAY_MODEL=mock|deepseek
+- GATEWAY_MODEL=mock|deepseek|tokenplan
 - GATEWAY_MEMORY_TOP_K=5
 - GATEWAY_AUDIT_LOG_PATH=logs/gateway-audit.jsonl
 - GATEWAY_DEBUG=true

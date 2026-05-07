@@ -10,6 +10,7 @@ import { SessionManager } from "../packages/gateway/sessionManager";
 import { ToolCallExecutor } from "../packages/gateway/toolCallExecutor";
 import { ToolRegistry } from "../packages/gateway/toolRegistry";
 import { PermissionPolicy } from "../packages/gateway/permissionPolicy";
+import { createBuiltinToolRegistry } from "../packages/gateway/builtinTools";
 import { createGatewayToolCallRequest } from "../packages/gateway/toolCallFactory";
 import { extractProjectBoundary } from "../packages/gateway/sessionTypes";
 import type { GatewayTool } from "../packages/gateway/toolTypes";
@@ -281,6 +282,83 @@ test("file tool rejects relative path with ../ escape attempt", async () => {
     assert.ok(
       record.error?.includes("逃出项目目录") || record.error?.includes("不在允许读取") || record.error?.includes("path escapes workspace"),
       `Expected error about path escape, got: ${record.error}`
+    );
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("builtin file.write uses bound projectDir for relative paths", async () => {
+  const workspace = createTempWorkspace();
+  try {
+    const manager = createSessionManager(workspace);
+    const projectDir = createTestProjectDir(workspace);
+    const registry = createBuiltinToolRegistry({
+      memorySearch: async () => [],
+      projectRoot: workspace,
+    });
+    const executor = new ToolCallExecutor({
+      registry,
+      projectRoot: workspace,
+      allowBypassPermissions: true,
+    });
+    const sessionId = manager.getCurrentSessionId();
+
+    manager.bindProjectDir(sessionId, projectDir, [workspace]);
+    const session = manager.getCurrentSession();
+
+    const request = createGatewayToolCallRequest({
+      toolName: "file.write",
+      input: { path: "src/generated.txt", content: "from bound project\n" },
+      sessionId: session.id,
+      permissionMode: "bypassPermissions",
+      projectBoundary: extractProjectBoundary(session),
+    });
+
+    const record = await executor.execute(request);
+    assert.equal(record.status, "success", `Expected success, got: ${record.error}`);
+    assert.equal(
+      fs.readFileSync(path.join(projectDir, "src", "generated.txt"), "utf8"),
+      "from bound project\n"
+    );
+    assert.equal(fs.existsSync(path.join(workspace, "src", "generated.txt")), false);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("bound project allows file.write in default permission mode", async () => {
+  const workspace = createTempWorkspace();
+  try {
+    const manager = createSessionManager(workspace);
+    const projectDir = createTestProjectDir(workspace);
+    const registry = createBuiltinToolRegistry({
+      memorySearch: async () => [],
+      projectRoot: workspace,
+    });
+    const executor = new ToolCallExecutor({
+      registry,
+      projectRoot: workspace,
+      allowBypassPermissions: true,
+    });
+    const sessionId = manager.getCurrentSessionId();
+
+    manager.bindProjectDir(sessionId, projectDir, [workspace]);
+    const session = manager.getCurrentSession();
+
+    const request = createGatewayToolCallRequest({
+      toolName: "file.write",
+      input: { path: "src/default-mode.txt", content: "allowed\n" },
+      sessionId: session.id,
+      permissionMode: "default",
+      projectBoundary: extractProjectBoundary(session),
+    });
+
+    const record = await executor.execute(request);
+    assert.equal(record.status, "success", `Expected success, got: ${record.error}`);
+    assert.equal(
+      fs.readFileSync(path.join(projectDir, "src", "default-mode.txt"), "utf8"),
+      "allowed\n"
     );
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });

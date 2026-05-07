@@ -30,6 +30,123 @@ const BLOCKED_ENV_PATTERNS = [
   "CREDENTIAL",
 ];
 
+const LINUX_TO_POWERSHELL: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /^ls\s+(.+)$/, replacement: "Get-ChildItem $1" },
+  { pattern: /^ls$/, replacement: "Get-ChildItem" },
+  { pattern: /^cat\s+(.+)$/, replacement: "Get-Content $1" },
+  { pattern: /^rm\s+-rf?\s+(.+)$/, replacement: "Remove-Item -Recurse -Force $1" },
+  { pattern: /^rm\s+(.+)$/, replacement: "Remove-Item $1" },
+  { pattern: /^mkdir\s+-p\s+(.+)$/, replacement: "New-Item -ItemType Directory -Force -Path $1" },
+  { pattern: /^mkdir\s+(.+)$/, replacement: "New-Item -ItemType Directory -Path $1" },
+  { pattern: /^cp\s+(.+)$/, replacement: "Copy-Item $1" },
+  { pattern: /^mv\s+(.+)$/, replacement: "Move-Item $1" },
+  { pattern: /^touch\s+(.+)$/, replacement: "New-Item -ItemType File -Path $1 -Force" },
+  { pattern: /^pwd$/, replacement: "Get-Location" },
+  { pattern: /^which\s+(.+)$/, replacement: "Get-Command $1" },
+  { pattern: /^echo\s+"(.+)"\s*>\s*(.+)$/, replacement: "Set-Content -Path $2 -Value '$1'" },
+  { pattern: /^echo\s+'(.+)'\s*>\s*(.+)$/, replacement: "Set-Content -Path $2 -Value '$1'" },
+  { pattern: /^echo\s+(.+)\s*>\s*(.+)$/, replacement: "Set-Content -Path $2 -Value '$1'" },
+  { pattern: /^echo\s+(.+)$/, replacement: "Write-Output $1" },
+];
+
+function translateLinuxCommand(command: string): string {
+  const trimmed = command.trim();
+  for (const { pattern, replacement } of LINUX_TO_POWERSHELL) {
+    if (pattern.test(trimmed)) {
+      return trimmed.replace(pattern, replacement);
+    }
+  }
+  return command;
+}
+
+function translateCommand(command: string): string {
+  const steps = splitCommandChain(command);
+  if (steps.length === 1) {
+    return translateSingleCommand(steps[0].segment);
+  }
+
+  const translated: string[] = [];
+  for (let index = 0; index < steps.length; index += 1) {
+    const current = steps[index];
+    translated.push(translateSingleCommand(current.segment));
+    if (current.operator === "&&") {
+      translated.push("if (-not $?) { exit $LASTEXITCODE }");
+    } else if (current.operator === "||") {
+      translated.push("if ($?) { exit 0 }");
+    }
+  }
+  return translated.join("; ");
+}
+
+function translateSingleCommand(command: string): string {
+  const trimmed = command.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const normalizedRelativeExec = trimmed.replace(/^\.\//, ".\\");
+  const normalizedBareExec = normalizeBareExecutable(normalizedRelativeExec);
+  return translateLinuxCommand(normalizedBareExec);
+}
+
+function normalizeBareExecutable(command: string): string {
+  if (/^[.\\/]/.test(command) || /^[a-z]:\\/i.test(command)) {
+    return command;
+  }
+
+  const match = command.match(/^([^\s\\/:"|?*]+\.(?:exe|cmd|bat|ps1))(\s.*)?$/i);
+  if (!match) {
+    return command;
+  }
+
+  return `.\\${match[1]}${match[2] ?? ""}`;
+}
+
+function splitCommandChain(command: string): Array<{ segment: string; operator?: "&&" | "||" }> {
+  const result: Array<{ segment: string; operator?: "&&" | "||" }> = [];
+  let current = "";
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    const next = command[index + 1];
+
+    if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      current += char;
+      continue;
+    }
+
+    if (char === "\"" && !inSingleQuote) {
+      const escaped = index > 0 && command[index - 1] === "\\";
+      if (!escaped) {
+        inDoubleQuote = !inDoubleQuote;
+      }
+      current += char;
+      continue;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && (char === "&" || char === "|") && next === char) {
+      result.push({
+        segment: current.trim(),
+        operator: (char === "&" ? "&&" : "||"),
+      });
+      current = "";
+      index += 1;
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.trim() || result.length === 0) {
+    result.push({ segment: current.trim() });
+  }
+
+  return result.filter((item) => item.segment !== "");
+}
+
 /**
  * 函数 `buildChildEnv` 的职责说明。
  * `buildChildEnv` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
@@ -100,6 +217,7 @@ export async function runLocalCommand(
   const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const childEnv = buildChildEnv(request.env);
   const startMs = Date.now();
+  const translatedCommand = translateCommand(request.command);
 
   return new Promise<LocalCommandResult>((resolve) => {
     let timedOut = false;
@@ -116,7 +234,7 @@ export async function runLocalCommand(
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      request.command,
+      translatedCommand,
     ], {
       cwd: resolvedCwd,
       env: childEnv,

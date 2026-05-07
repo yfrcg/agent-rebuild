@@ -6,7 +6,12 @@ import {
   resolveWorkspaceRoot,
 } from "../core/src/config";
 
-export type GatewayModelName = "mock" | "deepseek";
+export type GatewayModelName = "mock" | "deepseek" | "tokenplan";
+export const GATEWAY_MODEL_NAMES: readonly GatewayModelName[] = [
+  "mock",
+  "deepseek",
+  "tokenplan",
+];
 export type GatewaySandboxMode = "off" | "workspace-write" | "read-only";
 
 export interface GatewayRuntimeConfig {
@@ -137,15 +142,33 @@ function parseLegacySandboxMode(value: string | undefined): GatewaySandboxMode {
  * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
 function parseModelName(value: string | undefined): GatewayModelName {
-  if (value === undefined || value.trim() === "" || value === "deepseek") {
+  const normalized = normalizeGatewayModelName(value);
+  if (normalized) {
+    return normalized;
+  }
+
+  if (value === undefined || value.trim() === "") {
     return "deepseek";
   }
 
-  if (value === "mock") {
-    return "mock";
+  return "deepseek";
+}
+
+export function normalizeGatewayModelName(
+  value: string | undefined
+): GatewayModelName | undefined {
+  if (value === undefined) {
+    return undefined;
   }
 
-  return "deepseek";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "minimax" || normalized === "mini-max") {
+    return "tokenplan";
+  }
+
+  return (GATEWAY_MODEL_NAMES as readonly string[]).includes(normalized)
+    ? (normalized as GatewayModelName)
+    : undefined;
 }
 
 /**

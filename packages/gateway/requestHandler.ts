@@ -1,6 +1,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { GatewayRequest } from "./types";
+import type { GatewayProjectBoundary } from "./toolCallTypes";
 import type {
   GatewayPermissionMode,
   GatewayPlanState,
@@ -12,6 +13,7 @@ export interface GatewayRequestCreateOptions {
   activeSkills?: string[];
   permissionMode?: GatewayPermissionMode;
   planState?: GatewayPlanState;
+  projectBoundary?: GatewayProjectBoundary;
 }
 
 /**
@@ -31,6 +33,7 @@ export function createGatewayRequest(
     activeSkills: options.activeSkills,
     permissionMode: options.permissionMode,
     planState: options.planState,
+    projectBoundary: options.projectBoundary,
     createdAt: new Date().toISOString(),
   };
 }

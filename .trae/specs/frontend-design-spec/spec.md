@@ -1,245 +1,386 @@
-# Frontend Design Spec (前端设计规范)
+# Frontend Design Spec Optimized（前端设计规范 · 优化版）
 
-## Why
+## 0. 设计基线
 
-后端 Gateway 已达到生产级本地 Agent 基础设施水平，包含完整的 WS 协议、安全链路、Run 生命周期、Memory、Audit 和 29 个内置工具。现在需要一个类型安全的 WS Client SDK 和 Web UI 控制台，将后端能力暴露给用户。前端不是普通聊天页，而是 **Local Agent Control Console**——会话 + 运行轨迹 + 工具调用 + 审批 + 审计的工作台。
+本规范面向 `agent-rebuild` 当前真实后端。前端不是普通聊天页，而是 **Local Agent Control Console**：用于管理 Session、Run、Tool Timeline、Approval、Memory、Audit 与 Gateway 状态。
 
-## What Changes
+当前后端已提供 WebSocket Gateway：
 
-- 新增 `packages/ws-client`：类型安全的 WS Client SDK，封装连接管理、请求/响应 Promise map、事件 reducer、断线重连与 resume
-- 新增 `apps/web-ui`：基于 React + TypeScript 的 Web UI 控制台
-- 前端规范覆盖：信息架构、核心页面、Run 状态机、流式渲染、安全交互、视觉设计
-- 所有 server 事件类型从 `protocol.ts` 共享，前端不重新定义
+- 启动脚本：`npm run gateway:ws`
+- WS 入口：`ws://127.0.0.1:8787/v1/ws`
+- 协议来源：`packages/gateway/ws/protocol.ts`
+- 参数校验：`packages/gateway/ws/schemas.ts`
+- 请求路由：`packages/gateway/ws/router.ts`
+- WS Server：`packages/gateway/ws/wsServer.ts`
 
-## Impact
-
-- Affected specs: 无（全新前端层）
-- Affected code:
-  - `packages/gateway/ws/protocol.ts` — WS 协议定义，前端 SDK 的类型来源
-  - `packages/gateway/ws/schemas.ts` — 消息 schema，前端验证参考
-  - `packages/gateway/ws/router.ts` — 请求路由，前端 API surface 参考
-  - `packages/gateway/sessionTypes.ts` — Session 数据结构
-  - `packages/gateway/types.ts` — Gateway 响应/调试/指标结构
-  - `packages/gateway/toolCallTypes.ts` — Tool Call 记录结构
+前端实现必须以真实后端协议为准，不自行发明 `connect_ok`、`eventId`、`afterSeq` 等未实现字段。
 
 ---
 
-## 一、产品定位
+## 1. 产品定位
 
 ### Requirement: Local Agent Control Console
 
-前端 SHALL 作为多 Agent Gateway 的操作台，优先支持 Web UI，后续可复用到 VS Code Client。
+前端 SHALL 作为本地 Agent Gateway 的控制台，而不是普通 SaaS Chat UI。
 
 #### Scenario: 多会话管理
-- **WHEN** 用户打开 Web UI
-- **THEN** 左侧显示 Session 列表，每个 Session 显示 name、messageCount、updatedAt、projectBound 状态
-- **AND** 用户可以创建新 Session、重命名、绑定项目目录
+
+- WHEN 用户打开 Web UI
+- THEN 左侧显示 Session 列表
+- AND 每个 Session 显示 name、messageCount、updatedAt、projectBound / permission 状态
+- AND 用户可以创建 Session、查看详情、绑定项目目录
 
 #### Scenario: 显式 Session 上下文
-- **WHEN** 用户执行任何操作（chat、tool、memory、approval）
-- **THEN** 所有 WS 请求 SHALL 包含显式 `sessionId` 字段
-- **AND** 前端不依赖隐式 current session
 
-#### Scenario: 一等状态管理
-- **WHEN** 前端管理运行状态
-- **THEN** `runId`、`sessionId`、`seq`、`idempotencyKey` SHALL 作为一等状态
-- **AND** 每个 session 保存 `lastSeq`、`activeRunIds`、`transcriptCache`
+- WHEN 用户执行 chat、tool、memory、approval 操作
+- THEN 请求 SHALL 显式携带 `sessionId`
+- AND 前端不依赖隐式 current session，除非后端方法明确支持缺省 current session
+
+#### Scenario: 一等运行状态
+
+- WHEN 前端管理运行过程
+- THEN `sessionId`、`runId`、`seq`、`idempotencyKey` SHALL 作为一等状态
+- AND 每个 session 保存 `lastSeq`、`activeRunIds`、`transcriptCache`
 
 ---
 
-## 二、信息架构
+## 2. 信息架构
 
 ### Requirement: 四区域布局
 
-#### Scenario: 标准布局
-- **WHEN** 用户在桌面端查看
-- **THEN** 左侧显示 Session 列表面板
-- **AND** 中间显示 Chat/Run 主视图
-- **AND** 右侧显示 Timeline 面板（run、tool、approval、memory、audit 事件）
-- **AND** 顶部显示连接状态、当前模型、sandbox mode、tool count、active runs、WS 状态
+桌面端采用四区域布局：
 
-#### Scenario: 移动端适配
-- **WHEN** 用户在移动端查看
-- **THEN** Session 和 Chat 优先显示
-- **AND** Timeline 和 Audit 进入抽屉
+1. 左侧：Session Workspace
+2. 中间：Run Console / Chat 主视图
+3. 右侧：Tool Timeline / Event Timeline
+4. 顶部：Status Bar
 
----
+#### Status Bar SHOULD 显示
 
-## 三、核心页面
+- WS 连接状态
+- 当前模型
+- sandbox mode
+- tool count
+- active runs
+- reconnect 状态
+- lastSeq / resync 状态
 
-### Requirement: Gateway Dashboard
-显示 `runtime.status` 响应中的运行时信息。
+### Requirement: 移动端适配
 
-#### Scenario: Dashboard 展示
-- **WHEN** 用户访问 Dashboard
-- **THEN** 显示 runtime.name、version、modelProvider、model
-- **AND** 显示 sandbox.mode、memory.enabled、audit.enabled
-- **AND** 显示 tools.total、builtin、dynamic
-- **AND** 显示 wsConnections、wsMaxConnections
-- **AND** 显示 sessions.active、maxSessions
-- **AND** 显示 metrics（totalRequests、errorRate、avgDurationMs、p95DurationMs、circuitState）
-
-### Requirement: Session Workspace
-基于 `session.list`、`session.create`、`session.get`、`session.bindProject`、`session.getTranscript`。
-
-#### Scenario: Session 列表
-- **WHEN** 用户发送 `session.list` 请求
-- **THEN** 显示所有 session 的 id、name、messageCount、updatedAt、projectBound、permission
-
-#### Scenario: Session 创建
-- **WHEN** 用户点击创建 Session
-- **THEN** 发送 `session.create` 请求（带 `idempotencyKey`）
-- **AND** 新 Session 出现在列表中
-
-#### Scenario: Session 绑定项目
-- **WHEN** 用户为 Session 绑定项目目录
-- **THEN** 发送 `session.bindProject` 请求（带 `idempotencyKey`）
-- **AND** Session 状态更新显示 `projectBound: true`、`permission: "project-write"`
-
-### Requirement: Run Console
-基于 `chat.send`、`chat.cancel`、`chat.delta`、`chat.completed`。
-
-#### Scenario: 发送消息
-- **WHEN** 用户输入消息并发送
-- **THEN** 发送 `chat.send` 请求（带 `idempotencyKey`、`sessionId`）
-- **AND** Run 状态进入 `starting`
-- **AND** 收到 `run.started` 事件后进入 `running`
-- **AND** 收到 `chat.delta` 事件后进入 `streaming`
-
-#### Scenario: 取消运行
-- **WHEN** 用户点击取消按钮
-- **THEN** 发送 `chat.cancel` 请求（带 `runId`、`sessionId`）
-- **AND** Run 状态进入 `cancelling`
-- **AND** 收到 `run.cancelled` 事件后进入 `cancelled`
-- **AND** 取消不显示为错误，显示为用户主动取消
-
-#### Scenario: 流式渲染
-- **WHEN** 收到 `chat.delta` 事件
-- **THEN** delta 仅用于实时显示，不作为最终可信文本源
-- **AND** 最终文本以 `chat.completed.payload.text` 为准
-- **AND** 前端对 delta 做 30-80ms UI 批处理
-
-### Requirement: Tool Timeline
-基于 `tool.started`、`tool.finished`、`tool.denied`、`tool.failed` 事件。
-
-#### Scenario: Tool 调用展示
-- **WHEN** 收到 `tool.started` 事件
-- **THEN** Timeline 中显示工具名称、input preview、sessionId、风险状态
-- **AND** 收到 `tool.finished` 后显示 output preview、耗时
-
-#### Scenario: Tool 拒绝处理
-- **WHEN** 收到 `tool.denied` 事件
-- **THEN** 不自动重试
-- **AND** 提示需要权限、绑定项目或 approval
-
-### Requirement: Approval Center
-基于 `approval.list`、`approval.confirm`、`approval.reject`。
-
-#### Scenario: 审批列表
-- **WHEN** 用户查看 Approval Center
-- **THEN** 显示所有待审批项的 token、toolName、input preview、expiresAt、message
-
-#### Scenario: 审批操作
-- **WHEN** 用户确认或拒绝审批
-- **THEN** 发送 `approval.confirm` 或 `approval.reject` 请求（带 `idempotencyKey`）
-- **AND** 审批项从列表中移除
-
-### Requirement: Memory Panel
-基于 `memory.search`、`memory.write`。
-
-#### Scenario: 记忆搜索
-- **WHEN** 用户输入搜索词
-- **THEN** 发送 `memory.search` 请求
-- **AND** 显示结果列表（chunkId、fileId、section、filePath、score、content snippet）
-
-#### Scenario: 记忆写入
-- **WHEN** 用户写入记忆
-- **THEN** 发送 `memory.write` 请求（带 `idempotencyKey`、`sessionId`、`content`、`scope`）
-- **AND** 前端不构造任意路径，只提供 content 和 scope
-
-### Requirement: Audit Panel
-基于 `audit.tail`。
-
-#### Scenario: 审计日志
-- **WHEN** 用户查看 Audit Panel
-- **THEN** 显示最近 N 条审计事件
-- **AND** 敏感字段显示 `[REDACTED]`
-- **AND** 默认只显示摘要，不提供任意文件读取入口
+- Session + Chat 优先展示
+- Timeline、Audit、Approval 进入 Drawer / Sheet
+- 大 payload 默认折叠，避免移动端卡顿
 
 ---
 
-## 四、WS Client SDK 规范
+## 3. WS 协议约束
 
-### Requirement: 连接管理
+### Requirement: 统一请求/响应格式
+
+客户端发送：
+
+```ts
+{
+  type: "req",
+  id: string,
+  method: GatewayWsMethod,
+  params?: unknown,
+  idempotencyKey?: string,
+  clientSeq?: number
+}
+```
+
+服务端返回：
+
+```ts
+{
+  type: "res",
+  id: string,
+  ok: boolean,
+  payload?: unknown,
+  error?: { code: GatewayWsErrorCode, message: string, details?: unknown }
+}
+```
+
+服务端事件：
+
+```ts
+{
+  type: "event",
+  seq: number,
+  event: GatewayWsEvent,
+  runId?: string,
+  sessionId?: string,
+  payload?: unknown,
+  createdAt: string
+}
+```
+
+### Requirement: connect 握手
 
 #### Scenario: 初始连接
-- **WHEN** SDK 建立 WebSocket 连接
-- **THEN** 连接成功后立即发送 `connect` 请求
-- **AND** 携带 `{ protocolVersion: "1.0", clientName: "web-ui" }`
-- **AND** 等待 `connect_ok` 响应后才标记为就绪
 
-#### Scenario: 断线重连
-- **WHEN** WebSocket 连接断开
-- **THEN** 使用指数退避重连（初始 1s，最大 30s，含 jitter）
-- **AND** 不高频重连打爆本地 Gateway
-- **AND** 重连后重新发送 `connect` 请求
+- WHEN SDK 建立 WebSocket 连接
+- THEN 立即发送 `connect` 请求
+- AND params 包含 `{ protocolVersion: "1.0", clientName: "web-ui" }`
+- AND 只有收到 `connect` response 且 `ok: true` 后，SDK 才进入 ready 状态
+- AND `connected` event 只作为诊断事件，不作为唯一 ready 判断
 
-#### Scenario: 断线恢复
-- **WHEN** 重连成功后
-- **THEN** 对每个活跃 session 发送 `session.getTranscript`（带 `afterSeq: lastSeq`）
-- **AND** 对比 `chat.completed.payload.lastSeq` 和本地 `lastSeq`
-- **AND** 如果存在间隙，发送 `audit.tail`（带 `afterSeq: lastSeq`）补齐
+> 注意：真实后端没有 `connect_ok` 消息类型，禁止前端等待不存在的 `connect_ok`。
 
-### Requirement: 请求/响应管理
+### Requirement: 认证与 Origin
 
-#### Scenario: 唯一请求 ID
-- **WHEN** SDK 发送任何请求
-- **THEN** `id` 字段 SHALL 全局唯一
-- **AND** 建议格式：`web_${method}_${timestamp}_${shortId}`
-
-#### Scenario: Promise Map
-- **WHEN** SDK 发送请求
-- **THEN** 将 `id` 注册到 Promise Map
-- **AND** 收到对应 `id` 的响应时 resolve/reject
-- **AND** 超时后 reject 并清理
-
-#### Scenario: 副作用幂等
-- **WHEN** SDK 发送副作用方法
-- **THEN** SHALL 包含 `idempotencyKey`
-- **AND** 副作用方法包括：`chat.send`、`tool.call`、`memory.write`、`session.bindProject`、`approval.confirm`、`approval.reject`
-
-### Requirement: 事件处理
-
-#### Scenario: Event Reducer
-- **WHEN** SDK 收到 server event
-- **THEN** 进入 event reducer，按类型派生 UI 状态
-- **AND** request/response 走 Promise Map，event 走 reducer，不混合
-
-#### Scenario: Resync 处理
-- **WHEN** 收到 `state.resync_required` 事件
-- **THEN** 重新拉取 `runtime.status`、`session.get`、`session.getTranscript`、必要的 `audit.tail`
-- **AND** 使用事件中的 `reason` 记录日志
-
-#### Scenario: Delta 批处理
-- **WHEN** 短时间内收到多个 `chat.delta`
-- **THEN** 合并为一次 UI 更新
-- **AND** 批处理间隔 30-80ms
-
-### Requirement: 安全
-
-#### Scenario: Token 管理
-- **WHEN** SDK 存储认证 token
-- **THEN** 不进入日志
-- **AND** 不进入 localStorage 明文
-- **AND** 优先运行时输入或安全配置注入
+- Browser 端连接必须满足 `GATEWAY_WS_ALLOWED_ORIGINS`
+- 如果后端配置 `GATEWAY_WS_TOKEN`，前端可通过 query token 或 Authorization Bearer 传递
+- 认证失败 SHALL 不进入无限重连循环
+- Token 不进入日志、不进入 localStorage 明文
 
 ---
 
-## 五、Run 状态机
+## 4. WS Client SDK 规范
 
-### Requirement: 七状态有限状态机
+### Requirement: 新增 `packages/ws-client`
 
-前端 SHALL 实现以下 Run 状态机：
+SDK SHALL 封装所有 WebSocket 细节，UI 组件不得直接操作原生 WebSocket。
+
+#### 包结构
+
+```txt
+packages/ws-client/
+  package.json
+  tsconfig.json
+  src/
+    index.ts
+    types.ts
+    methodMap.ts
+    connectionManager.ts
+    requestManager.ts
+    eventDispatcher.ts
+    resumeManager.ts
+    gatewayClient.ts
+```
+
+### Requirement: 类型来源
+
+- `GatewayWsMethod`、`GatewayWsEvent`、`WsRequest`、`WsResponse`、`WsEvent` SHALL 从 `packages/gateway/ws/protocol.ts` 导入
+- 前端可以新增 `GatewayMethodParams`、`GatewayMethodResult`、`GatewayEventPayload` 映射类型
+- 前端不得重新定义协议字符串枚举
+
+### Requirement: RequestManager
+
+- 请求 ID 全局唯一，建议：`web_${method}_${timestamp}_${shortId}`
+- 每个请求进入 Promise Map
+- 收到匹配 `id` 的 response 后 resolve/reject
+- 超时后 reject 并清理
+- 连接断开时 reject 所有 pending 请求
+- request/response 与 event 处理分离
+
+### Requirement: 幂等 key
+
+以下副作用方法 SHALL 自动注入 `idempotencyKey`：
+
+- `chat.send`
+- `tool.call`
+- `memory.write`
+- `session.create`
+- `session.bindProject`
+- `approval.confirm`
+- `approval.reject`
+
+`chat.cancel` 可选注入，但当前后端只要求 `runId`。
+
+### Requirement: EventDispatcher
+
+- event 进入 reducer，不进入 Promise Map
+- 支持类型安全监听：`on("chat.delta", handler)`
+- 支持 `chat.delta` 批处理，默认 50ms，可配置 30-80ms
+- 支持基于 `(sessionId, seq)` 的去重
+- 支持 `state.resync_required` 自动触发 full resync
+
+---
+
+## 5. 断线恢复规范
+
+### Requirement: 基于真实后端 resume
+
+当前后端恢复路径是 `connect.params.resume`，不是 `session.getTranscript(afterSeq)`。
+
+#### Scenario: 正常重连
+
+- WHEN WS 断开后重连
+- THEN SDK 对每个活跃 session 发送 connect：
+  ```ts
+  {
+    protocolVersion: "1.0",
+    clientName: "web-ui",
+    resume: { sessionId, lastSeq }
+  }
+  ```
+- AND `lastSeq` 来自前端最后处理过的 `WsEvent.seq`
+- AND replay 成功时，后端会补发 `seq > lastSeq` 的会话事件
+
+#### Scenario: replay 不可用
+
+- WHEN 收到 `state.resync_required`
+- THEN SDK 执行 full resync：
+  - `runtime.status`
+  - `session.get`
+  - `session.getTranscript`
+  - `approval.list`
+  - `audit.tail`
+- AND UI 标记本 session 曾发生过状态重同步
+
+#### Scenario: 去重
+
+- WHEN 收到 replay 事件或实时事件
+- THEN 基于 `${sessionId}:${seq}` 去重
+- AND 不依赖当前协议不存在的 `eventId`
+
+---
+
+## 6. 核心页面
+
+### 6.1 Gateway Dashboard
+
+基于 `runtime.status`。
+
+当前后端返回字段主要包括：
+
+- `model`
+- `debug`
+- `sandboxMode`
+- `toolCount`
+- `sessionCount`
+- `currentSessionId`
+- `metrics`
+- `wsMetrics`
+
+UI 可以派生展示：
+
+- model / sandbox mode
+- tool count
+- session count
+- request metrics
+- WS metrics
+- circuit / error rate / latency summary
+
+### 6.2 Session Workspace
+
+基于：
+
+- `session.list`
+- `session.create`
+- `session.get`
+- `session.rename`
+- `session.bindProject`
+- `session.getTranscript`
+
+注意：
+
+- `session.rename` 当前后端 v1 只支持 current session
+- `session.bindProject` 是副作用方法，必须带 `idempotencyKey`
+- `session.getTranscript` 当前只要求 `sessionId`，不支持 `afterSeq`
+
+### 6.3 Run Console
+
+基于：
+
+- `chat.send`
+- `chat.cancel`
+- `chat.delta`
+- `chat.completed`
+- `run.started`
+- `run.finished`
+- `run.failed`
+- `run.cancelled`
+
+#### 发送消息
+
+- `chat.send` params：`{ sessionId, input }`
+- 成功 response 只表示 run 创建成功
+- 后续进度通过 event 推送
+
+#### 取消运行
+
+- `chat.cancel` params：`{ runId }`
+- 取消不显示为错误
+- 若后端返回 CONFLICT，UI 显示“任务已结束或不可取消”
+
+#### 流式渲染
+
+- `chat.delta` 只用于实时显示
+- `chat.completed.payload.text` 是最终可信文本
+- completed 到达后覆盖 delta 拼接文本
+
+### 6.4 Tool Timeline
+
+基于：
+
+- `tool.started`
+- `tool.finished`
+- `tool.denied`
+- `tool.failed`
+- `tool.list`
+- `tool.call`
+
+要求：
+
+- 事件按 `seq` 排序
+- 支持按 sessionId / runId / toolName / status 过滤
+- payload 默认折叠
+- 大 JSON lazy render
+- tool denied 不自动重试
+
+### 6.5 Approval Center
+
+基于：
+
+- `approval.list`
+- `approval.confirm`
+- `approval.reject`
+- `approval.required`
+- `approval.confirmed`
+- `approval.rejected`
+
+要求：
+
+- 显示 token、toolName、input preview、expiresAt、message
+- 前端检查 expiresAt，过期项置灰
+- confirm/reject 必须带 `idempotencyKey`
+
+### 6.6 Memory Panel
+
+基于：
+
+- `memory.search`
+- `memory.write`
+
+要求：
+
+- `memory.search` 输入 query
+- `memory.write` 只允许 content / scope / sessionId
+- 前端不得构造任意文件路径
+- 写入成功后显示 scope、filePath，但 filePath 只读展示
+
+### 6.7 Audit Panel
+
+基于：
+
+- `audit.tail`
+- `audit.append`
+
+要求：
+
+- 默认只显示摘要
+- 敏感字段显示 `[REDACTED]`
+- 不提供任意文件读取入口
+- 支持按 type / sessionId / runId / toolName 过滤
+
+---
+
+## 7. Run 状态机
+
+### Requirement: 八状态有限状态机
 
 | 状态 | 触发条件 | 说明 |
 |---|---|---|
@@ -247,180 +388,100 @@
 | `starting` | 发送 `chat.send` | 等待 response |
 | `running` | 收到 `run.started` | 运行中 |
 | `streaming` | 收到 `chat.delta` | 流式输出中 |
-| `completed` | 收到 `chat.completed` + `run.finished` | 完成 |
-| `cancelling` | 用户点击 cancel，发送 `chat.cancel` | 取消中 |
+| `completed` | 收到 `chat.completed` 或 `run.finished` | 完成 |
+| `cancelling` | 用户点击 cancel | 取消中 |
 | `cancelled` | 收到 `run.cancelled` | 已取消 |
 | `failed` | 收到 `run.failed` 或 response error | 失败 |
 
-#### Scenario: 正常流程
-- **WHEN** 用户发送消息
-- **THEN** 状态转换：`idle` → `starting` → `running` → `streaming` → `completed`
+### 状态不可逆保护
 
-#### Scenario: 取消流程
-- **WHEN** 用户取消运行
-- **THEN** 状态转换：`streaming` → `cancelling` → `cancelled`
+以下终态不可被后续普通事件覆盖：
 
-#### Scenario: 失败流程
-- **WHEN** 运行失败
-- **THEN** 状态转换：`starting`/`running`/`streaming` → `failed`
+- `completed`
+- `cancelled`
+- `failed`
+
+如果终态后又收到迟到的 `chat.delta`，只记录到 timeline，不改变主状态。
 
 ---
 
-## 六、流式渲染规范
-
-### Requirement: Delta 处理
-
-#### Scenario: 实时显示
-- **WHEN** 收到 `chat.delta` 事件
-- **THEN** 用于实时追加显示文本
-- **AND** 不作为最终可信文本源
-
-#### Scenario: 最终文本
-- **WHEN** 收到 `chat.completed` 事件
-- **THEN** 使用 `chat.completed.payload.text` 作为最终文本
-- **AND** 覆盖 delta 拼接的文本
-
-#### Scenario: 断线恢复
-- **WHEN** delta 丢失或断线
-- **THEN** 前端仍能用 `chat.completed` 文本恢复
-
-#### Scenario: UI 批处理
-- **WHEN** 短时间内收到多个 delta
-- **AND** 使用 requestAnimationFrame 或 30-80ms setTimeout 合并更新
-
----
-
-## 七、安全交互规范
-
-### Requirement: 前端安全边界
-
-#### Scenario: Origin 白名单
-- **WHEN** Browser 端建立 WebSocket 连接
-- **THEN** 浏览器 Origin SHALL 在 `GATEWAY_WS_ALLOWED_ORIGINS` 中
-
-#### Scenario: Memory 写入限制
-- **WHEN** 前端发送 `memory.write`
-- **THEN** 只提供 `content` 和 `scope`
-- **AND** 不构造任意文件路径
-
-#### Tool 调用展示
-- **WHEN** 显示 tool 调用
-- **THEN** 明确展示 toolName、input preview、sessionId、风险状态
-
-#### Scenario: Tool 拒绝处理
-- **WHEN** 收到 `tool.denied`
-- **THEN** 不自动重试
-- **AND** 提示需要权限、绑定项目或 approval
-
-#### Scenario: Audit 脱敏
-- **WHEN** 显示审计数据
-- **THEN** 只显示 redacted 数据
-- **AND** 敏感字段显示 `[REDACTED]`
-- **AND** 不提供任意文件读取入口
-
----
-
-## 八、视觉设计规范
-
-### Requirement: 控制台风格
-
-#### Scenario: 整体风格
-- **WHEN** 用户查看 Web UI
-- **THEN** 风格为本地控制台、清晰、偏工程化
-- **AND** 不做普通 SaaS 聊天皮肤
-
-#### Scenario: 配色
-- **WHEN** 渲染界面
-- **THEN** 深色控制台底色 + 高对比状态色
-- **AND** 避免大面积紫色默认风
-
-#### Scenario: 状态色
-- **WHEN** 显示状态
-- **THEN** running 蓝色，success 绿色，warning 琥珀色，denied 红色，cancelled 灰色
-
-#### Scenario: Timeline
-- **WHEN** 显示事件时间线
-- **THEN** 纵向事件流，按 seq 排序
-- **AND** 支持按 runId/sessionId 过滤
-
-#### Scenario: Tool payload
-- **WHEN** 显示 Tool 调用详情
-- **AND** 默认折叠
-- **AND** 提供 copy JSON、查看摘要、查看 artifact path
-
-#### Scenario: Audit
-- **WHEN** 显示审计日志
-- **THEN** 默认只显示摘要
-- **AND** 敏感字段永远显示 `[REDACTED]`
-
----
-
-## 九、技术架构
-
-### Requirement: 状态层拆分
-
-前端状态 SHALL 拆分为以下 store：
+## 8. 状态层拆分
 
 | Store | 职责 |
 |---|---|
-| `connectionStore` | WS 连接状态、重连计数、认证状态 |
+| `connectionStore` | WS 状态、重连计数、认证状态、ready 状态 |
 | `sessionStore` | Session 列表、当前 session、lastSeq、transcriptCache |
-| `runStore` | Run 状态机、activeRunIds、当前 run 的 delta 缓冲 |
-| `eventStore` | 事件时间线、seq 索引、按 runId/sessionId 过滤 |
-| `approvalStore` | 待审批列表、操作状态 |
-
-### Requirement: WS Client 封装
-
-#### Scenario: SDK 独立封装
-- **WHEN** 前端使用 WebSocket
-- **THEN** WS client SHALL 封装为独立 SDK（`packages/ws-client`）
-- **AND** 不把 WebSocket 逻辑散落在组件中
-- **AND** VS Code Client 后续可复用同一套 SDK
-
-### Requirement: 事件处理架构
-
-#### Scenario: 事件分发
-- **WHEN** 收到 server event
-- **THEN** 先进入 event reducer
-- **AND** 再派生 UI 状态
-- **AND** request/response 走 Promise Map，event 走 reducer
-
-### Requirement: 大 Payload 处理
-
-#### Scenario: Lazy Render
-- **WHEN** 显示大 payload（如 tool output）
-- **THEN** 使用 lazy render
-- **AND** JSON viewer 不一次性展开
+| `runStore` | Run 状态机、activeRunIds、delta buffer、final text |
+| `eventStore` | 事件时间线、seq index、过滤、去重 |
+| `approvalStore` | 待审批项、confirm/reject 操作状态 |
+| `memoryStore` | memory search/write 状态 |
+| `auditStore` | audit tail、audit append、redacted 展示 |
 
 ---
 
-## 十、MVP 范围
+## 9. 视觉设计规范
 
-### Requirement: MVP 功能清单
+### 风格
 
-前端 MVP SHALL 包含以下功能：
+- 深色控制台主题
+- 工程化、清晰、偏本地 IDE / DevTool 风格
+- 避免普通 SaaS 紫色聊天皮肤
 
-1. 连接 WS + `connect`
-2. `session.list` / `session.create` / `session.get`
-3. `chat.send` + `chat.delta` + `chat.completed` + `chat.cancel`
-4. `tool.list` + tool timeline（`tool.started` / `tool.finished` / `tool.denied` / `tool.failed`）
-5. `approval.list` / `approval.confirm` / `approval.reject`
-6. `memory.search` / `memory.write`
-7. `runtime.status` + `ws.metrics`
-8. `audit.tail` 基础视图
-9. reconnect resume + `state.resync_required` 处理
+### 状态色
+
+- running：蓝
+- success：绿
+- warning：琥珀
+- denied / failed：红
+- cancelled：灰
+- resync：紫或青色提示，但不大面积使用
+
+### 字体
+
+- 普通 UI：system sans
+- payload / code / logs：monospace
+
+### Timeline
+
+- 纵向事件流
+- 按 seq 排序
+- 支持过滤
+- payload 默认折叠
+- 可复制 JSON
+- 大 payload lazy render
 
 ---
 
-## 后端限制（前端需感知）
+## 10. MVP 范围
 
-1. **ReplayBuffer 是内存级**，不是持久化事件日志。重启后丢失。
-2. **`session.rename` 只支持 current session**，需要先 `session.switch`。
-3. **Provider streaming 取决于 model provider**，不是所有 provider 都支持 delta。
-4. **慢客户端可能丢弃低优先级 `chat.delta`**，前端必须能从 `chat.completed` 重建最终文本。
-5. **WS 是本地受控 Gateway**，不建议直接暴露公网。
-6. **`approval.list` 包含已过期项**，前端应检查 `expiresAt`。
-7. **`tool.list` 返回的 dynamic tools 是运行时快照**，可能在 MCP 重连后变化。
-8. **`memory.search` score 是 provider 相关的**，不同 provider 的分数不直接可比。
-9. **`audit.tail` 敏感字段已被服务端 redact**，前端无法获取原始值。
-10. **`session.getTranscript` 重启后 replay 丢失**，仅补发服务端当前启动后的事件。
+MVP SHALL 包含：
+
+1. 连接真实 WS：`ws://127.0.0.1:8787/v1/ws`
+2. `connect` 握手
+3. `runtime.status`
+4. `session.list/create/get/getTranscript`
+5. `chat.send`、`chat.cancel`
+6. `chat.delta`、`chat.completed`、`run.*`
+7. `tool.list` + Tool Timeline
+8. `approval.list/confirm/reject`
+9. `memory.search/write`
+10. `audit.tail`
+11. reconnect + resume + `state.resync_required`
+12. TypeScript 零错误
+
+---
+
+## 11. 后端限制
+
+前端必须感知以下限制：
+
+1. ReplayBuffer 是内存级，重启后丢失。
+2. `session.getTranscript` 当前不支持 `afterSeq`。
+3. `audit.tail` 当前不支持 `afterSeq`。
+4. `chat.completed.payload` 当前不包含 `lastSeq`。
+5. 当前事件没有 `eventId`，去重应使用 `(sessionId, seq)`。
+6. `session.rename` v1 只支持 current session。
+7. 慢客户端可能丢弃低优先级 `chat.delta`。
+8. 最终文本必须以 `chat.completed.payload.text` 为准。
+9. `approval.list` 可能包含过期项，前端需要检查 expiresAt。
+10. WS Gateway 是本地受控入口，不建议直接暴露公网。

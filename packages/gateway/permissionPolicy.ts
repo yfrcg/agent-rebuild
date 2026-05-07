@@ -79,6 +79,15 @@ export class PermissionPolicy {
     }
 
     if (permissionLevel === "write") {
+      if (this.isProjectWriteAllowed(input.request)) {
+        return allow(
+          mode,
+          requiresSandbox,
+          "file edit allowed inside bound project write roots",
+          "project-boundary:write"
+        );
+      }
+
       if (mode === "acceptEdits" || input.request.approved) {
         return allow(
           mode,
@@ -123,6 +132,28 @@ export class PermissionPolicy {
     }
 
     return deny(mode, requiresSandbox, `tool requires a stronger permission mode: ${toolName}`, "permission-level");
+  }
+
+  private isProjectWriteAllowed(request: GatewayToolCallRequest): boolean {
+    const boundary = request.projectBoundary;
+    if (boundary?.permission !== "project-write" || !boundary.projectDir) {
+      return false;
+    }
+
+    const requestedPath = readPath(request.input);
+    if (!requestedPath) {
+      return false;
+    }
+
+    const baseRoot = path.resolve(boundary.projectDir);
+    const resolved = path.isAbsolute(requestedPath)
+      ? path.resolve(requestedPath)
+      : path.resolve(baseRoot, requestedPath);
+
+    return boundary.allowedWriteRoots.some((root) => {
+      const writeRoot = path.resolve(root);
+      return resolved === writeRoot || resolved.startsWith(writeRoot + path.sep);
+    });
   }
 
   /**
@@ -192,7 +223,13 @@ export class PermissionPolicy {
         continue;
       }
 
-      const resolved = path.resolve(this.projectRoot, candidate);
+      const baseRoot =
+        boundary?.permission === "project-write" && boundary.projectDir
+          ? boundary.projectDir
+          : this.projectRoot;
+      const resolved = path.isAbsolute(candidate)
+        ? path.resolve(candidate)
+        : path.resolve(baseRoot, candidate);
       const isInsideAnyRoot = effectiveRoots.some(
         (root) => resolved === root || resolved.startsWith(root + path.sep)
       );

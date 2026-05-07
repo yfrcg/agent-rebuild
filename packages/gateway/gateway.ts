@@ -99,7 +99,7 @@ export class Gateway {
   private readonly mcpManager?: GatewayMcpManager;
   private readonly toolRegistry?: ToolRegistry;
   private readonly reviewGraphRunner?: ReviewGraphRunner;
-  private readonly autoReviewGraphEnabled: boolean;
+  public autoReviewGraphEnabled: boolean;
   private mcpInitialized = false;
 
   /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
@@ -129,16 +129,15 @@ export class Gateway {
       memorySearch: this.memorySearch,
       modelProvider: this.modelProvider,
       contextBuilder,
-      toolRegistry: options.autoToolLoopEnabled === false ? undefined : options.toolRegistry,
-      toolCallExecutor:
-        options.autoToolLoopEnabled === false ? undefined : options.toolCallExecutor,
+      toolRegistry: options.toolRegistry,
+      toolCallExecutor: options.toolCallExecutor,
       auditLogger: this.auditLogger,
       maxToolCalls: autoToolLoopMaxSteps,
       devTaskMaxSteps: options.devTaskMaxSteps,
       devTaskMaxFixRounds: options.devTaskMaxFixRounds,
     });
 
-    if (this.autoReviewGraphEnabled && options.toolRegistry && options.toolCallExecutor) {
+    if (options.toolRegistry && options.toolCallExecutor) {
       this.reviewGraphRunner = new ReviewGraphRunner({
         modelProvider: this.modelProvider,
         toolRegistry: options.toolRegistry,
@@ -276,7 +275,7 @@ export class Gateway {
           projectBoundary: this.resolveProjectBoundary(request.sessionId),
         };
 
-        if (this.reviewGraphRunner && this.shouldUseReviewGraph(input)) {
+        if (this.reviewGraphRunner && this.autoReviewGraphEnabled) {
           const reviewResult = await this.reviewGraphRunner.run({
             userGoal: input,
             taskType: undefined,
@@ -297,7 +296,9 @@ export class Gateway {
             onEvent: options.onEvent,
           });
           throwIfAborted(options.signal);
-          responseText = result.text;
+          responseText = result.plainTextFallback
+            ? buildPlainTextFallbackResponse(result.text, result.toolCalls)
+            : result.text;
           memoryResults = result.memoryResults;
           toolCalls = result.toolCalls;
           autoToolLoopInfo = result.autoToolLoop;
@@ -1117,6 +1118,143 @@ function isRecentMemoryDate(date: string): boolean {
  * `throwIfAborted` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
  * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
+export function sanitizeFallbackText(raw: string): string {
+  let text = raw.replace(/\uFFFD/g, "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  if (!text) {
+    return "";
+  }
+
+  const ranges = extractStructuredJsonRanges(text)
+    .map((range) => ({
+      ...range,
+      parsed: tryParseStructuredPayload(range.json),
+    }));
+  const finalPayload = [...ranges]
+    .reverse()
+    .find(
+      (range) =>
+        range.parsed?.type === "final" &&
+        typeof range.parsed.content === "string" &&
+        range.parsed.content.trim() !== ""
+    );
+  if (finalPayload?.parsed && typeof finalPayload.parsed.content === "string") {
+    return finalPayload.parsed.content.trim();
+  }
+
+  for (const range of [...ranges].reverse()) {
+    if (range.parsed?.type === "tool_call" || range.parsed?.type === "final") {
+      text = text.slice(0, range.start) + text.slice(range.end);
+    }
+  }
+
+  return text
+    .replace(/\[Tool Result\][\s\S]*?\[\/Tool Result\]/g, "")
+    .replace(/^\[[^\]]*JSON[^\]]*\]\s*$/gim, "")
+    .replace(/^\[[^\]]*tool-format-warning[^\]]*\]\s*$/gim, "")
+    .replace(/^\[[^\]]*工具未被调用[^\]]*\]\s*$/gim, "")
+    .replace(/^\[TOOL_CALL\]\s*/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function buildPlainTextFallbackResponse(
+  raw: string,
+  toolCalls: GatewayToolCallRecord[]
+): string {
+  const sanitized = sanitizeFallbackText(raw);
+  if (sanitized) {
+    return sanitized;
+  }
+
+  const successfulWrites = toolCalls.filter(
+    (toolCall) =>
+      toolCall.status === "success" &&
+      (toolCall.toolName === "file.write" ||
+        toolCall.toolName === "file.edit" ||
+        toolCall.toolName === "file.multi_edit" ||
+        toolCall.toolName === "file.patch")
+  );
+  const successfulRuns = toolCalls.filter(
+    (toolCall) => toolCall.status === "success" && toolCall.toolName === "shell.run"
+  );
+
+  if (successfulWrites.length > 0) {
+    const files = successfulWrites
+      .map((toolCall) => toolCall.input.path)
+      .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+      .map((value) => value.trim());
+    const summary = files.length > 0 ? files.join(", ") : "目标文件";
+    return `已完成文件写入：${summary}。`;
+  }
+
+  if (successfulRuns.length > 0) {
+    return "工具执行已完成，但模型没有返回可直接展示的最终说明。";
+  }
+
+  return "模型没有返回可执行的最终结果。";
+}
+
+function extractStructuredJsonRanges(raw: string): Array<{ json: string; start: number; end: number }> {
+  const results: Array<{ json: string; start: number; end: number }> = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === "\\" && inString) {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === "{") {
+      if (depth === 0) {
+        start = index;
+      }
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        results.push({
+          json: raw.slice(start, index + 1),
+          start,
+          end: index + 1,
+        });
+        start = -1;
+      }
+    }
+  }
+
+  return results;
+}
+
+function tryParseStructuredPayload(raw: string): Record<string, unknown> | undefined {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw new Error("RUN_CANCELLED");

@@ -27,3 +27,15 @@ test("loadGatewayConfig supports mock model, sandbox mode, and session auto comp
   assert.equal(config.sessionAutoCompactEnabled, false);
   assert.equal(config.sessionAutoCompactMaxEntries, 42);
 });
+
+test("loadGatewayConfig supports MiniMax TokenPlan model aliases", () => {
+  const tokenPlan = loadGatewayConfig({
+    GATEWAY_MODEL: "tokenplan",
+  } as NodeJS.ProcessEnv);
+  const miniMax = loadGatewayConfig({
+    GATEWAY_MODEL: "minimax",
+  } as NodeJS.ProcessEnv);
+
+  assert.equal(tokenPlan.model, "tokenplan");
+  assert.equal(miniMax.model, "tokenplan");
+});

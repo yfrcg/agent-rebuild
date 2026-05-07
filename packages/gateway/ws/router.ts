@@ -1,14 +1,18 @@
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { readTranscript } from "../../session/src/transcript";
 import { discoverSkills, getSkillByName } from "../../core/src/skills";
 import { recordTranscript } from "../transcriptRecorder";
 import { readAuditTail } from "./auditTail";
 import { createGatewayRequest } from "../requestHandler";
-import { extractProjectBoundary } from "../sessionTypes";
+import { extractProjectBoundary, type GatewaySession } from "../sessionTypes";
 import { createGatewayToolCallRequest } from "../toolCallFactory";
 import type { GatewayToolCallRecord } from "../toolCallTypes";
 import type { GatewayRuntime } from "../runtime";
 import { upsertProjectMcpServerConfig } from "../mcpConfig";
+import { normalizeGatewayModelName } from "../config";
+import { MODEL_PROVIDER_OPTIONS } from "../modelProviderFactory";
 import type { GatewayMcpServerConfig } from "../mcpTypes";
 import type { ConnectionManager, WsClientConnection } from "./connectionManager";
 import type { GatewayWsAuthConfig } from "./auth";
@@ -67,6 +71,8 @@ export async function handleWsRequest(
       return ok(request.id, { pong: true, serverTime: new Date().toISOString() });
     case "runtime.status":
       return ok(request.id, getRuntimeStatus(context));
+    case "runtime.updateConfig":
+      return handleRuntimeUpdateConfig(request, context);
     case "session.list":
       return ok(request.id, context.runtime.sessionManager.listSessions());
     case "session.get":
@@ -75,6 +81,8 @@ export async function handleWsRequest(
       return handleSessionCreate(request, context);
     case "session.rename":
       return handleSessionRename(client, request, context);
+    case "session.delete":
+      return handleSessionDelete(request, context);
     case "session.bindProject":
       return handleSessionBindProject(request, context);
     case "session.getTranscript":
@@ -194,6 +202,7 @@ function getRuntimeStatus(context: WsRouterContext): Record<string, unknown> {
     model: context.runtime.config.model,
     modelProvider: context.runtime.modelProvider.name,
     supportsStreaming: Boolean(context.runtime.modelProvider.supportsStreaming ?? false),
+    availableModels: MODEL_PROVIDER_OPTIONS,
     debug: context.runtime.config.debug,
     sandboxMode: context.runtime.config.sandboxMode,
     toolCount: context.runtime.toolRegistry.list().length,
@@ -205,6 +214,40 @@ function getRuntimeStatus(context: WsRouterContext): Record<string, unknown> {
     metrics: context.runtime.metricsCollector.snapshot("closed"),
     wsMetrics: context.metrics?.snapshot(),
   };
+}
+
+const UPDATABLE_CONFIG_KEYS = new Set([
+  "autoToolLoopEnabled",
+  "autoReviewGraphEnabled",
+  "model",
+]);
+
+function handleRuntimeUpdateConfig(request: WsRequest, context: WsRouterContext): WsResponse {
+  const params = asRecord(request.params);
+  if (!params) {
+    return fail(request.id, "BAD_REQUEST", "Missing config params.");
+  }
+  const updates: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (key === "model" && typeof value === "string") {
+      const model = normalizeGatewayModelName(value);
+      if (!model) {
+        continue;
+      }
+      context.runtime.setModelProvider(model);
+      updates[key] = model;
+    } else if (UPDATABLE_CONFIG_KEYS.has(key) && typeof value === "boolean") {
+      (context.runtime.config as unknown as Record<string, unknown>)[key] = value;
+      if (key === "autoReviewGraphEnabled") {
+        context.runtime.gateway.autoReviewGraphEnabled = value;
+      }
+      updates[key] = value;
+    }
+  }
+  if (Object.keys(updates).length === 0) {
+    return fail(request.id, "BAD_REQUEST", "No valid config keys provided.");
+  }
+  return ok(request.id, { updated: updates, ...getRuntimeStatus(context) });
 }
 
 /** 读取指定会话；未传 sessionId 时回落到当前会话。 */
@@ -254,6 +297,28 @@ function handleSessionRename(client: WsClientConnection, request: WsRequest, con
     payload: session,
   });
   return ok(request.id, session);
+}
+
+function handleSessionDelete(request: WsRequest, context: WsRouterContext): WsResponse {
+  const params = asRecord(request.params);
+  const sessionId = typeof params?.sessionId === "string" ? params.sessionId : undefined;
+  if (!sessionId) {
+    return fail(request.id, "BAD_REQUEST", "sessionId is required.");
+  }
+  if (!findSession(context.runtime, sessionId)) {
+    return fail(request.id, "NOT_FOUND", `Session not found: ${sessionId}`);
+  }
+  const deleted = context.runtime.sessionManager.deleteSession(sessionId);
+  if (!deleted) {
+    return fail(request.id, "INTERNAL_ERROR", "Failed to delete session.");
+  }
+  context.connections.broadcastToSession(sessionId, {
+    type: "event",
+    event: "session.updated",
+    sessionId,
+    payload: { deleted: true },
+  });
+  return ok(request.id, { deleted: true, sessionId });
 }
 
 /**
@@ -317,7 +382,7 @@ function handleChatSend(
   const params = asRecord(request.params)!;
   const sessionId = String(params.sessionId);
   const input = String(params.input).trim();
-  const session = findSession(context.runtime, sessionId);
+  let session = findSession(context.runtime, sessionId);
   if (!session) {
     return fail(request.id, "NOT_FOUND", `Session not found: ${sessionId}`);
   }
@@ -330,8 +395,9 @@ function handleChatSend(
     return fail(request.id, "RATE_LIMITED", "Gateway has too many running chat runs.");
   }
 
-  recordSessionMessage(context, sessionId, "user", input);
   context.connections.subscribe(client.clientId, sessionId);
+  session = maybeAutoBindProjectFromInput(session, input, context);
+  recordSessionMessage(context, sessionId, "user", input);
   const run = context.runs.createRun({ sessionId, requestId: request.id, clientId: client.clientId });
   context.metrics?.runStarted();
   const payload = { runId: run.runId, sessionId, requestId: request.id };
@@ -340,6 +406,100 @@ function handleChatSend(
     void executeChatRun(run.runId, input, context);
   });
   return ok(request.id, payload);
+}
+
+function maybeAutoBindProjectFromInput(
+  session: GatewaySession,
+  input: string,
+  context: WsRouterContext
+): GatewaySession {
+  if (session.projectBound && session.projectDir) {
+    return session;
+  }
+
+  const projectDir = findExistingDirectoryMention(input);
+  if (!projectDir) {
+    return session;
+  }
+
+  try {
+    const payload = context.runtime.sessionManager.bindProjectDir(
+      session.id,
+      projectDir,
+      context.runtime.config.sandboxAllowedRoots,
+      "user-path"
+    );
+    context.connections.broadcastToSession(session.id, {
+      type: "event",
+      event: "session.updated",
+      sessionId: session.id,
+      payload: payload.session,
+    });
+    return payload.session;
+  } catch {
+    return session;
+  }
+}
+
+function findExistingDirectoryMention(input: string): string | undefined {
+  const candidates: string[] = [];
+  const delimitedPathPattern = /[`'"]([A-Za-z]:[\\/][^`'"\r\n]+)[`'"]/g;
+  for (const match of input.matchAll(delimitedPathPattern)) {
+    candidates.push(match[1]);
+  }
+
+  const barePathPattern = /[A-Za-z]:[\\/][^\s`'"\r\n<>|?*]+/g;
+  for (const match of input.matchAll(barePathPattern)) {
+    candidates.push(match[0]);
+  }
+
+  for (const candidate of candidates) {
+    const existing = resolveExistingDirectoryCandidate(candidate);
+    if (existing) {
+      return existing;
+    }
+  }
+
+  return undefined;
+}
+
+function resolveExistingDirectoryCandidate(candidate: string): string | undefined {
+  let current = stripPathPunctuation(candidate.trim()).replace(/\//g, "\\");
+  if (!current) {
+    return undefined;
+  }
+
+  current = path.resolve(current);
+  for (let i = 0; i < 32; i += 1) {
+    if (isDriveRoot(current)) {
+      return undefined;
+    }
+    try {
+      if (fs.existsSync(current)) {
+        const stat = fs.statSync(current);
+        return stat.isDirectory() ? current : path.dirname(current);
+      }
+    } catch {
+      return undefined;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
+
+  return undefined;
+}
+
+function stripPathPunctuation(value: string): string {
+  return value.replace(/[\s.,，。;；:：!！?？)）\]】}"'`]+$/g, "");
+}
+
+function isDriveRoot(value: string): boolean {
+  const parsed = path.parse(value);
+  return path.resolve(value).toLowerCase() === parsed.root.toLowerCase();
 }
 
 /**
@@ -394,6 +554,7 @@ async function executeChatRun(
       activeSkills: session.activeSkills ?? [],
       permissionMode: session.permissionMode ?? "default",
       planState: session.planState,
+      projectBoundary: extractProjectBoundary(session),
     });
 
     context.connections.broadcastToSession(run.sessionId, {
@@ -854,17 +1015,99 @@ function recordSessionMessage(
 }
 
 function normalizeAssistantResponseText(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith("{")) return raw;
-  try {
-    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    if (parsed.type === "final" && typeof parsed.content === "string") {
-      return parsed.content;
-    }
-  } catch {
-    // Keep the original model output if it is not JSON.
+  const cleaned = raw.trim().replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  if (!cleaned) {
+    return raw.trim();
   }
-  return raw;
+
+  const structured = extractStructuredJsonRanges(cleaned)
+    .map((entry) => ({
+      ...entry,
+      parsed: tryParseStructuredPayload(entry.json),
+    }));
+  const finalPayload = [...structured]
+    .reverse()
+    .find((entry) => entry.parsed?.type === "final" && typeof entry.parsed.content === "string" && entry.parsed.content.trim() !== "");
+  if (finalPayload?.parsed && typeof finalPayload.parsed.content === "string") {
+    return finalPayload.parsed.content.trim();
+  }
+
+  let text = cleaned;
+  for (const entry of [...structured].reverse()) {
+    if (entry.parsed?.type === "tool_call" || entry.parsed?.type === "final") {
+      text = text.slice(0, entry.start) + text.slice(entry.end);
+    }
+  }
+
+  text = text
+    .replace(/\[Tool Result\][\s\S]*?\[\/Tool Result\]/g, "")
+    .replace(/^\[[^\]]*JSON[^\]]*\]\s*$/gim, "")
+    .replace(/^\[TOOL_CALL\]\s*/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return text;
+}
+
+function extractStructuredJsonRanges(raw: string): Array<{ json: string; start: number; end: number }> {
+  const results: Array<{ json: string; start: number; end: number }> = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === "\\" && inString) {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === "{") {
+      if (depth === 0) {
+        start = index;
+      }
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        results.push({
+          json: raw.slice(start, index + 1),
+          start,
+          end: index + 1,
+        });
+        start = -1;
+      }
+    }
+  }
+
+  return results;
+}
+
+function tryParseStructuredPayload(raw: string): Record<string, unknown> | undefined {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
 }
 
 function findSession(runtime: GatewayRuntime, sessionId: string) {

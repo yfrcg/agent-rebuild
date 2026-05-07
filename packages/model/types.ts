@@ -16,6 +16,7 @@ export interface ModelResponse {
 export interface ModelGenerateOptions {
   signal?: AbortSignal;
   onDelta?: (delta: string) => void | Promise<void>;
+  responseFormat?: { type: "json_object" | "text" };
 }
 
 /**

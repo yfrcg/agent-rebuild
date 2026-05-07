@@ -1,12 +1,18 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execSync } from "node:child_process";
 import { glob } from "glob";
 
 import { resolveProjectRoot } from "../../core/src/config";
 import { assertInsideWorkspace, isDangerousHostPath } from "../pathGuard";
 import { createToolSecurityProfile } from "../toolSecurityProfile";
-import type { GatewayTool, GatewayToolInput, GatewayToolOutput } from "../toolTypes";
+import type {
+  GatewayTool,
+  GatewayToolContext,
+  GatewayToolInput,
+  GatewayToolOutput,
+} from "../toolTypes";
 
 /**
  * 函数 `createSandboxedFileTools` 的职责说明。
@@ -57,14 +63,15 @@ function createFileReadTool(projectRoot: string): GatewayTool {
     }),
     sandboxSpec: {
       /** 方法 `resolve`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-      resolve(input) {
+      resolve(input, context) {
+        const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
         const filePath = requirePath(input);
-        const target = resolveWorkspaceTarget(projectRoot, filePath);
-        const containerPath = toContainerPath(projectRoot, target);
+        const target = resolveWorkspaceTarget(workspaceRoot, filePath);
+        const containerPath = toContainerPath(workspaceRoot, target);
 
         return {
           profileName: "safe-dev",
-          projectRoot,
+          projectRoot: workspaceRoot,
           command: buildNodeCommand([
             "const fs = require('node:fs');",
             `process.stdout.write(fs.readFileSync(${JSON.stringify(containerPath)}, 'utf8'));`,
@@ -73,14 +80,15 @@ function createFileReadTool(projectRoot: string): GatewayTool {
       },
     },
     /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-    async invoke(input) {
+    async invoke(input, context) {
+      const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
       const filePath = requirePath(input);
-      const target = resolveWorkspaceTarget(projectRoot, filePath);
+      const target = resolveWorkspaceTarget(workspaceRoot, filePath);
       return {
-        ok: false,
-        error: "file.read must execute through ToolCallExecutor",
+        ok: true,
+        content: fs.readFileSync(target, "utf8"),
         metadata: {
-          path: relativeWorkspacePath(projectRoot, target),
+          path: relativeWorkspacePath(workspaceRoot, target),
         },
       };
     },
@@ -130,16 +138,17 @@ function createFileWriteTool(projectRoot: string): GatewayTool {
     }),
     sandboxSpec: {
       /** 方法 `resolve`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-      resolve(input) {
+      resolve(input, context) {
+        const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
         const filePath = requirePath(input);
-        const content = requireString(input.content, "input.content required");
-        const target = resolveWorkspaceTarget(projectRoot, filePath);
-        const containerPath = toContainerPath(projectRoot, target);
+        const content = requireText(input.content, "input.content required");
+        const target = resolveWorkspaceTarget(workspaceRoot, filePath);
+        const containerPath = toContainerPath(workspaceRoot, target);
         const encoded = Buffer.from(content, "utf8").toString("base64");
 
         return {
           profileName: "safe-dev",
-          projectRoot,
+          projectRoot: workspaceRoot,
           command: buildNodeCommand([
             "const fs = require('node:fs');",
             "const path = require('node:path');",
@@ -152,10 +161,17 @@ function createFileWriteTool(projectRoot: string): GatewayTool {
       },
     },
     /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-    async invoke(input) {
+    async invoke(input, context) {
+      const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
       const filePath = requirePath(input);
-      const target = resolveWorkspaceTarget(projectRoot, filePath);
-      return successPathOutput(projectRoot, target);
+      const content = requireText(input.content, "input.content required");
+      const target = resolveWorkspaceTarget(workspaceRoot, filePath);
+      const dir = path.dirname(target);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      await writeTextFileRobustly(target, content);
+      return successPathOutput(workspaceRoot, target);
     },
   };
 }
@@ -212,7 +228,8 @@ function createFileEditTool(projectRoot: string): GatewayTool {
     }),
     sandboxSpec: {
       /** 方法 `resolve`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-      resolve(input) {
+      resolve(input, context) {
+        const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
         const filePath = requirePath(input);
         const oldText = requireString(
           input.oldText ?? input.find,
@@ -222,14 +239,14 @@ function createFileEditTool(projectRoot: string): GatewayTool {
           input.newText ?? input.replace,
           "input.newText required"
         );
-        const target = resolveWorkspaceTarget(projectRoot, filePath);
-        const containerPath = toContainerPath(projectRoot, target);
+        const target = resolveWorkspaceTarget(workspaceRoot, filePath);
+        const containerPath = toContainerPath(workspaceRoot, target);
         const encodedOld = Buffer.from(oldText, "utf8").toString("base64");
         const encodedNew = Buffer.from(newText, "utf8").toString("base64");
 
         return {
           profileName: "safe-dev",
-          projectRoot,
+          projectRoot: workspaceRoot,
           command: buildNodeCommand([
             "const fs = require('node:fs');",
             `const target = ${JSON.stringify(containerPath)};`,
@@ -246,10 +263,28 @@ function createFileEditTool(projectRoot: string): GatewayTool {
       },
     },
     /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-    async invoke(input) {
+    async invoke(input, context) {
+      const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
       const filePath = requirePath(input);
-      const target = resolveWorkspaceTarget(projectRoot, filePath);
-      return successPathOutput(projectRoot, target);
+      const oldText = requireString(
+        input.oldText ?? input.find,
+        "input.oldText required"
+      );
+      const newText = requireString(
+        input.newText ?? input.replace,
+        "input.newText required"
+      );
+      const target = resolveWorkspaceTarget(workspaceRoot, filePath);
+      const source = fs.readFileSync(target, "utf8");
+      if (!source.includes(oldText)) {
+        return {
+          ok: false,
+          error: "input.oldText not found",
+          metadata: { path: relativeWorkspacePath(workspaceRoot, target) },
+        };
+      }
+      await writeTextFileRobustly(target, source.replace(oldText, newText));
+      return successPathOutput(workspaceRoot, target);
     },
   };
 }
@@ -285,14 +320,15 @@ function createFileListTool(projectRoot: string): GatewayTool {
     }),
     sandboxSpec: {
       /** 方法 `resolve`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-      resolve(input) {
+      resolve(input, context) {
+        const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
         const filePath = requirePath(input);
-        const target = resolveWorkspaceTarget(projectRoot, filePath);
-        const containerPath = toContainerPath(projectRoot, target);
+        const target = resolveWorkspaceTarget(workspaceRoot, filePath);
+        const containerPath = toContainerPath(workspaceRoot, target);
 
         return {
           profileName: "safe-dev",
-          projectRoot,
+          projectRoot: workspaceRoot,
           command: buildNodeCommand([
             "const fs = require('node:fs');",
             `const target = ${JSON.stringify(containerPath)};`,
@@ -306,14 +342,19 @@ function createFileListTool(projectRoot: string): GatewayTool {
       },
     },
     /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-    async invoke(input) {
+    async invoke(input, context) {
+      const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
       const filePath = requirePath(input);
-      const target = resolveWorkspaceTarget(projectRoot, filePath);
+      const target = resolveWorkspaceTarget(workspaceRoot, filePath);
+      const entries = fs.readdirSync(target, { withFileTypes: true }).map((entry) => ({
+        name: entry.name,
+        type: entry.isDirectory() ? "dir" : entry.isFile() ? "file" : "other",
+      }));
       return {
-        ok: false,
-        error: "file.list must execute through ToolCallExecutor",
+        ok: true,
+        content: entries,
         metadata: {
-          path: relativeWorkspacePath(projectRoot, target),
+          path: relativeWorkspacePath(workspaceRoot, target),
         },
       };
     },
@@ -335,11 +376,65 @@ function resolveWorkspaceTarget(projectRoot: string, inputPath: string): string 
   return target;
 }
 
+function resolveContextProjectRoot(
+  fallbackRoot: string,
+  context: GatewayToolContext | undefined
+): string {
+  return context?.projectBoundary?.projectDir
+    ? path.resolve(context.projectBoundary.projectDir)
+    : fallbackRoot;
+}
+
 /**
  * 函数 `filePathSchema` 的职责说明。
  * `filePathSchema` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
  * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
+const WRITE_RETRY_DELAYS_MS = [40, 120, 300];
+
+async function writeTextFileRobustly(target: string, content: string): Promise<void> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= WRITE_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      fs.writeFileSync(target, content, "utf8");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientWriteError(error) || attempt === WRITE_RETRY_DELAYS_MS.length) {
+        break;
+      }
+      await delay(WRITE_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+
+  try {
+    execSync(
+      `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "New-Item -ItemType Directory -Force -Path '${path.dirname(target).replace(/'/g, "''")}'; Set-Content -Path '${target.replace(/'/g, "''")}' -Value ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${Buffer.from(content).toString("base64")}'))) -Encoding UTF8"`,
+      { stdio: "pipe", timeout: 10000 }
+    );
+    return;
+  } catch (fallbackError) {
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+    throw fallbackError;
+  }
+}
+
+function isTransientWriteError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  return code === "EPERM" || code === "EBUSY" || code === "EMFILE" || code === "ENFILE" || code === "UNKNOWN";
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function filePathSchema() {
   return {
     type: "object",
@@ -368,6 +463,14 @@ function requirePath(input: GatewayToolInput): string {
  */
 function requireString(value: unknown, message: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(message);
+  }
+
+  return value;
+}
+
+function requireText(value: unknown, message: string): string {
+  if (typeof value !== "string") {
     throw new Error(message);
   }
 
@@ -462,12 +565,13 @@ function createFileGlobTool(projectRoot: string): GatewayTool {
       allowWrite: false,
     }),
     /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-    async invoke(input) {
+    async invoke(input, context) {
+      const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
       const pattern = requireString(input.pattern, "input.pattern required");
       const maxResults = clampNumber(input.maxResults, 100, 1, 500);
 
       const matches = await glob(pattern, {
-        cwd: projectRoot,
+        cwd: workspaceRoot,
         nodir: true,
         ignore: ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/build/**", "**/coverage/**"],
         maxDepth: 20,
@@ -550,11 +654,12 @@ function createFileGrepTool(projectRoot: string): GatewayTool {
       allowWrite: false,
     }),
     /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-    async invoke(input) {
+    async invoke(input, context) {
+      const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
       const query = requireString(input.query, "input.query required");
       const searchPath = typeof input.path === "string" && input.path.trim()
-        ? resolveWorkspaceTarget(projectRoot, input.path)
-        : projectRoot;
+        ? resolveWorkspaceTarget(workspaceRoot, input.path)
+        : workspaceRoot;
       const isRegex = input.regex === true;
       const caseInsensitive = input.caseInsensitive === true;
       const maxResults = clampNumber(input.maxResults, 50, 1, 200);
@@ -625,7 +730,7 @@ function createFileGrepTool(projectRoot: string): GatewayTool {
                 const ctxEnd = Math.min(lines.length - 1, i + contextLines);
                 const context = lines.slice(ctxStart, ctxEnd + 1);
                 results.push({
-                  file: relativeWorkspacePath(projectRoot, fullPath),
+                  file: relativeWorkspacePath(workspaceRoot, fullPath),
                   line: i + 1,
                   preview: lines[i].slice(0, 300),
                   context,
@@ -705,9 +810,10 @@ function createFileMultiEditTool(projectRoot: string): GatewayTool {
       requireApproval: false,
     }),
     /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-    async invoke(input) {
+    async invoke(input, context) {
+      const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
       const filePath = requirePath(input);
-      const target = resolveWorkspaceTarget(projectRoot, filePath);
+      const target = resolveWorkspaceTarget(workspaceRoot, filePath);
 
       if (!Array.isArray(input.edits) || input.edits.length === 0) {
         return { ok: false, error: "input.edits must be a non-empty array" };
@@ -745,7 +851,7 @@ function createFileMultiEditTool(projectRoot: string): GatewayTool {
       }
 
       try {
-        fs.writeFileSync(target, content, "utf8");
+        await writeTextFileRobustly(target, content);
       } catch (err) {
         return { ok: false, error: `Write failed: ${err instanceof Error ? err.message : String(err)}` };
       }
@@ -753,12 +859,12 @@ function createFileMultiEditTool(projectRoot: string): GatewayTool {
       return {
         ok: true,
         content: {
-          path: relativeWorkspacePath(projectRoot, target),
+          path: relativeWorkspacePath(workspaceRoot, target),
           editsApplied: applied.length,
           totalEdits: edits.length,
           bytesChanged: Math.abs(Buffer.byteLength(content) - Buffer.byteLength(original)),
         },
-        metadata: { path: relativeWorkspacePath(projectRoot, target) },
+        metadata: { path: relativeWorkspacePath(workspaceRoot, target) },
       };
     },
   };
@@ -812,9 +918,10 @@ function createFilePatchTool(projectRoot: string): GatewayTool {
       requireApproval: false,
     }),
     /** 方法 `invoke`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
-    async invoke(input) {
+    async invoke(input, context) {
+      const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
       const filePath = requirePath(input);
-      const target = resolveWorkspaceTarget(projectRoot, filePath);
+      const target = resolveWorkspaceTarget(workspaceRoot, filePath);
       const patchContent = requireString(input.patch, "input.patch required");
       const dryRun = input.dryRun === true;
 
@@ -897,7 +1004,7 @@ function createFilePatchTool(projectRoot: string): GatewayTool {
         return {
           ok: true,
           content: {
-            path: relativeWorkspacePath(projectRoot, target),
+            path: relativeWorkspacePath(workspaceRoot, target),
             dryRun: true,
             hunksApplied: hunks.length,
             newLineCount: result.length,
@@ -908,7 +1015,7 @@ function createFilePatchTool(projectRoot: string): GatewayTool {
       }
 
       try {
-        fs.writeFileSync(target, result.join("\n"), "utf8");
+        await writeTextFileRobustly(target, result.join("\n"));
       } catch (err) {
         return { ok: false, error: `Write failed: ${err instanceof Error ? err.message : String(err)}` };
       }
@@ -916,12 +1023,12 @@ function createFilePatchTool(projectRoot: string): GatewayTool {
       return {
         ok: true,
         content: {
-          path: relativeWorkspacePath(projectRoot, target),
+          path: relativeWorkspacePath(workspaceRoot, target),
           hunksApplied: hunks.length,
           newLineCount: result.length,
           originalLineCount: lines.length,
         },
-        metadata: { path: relativeWorkspacePath(projectRoot, target) },
+        metadata: { path: relativeWorkspacePath(workspaceRoot, target) },
       };
     },
   };

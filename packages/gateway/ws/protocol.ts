@@ -11,10 +11,12 @@ export type GatewayWsMethod =
   | "connect"
   | "ping"
   | "runtime.status"
+  | "runtime.updateConfig"
   | "session.list"
   | "session.get"
   | "session.create"
   | "session.rename"
+  | "session.delete"
   | "session.bindProject"
   | "session.getTranscript"
   | "chat.send"
@@ -140,10 +142,12 @@ const GATEWAY_WS_METHODS = new Set<string>([
   "connect",
   "ping",
   "runtime.status",
+  "runtime.updateConfig",
   "session.list",
   "session.get",
   "session.create",
   "session.rename",
+  "session.delete",
   "session.bindProject",
   "session.getTranscript",
   "chat.send",

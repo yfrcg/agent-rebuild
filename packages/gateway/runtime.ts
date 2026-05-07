@@ -13,7 +13,7 @@ import { loadGatewayMcpServerConfigs } from "./mcpConfig";
 import { GatewayMcpManager } from "./mcpManager";
 import type { GatewayMcpServerConfig } from "./mcpTypes";
 import { GatewayMetricsCollector } from "./metricsCollector";
-import { createModelProvider } from "./modelProviderFactory";
+import { createSwitchableModelProvider } from "./modelProviderFactory";
 import type { ModelProvider } from "../model/types";
 import { GatewayRateLimiter } from "./rateLimiter";
 import { GatewaySandbox } from "./sandbox";
@@ -41,6 +41,7 @@ export interface GatewayRuntime {
   toolCallExecutor: ToolCallExecutor;
   mcpManager: GatewayMcpManager;
   metricsCollector: GatewayMetricsCollector;
+  setModelProvider(model: GatewayRuntimeConfig["model"]): void;
   /** 方法 `close`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
   close(): Promise<void>;
 }
@@ -78,7 +79,7 @@ export async function createGatewayRuntime(): Promise<GatewayRuntime> {
 
   const mcpLazy = Boolean((config as unknown as Record<string, unknown>).mcpLazy);
   const mcpManager = new GatewayMcpManager(mcpConfigs, sandbox, { lazy: mcpLazy });
-  const modelProvider = createModelProvider(config.model);
+  const modelProvider = createSwitchableModelProvider(config.model);
   const rateLimiter = new GatewayRateLimiter({
     maxRequests: config.rateLimitMaxRequests,
     windowMs: config.rateLimitWindowMs,
@@ -147,6 +148,10 @@ export async function createGatewayRuntime(): Promise<GatewayRuntime> {
     toolCallExecutor,
     mcpManager,
     metricsCollector,
+    setModelProvider(model: GatewayRuntimeConfig["model"]): void {
+      modelProvider.setModel(model);
+      config.model = model;
+    },
     /** 统一关闭运行时持有的外部连接，当前主要是 MCP 子进程/连接。 */
     async close(): Promise<void> {
       await mcpManager.close();

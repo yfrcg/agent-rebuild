@@ -450,6 +450,17 @@ export class SessionStore {
     return target;
   }
 
+  deleteSession(id: GatewaySessionId): boolean {
+    const sessions = this.loadSessions();
+    const index = sessions.findIndex((session) => session.id === id);
+    if (index === -1) {
+      return false;
+    }
+    sessions.splice(index, 1);
+    this.saveSessions(sessions);
+    return true;
+  }
+
   /**
    * 确保快照文件和父目录存在。
    *
