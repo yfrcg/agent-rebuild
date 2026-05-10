@@ -5,6 +5,7 @@ import type { ChatMessage, ModelProvider } from "../../model/types";
 import type { ToolCallExecutor } from "../toolCallExecutor";
 import type { ToolRegistry } from "../toolRegistry";
 import { createGatewayToolCallRequest } from "../toolCallFactory";
+import { extractBalancedJson, tryParseWithFix } from "../textSanitizer";
 import type {
   AgentDefinition,
   AgentResult,
@@ -55,10 +56,14 @@ function generateSubRunId(): string {
 /**
  * 函数 `parseModelOutput` 的职责说明。
  * `parseModelOutput` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
- * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ * Uses extractBalancedJson for robust JSON extraction from markdown/text.
  */
 function parseModelOutput(raw: string): ParsedModelOutput | null {
-  let cleaned = raw.trim();
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  // Strip markdown code fences
+  let cleaned = trimmed;
   if (cleaned.startsWith("```")) {
     cleaned = cleaned
       .replace(/^```(?:json)?\s*\n?/i, "")
@@ -66,23 +71,37 @@ function parseModelOutput(raw: string): ParsedModelOutput | null {
       .trim();
   }
 
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
+  // Use balanced JSON extraction (handles nested braces, strings, markdown wrappers)
+  const jsonBlock = extractBalancedJson(cleaned);
+  const textToParse = jsonBlock ?? cleaned;
 
-  try {
-    const parsed = JSON.parse(jsonMatch[0]) as ParsedModelOutput;
-    if (parsed.type === "tool_call" && parsed.tool) {
-      return { type: "tool_call", tool: parsed.tool, args: parsed.args ?? {} };
+  // Try direct parse first
+  const parsed = tryParseWithFix(textToParse);
+  if (parsed && typeof parsed === "object") {
+    const p = parsed as Record<string, unknown>;
+    if (p.type === "tool_call" && typeof p.tool === "string" && p.tool) {
+      return { type: "tool_call", tool: p.tool, args: (p.args as Record<string, unknown>) ?? {} };
     }
-    if (parsed.type === "final") {
-      return { type: "final", content: parsed.content ?? cleaned };
+    if (p.type === "final") {
+      return { type: "final", content: typeof p.content === "string" ? p.content : JSON.stringify(p) };
     }
-    const content = extractMeaningfulContent(parsed as unknown as Record<string, unknown>);
+    // Has a tool field but no type — treat as tool_call
+    if (typeof p.tool === "string" && p.tool) {
+      const args = (p.args ?? p.params ?? p.input ?? p.arguments) as Record<string, unknown> | undefined;
+      return { type: "tool_call", tool: p.tool, args: args ?? {} };
+    }
+    // Has content/text/message — treat as final
+    const content = extractMeaningfulContent(p);
     if (content) return { type: "final", content };
-    return null;
-  } catch {
-    return null;
   }
+
+  // No parseable JSON — treat the raw text as a final response
+  // (model may have responded with plain text instead of JSON)
+  if (trimmed.length > 0) {
+    return { type: "final", content: trimmed };
+  }
+
+  return null;
 }
 
 function extractMeaningfulContent(obj: Record<string, unknown>): string | undefined {
@@ -102,9 +121,13 @@ function extractMeaningfulContent(obj: Record<string, unknown>): string | undefi
 /**
  * 函数 `extractPayloadFromContent` 的职责说明。
  * `extractPayloadFromContent` 负责读取配置、状态或持久化数据，并把结果整理成调用方需要的形状。
- * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+ * Uses extractBalancedJson + tryParseWithFix for robust extraction.
  */
 function extractPayloadFromContent(content: string): Record<string, unknown> {
+  if (!content || !content.trim()) {
+    return { summary: "" };
+  }
+
   let cleaned = content.trim();
   if (cleaned.startsWith("```")) {
     cleaned = cleaned
@@ -113,15 +136,22 @@ function extractPayloadFromContent(content: string): Record<string, unknown> {
       .trim();
   }
 
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      return JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-    } catch {
-      // fall through
+  // Try balanced JSON extraction first
+  const jsonBlock = extractBalancedJson(cleaned);
+  if (jsonBlock) {
+    const parsed = tryParseWithFix(jsonBlock);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
     }
   }
 
+  // Try parsing the whole cleaned string
+  const directParsed = tryParseWithFix(cleaned);
+  if (directParsed && typeof directParsed === "object" && !Array.isArray(directParsed)) {
+    return directParsed as Record<string, unknown>;
+  }
+
+  // Fall back to text summary
   const summary = cleaned.length > 500 ? cleaned.slice(0, 500) : cleaned;
   return { summary, raw: content };
 }
@@ -166,11 +196,15 @@ export class SubAgentRunner {
 
       let finalContent = "";
       let step = 0;
+      let consecutiveDenials = 0;
+      const MAX_CONSECUTIVE_DENIALS = 3;
+      const lastRawOutputs: string[] = [];
 
       while (step < effectiveMaxToolCalls) {
         const response = await this.modelProvider.generate(messages);
 
         const rawOutput = response.text ?? "";
+        lastRawOutputs.push(rawOutput);
 
         const parsed = parseModelOutput(rawOutput);
         console.error(`[SubAgent:${agentDef.name}] step=${step} parsed.type=${parsed?.type} parsed.tool=${parsed?.tool} rawOutput.len=${rawOutput.length}`);
@@ -205,7 +239,8 @@ export class SubAgentRunner {
           }, auditRefs);
 
           if (!policyCheck.allowed) {
-            console.error(`[SubAgent:${agentDef.name}] POLICY DENIED: ${toolName} reason=${policyCheck.reason}`);
+            consecutiveDenials++;
+            console.error(`[SubAgent:${agentDef.name}] POLICY DENIED: ${toolName} reason=${policyCheck.reason} consecutiveDenials=${consecutiveDenials}`);
             toolCalls.push({
               toolName,
               args: toolArgs,
@@ -218,6 +253,20 @@ export class SubAgentRunner {
               timestamp: Date.now(),
             });
 
+            // Build a helpful denial message that lists available tools
+            const availableToolNames = agentDef.allowedTools.filter(
+              (t) => !agentDef.deniedTools.includes(t)
+            );
+            let denialMsg = `Tool "${toolName}" is not available. ${policyCheck.reason}.`;
+            denialMsg += `\nAvailable tools: ${availableToolNames.join(", ")}`;
+
+            // If too many consecutive denials, force the model to produce a final response
+            if (consecutiveDenials >= MAX_CONSECUTIVE_DENIALS) {
+              denialMsg += `\n\nYou have made ${consecutiveDenials} invalid tool calls in a row. You MUST now respond with your final output in this format:`;
+              denialMsg += `\n{"type": "final", "content": "your JSON structured output here"}`;
+              denialMsg += `\nDo NOT attempt any more tool calls. Use the information you already gathered.`;
+            }
+
             messages.push({
               role: "assistant",
               content: JSON.stringify({ type: "tool_call", tool: toolName, args: toolArgs }),
@@ -228,13 +277,16 @@ export class SubAgentRunner {
                 type: "tool_result",
                 tool: toolName,
                 ok: false,
-                error: `Policy denied: ${policyCheck.reason}`,
+                error: denialMsg,
               }),
             });
 
             step++;
             continue;
           }
+
+          // Reset consecutive denials on successful tool call
+          consecutiveDenials = 0;
 
           const toolStartTime = Date.now();
           const toolRequest = createGatewayToolCallRequest({
@@ -295,6 +347,36 @@ export class SubAgentRunner {
         }
 
         step++;
+      }
+
+      // If loop exhausted without a final response, try to salvage from last outputs
+      if (!finalContent && lastRawOutputs.length > 0) {
+        for (let i = lastRawOutputs.length - 1; i >= 0; i--) {
+          const lastOutput = lastRawOutputs[i];
+          if (lastOutput && lastOutput.trim()) {
+            finalContent = lastOutput.trim();
+            break;
+          }
+        }
+      }
+
+      // If still empty, produce a minimal summary from tool call results
+      if (!finalContent) {
+        const successfulCalls = toolCalls.filter((tc) => tc.result?.ok);
+        if (successfulCalls.length > 0) {
+          finalContent = JSON.stringify({
+            summary: `Completed ${successfulCalls.length} tool calls for ${agentDef.node} phase`,
+            toolResults: successfulCalls.map((tc) => ({
+              tool: tc.toolName,
+              result: tc.result?.content,
+            })),
+          });
+        } else {
+          finalContent = JSON.stringify({
+            summary: `${agentDef.node} agent exhausted all tool calls without producing a result`,
+            toolCallCount: toolCalls.length,
+          });
+        }
       }
 
       const durationMs = Date.now() - startTime;
