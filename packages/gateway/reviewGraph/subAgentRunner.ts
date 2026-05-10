@@ -20,6 +20,7 @@ export interface SubAgentRunnerOptions {
   toolRegistry: ToolRegistry;
   toolCallExecutor: ToolCallExecutor;
   workspaceRoot: string;
+  maxToolCallsPerAgent?: number;
   auditLogger?: {
     log?: (entry: Record<string, unknown>) => void;
     record?: (entry: Record<string, unknown>) => void;
@@ -76,10 +77,26 @@ function parseModelOutput(raw: string): ParsedModelOutput | null {
     if (parsed.type === "final") {
       return { type: "final", content: parsed.content ?? cleaned };
     }
+    const content = extractMeaningfulContent(parsed as unknown as Record<string, unknown>);
+    if (content) return { type: "final", content };
     return null;
   } catch {
     return null;
   }
+}
+
+function extractMeaningfulContent(obj: Record<string, unknown>): string | undefined {
+  const priorityKeys = ["content", "text", "message", "response", "answer", "result", "output"];
+  for (const key of priorityKeys) {
+    if (typeof obj[key] === "string" && obj[key].trim()) return obj[key].trim();
+  }
+  let longest = "";
+  for (const value of Object.values(obj)) {
+    if (typeof value === "string" && value.length > longest.length && !value.startsWith("{")) {
+      longest = value;
+    }
+  }
+  return longest || undefined;
 }
 
 /**
@@ -105,7 +122,8 @@ function extractPayloadFromContent(content: string): Record<string, unknown> {
     }
   }
 
-  return { raw: content };
+  const summary = cleaned.length > 500 ? cleaned.slice(0, 500) : cleaned;
+  return { summary, raw: content };
 }
 
 export class SubAgentRunner {
@@ -113,6 +131,7 @@ export class SubAgentRunner {
   private readonly toolRegistry: ToolRegistry;
   private readonly toolCallExecutor: ToolCallExecutor;
   private readonly workspaceRoot: string;
+  private readonly maxToolCallsPerAgent?: number;
   private readonly auditLogger?: SubAgentRunnerOptions["auditLogger"];
 
   /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
@@ -121,6 +140,7 @@ export class SubAgentRunner {
     this.toolRegistry = options.toolRegistry;
     this.toolCallExecutor = options.toolCallExecutor;
     this.workspaceRoot = options.workspaceRoot;
+    this.maxToolCallsPerAgent = options.maxToolCallsPerAgent;
     this.auditLogger = options.auditLogger;
   }
 
@@ -135,9 +155,10 @@ export class SubAgentRunner {
     const { agentDef, userPrompt, context, state } = input;
     const toolCalls: ToolCallRecord[] = [];
     const auditRefs: string[] = [];
+    const effectiveMaxToolCalls = this.maxToolCallsPerAgent ?? agentDef.maxToolCalls;
 
     try {
-      const systemPrompt = this.buildSystemPrompt(agentDef, state, context);
+      const systemPrompt = this.buildSystemPrompt(agentDef, state, context, effectiveMaxToolCalls);
       const messages: ChatMessage[] = [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -146,12 +167,13 @@ export class SubAgentRunner {
       let finalContent = "";
       let step = 0;
 
-      while (step < agentDef.maxToolCalls) {
+      while (step < effectiveMaxToolCalls) {
         const response = await this.modelProvider.generate(messages);
 
         const rawOutput = response.text ?? "";
 
         const parsed = parseModelOutput(rawOutput);
+        console.error(`[SubAgent:${agentDef.name}] step=${step} parsed.type=${parsed?.type} parsed.tool=${parsed?.tool} rawOutput.len=${rawOutput.length}`);
         if (!parsed || parsed.type === "final") {
           finalContent = parsed?.content ?? rawOutput;
           break;
@@ -160,6 +182,7 @@ export class SubAgentRunner {
         if (parsed.type === "tool_call" && parsed.tool) {
           const toolName = parsed.tool;
           const toolArgs = parsed.args ?? {};
+          console.error(`[SubAgent:${agentDef.name}] tool_call: ${toolName} args=${JSON.stringify(toolArgs).slice(0, 200)}`);
 
           const policyCheck: ToolPolicyCheck = checkToolPolicy({
             agentDef,
@@ -179,9 +202,10 @@ export class SubAgentRunner {
             policyDecision: policyCheck.allowed ? "allow" : "deny",
             status: policyCheck.allowed ? "pending" : "blocked",
             timestamp: Date.now(),
-          });
+          }, auditRefs);
 
           if (!policyCheck.allowed) {
+            console.error(`[SubAgent:${agentDef.name}] POLICY DENIED: ${toolName} reason=${policyCheck.reason}`);
             toolCalls.push({
               toolName,
               args: toolArgs,
@@ -218,6 +242,7 @@ export class SubAgentRunner {
             input: toolArgs,
             sessionId: state.runId,
             requestId: subRunId,
+            approved: true,
           });
           const toolResult = await this.toolCallExecutor.execute(toolRequest);
           const toolDuration = Date.now() - toolStartTime;
@@ -225,6 +250,7 @@ export class SubAgentRunner {
           const toolOk = toolResult.status === "success";
           const toolError = toolResult.error;
           const toolOutput = toolResult.output;
+          console.error(`[SubAgent:${agentDef.name}] tool_result: ${toolName} ok=${toolOk} error=${toolError} duration=${toolDuration}ms`);
 
           toolCalls.push({
             toolName,
@@ -250,7 +276,7 @@ export class SubAgentRunner {
             status: toolOk ? "success" : "error",
             durationMs: toolDuration,
             timestamp: Date.now(),
-          });
+          }, auditRefs);
 
           messages.push({
             role: "assistant",
@@ -301,7 +327,7 @@ export class SubAgentRunner {
         error: errorMessage,
         durationMs,
         timestamp: Date.now(),
-      });
+      }, auditRefs);
 
       return {
         subRunId,
@@ -326,7 +352,8 @@ export class SubAgentRunner {
   private buildSystemPrompt(
     agentDef: AgentDefinition,
     state: ReviewGraphState,
-    context?: string
+    context?: string,
+    maxToolCalls?: number
   ): string {
     const parts: string[] = [agentDef.systemPrompt];
 
@@ -349,7 +376,29 @@ export class SubAgentRunner {
       parts.push(`Denied Tools: ${agentDef.deniedTools.join(", ")}`);
     }
     parts.push(`Can Spawn Agents: ${agentDef.canSpawnAgents}`);
-    parts.push(`Max Tool Calls: ${agentDef.maxToolCalls}`);
+    parts.push(`Max Tool Calls: ${maxToolCalls ?? agentDef.maxToolCalls}`);
+
+    const availableTools = this.toolRegistry
+      .list()
+      .filter((t) => agentDef.allowedTools.includes(t.name));
+    if (availableTools.length > 0) {
+      parts.push(`\n## Available Tools (detailed)`);
+      for (const tool of availableTools) {
+        const schema = tool.schema as Record<string, unknown> | undefined;
+        const props = schema?.properties as Record<string, unknown> | undefined;
+        const required = schema?.required as string[] | undefined;
+        let paramDesc = "";
+        if (props) {
+          const paramEntries = Object.entries(props).map(([key, val]) => {
+            const type = (val as Record<string, unknown>)?.type ?? "unknown";
+            const isReq = required?.includes(key) ? " (required)" : " (optional)";
+            return `  - ${key}: ${type}${isReq}`;
+          });
+          paramDesc = `\nParameters:\n${paramEntries.join("\n")}`;
+        }
+        parts.push(`\n### ${tool.name}\n${tool.description ?? "No description"}${paramDesc}`);
+      }
+    }
 
     if (context) {
       parts.push(`\n## Additional Context\n${context}`);
@@ -369,8 +418,9 @@ export class SubAgentRunner {
    * `writeAudit` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
    * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
    */
-  private writeAudit(entry: Record<string, unknown>): void {
+  private writeAudit(entry: Record<string, unknown>, auditRefs?: string[]): void {
     if (!this.auditLogger) return;
+    const refId = crypto.randomUUID();
     const write =
       this.auditLogger.log ??
       this.auditLogger.record ??
@@ -378,10 +428,13 @@ export class SubAgentRunner {
       this.auditLogger.write;
     if (write) {
       try {
-        write(entry);
+        write({ ...entry, refId });
       } catch {
         // best-effort
       }
+    }
+    if (auditRefs) {
+      auditRefs.push(refId);
     }
   }
 }

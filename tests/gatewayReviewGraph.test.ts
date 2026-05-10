@@ -47,11 +47,25 @@ function makeToolRegistry(): ToolRegistry {
     get: (name: string) => ({
       name,
       description: `Tool ${name}`,
-      invoke: async () => ({ ok: true, content: `executed ${name}` }),
-      riskLevel: "low" as const,
+      schema: { type: "object", properties: {}, required: [] },
+      riskLevel: "safe" as const,
+      permissionLevel: "read" as const,
+      readOnly: true,
+      sideEffect: false,
+      execute: async () => ({ ok: true, result: `executed ${name}` }),
     }),
-    list: () => toolNames.map((n) => ({ name: n, description: n })),
+    list: () => toolNames.map((n) => ({
+      name: n,
+      description: `Tool ${n}`,
+      schema: { type: "object", properties: {}, required: [] },
+      riskLevel: "safe" as const,
+      permissionLevel: "read" as const,
+      readOnly: true,
+      sideEffect: false,
+    })),
     has: (name: string) => toolNames.includes(name),
+    validate: () => undefined,
+    invoke: async (name: string) => ({ ok: true, content: `executed ${name}` }),
   } as unknown as ToolRegistry;
 }
 
@@ -229,8 +243,8 @@ describe("Gateway ReviewGraph integration", () => {
 
     const response = await gateway.handle({
       id: "test-5",
-      input: "implement the new authentication feature?",
-      text: "implement the new authentication feature?",
+      input: "how does the authentication module work",
+      text: "how does the authentication module work",
     });
 
     assert.ok(!response.text.includes("AgentReview Graph"));

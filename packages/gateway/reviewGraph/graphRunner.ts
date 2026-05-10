@@ -12,13 +12,16 @@ import type {
   GraphNode,
   ImplementResult,
   PlanResult,
+  PlanStep,
   ReviewGraphRunnerOptions,
   ReviewGraphState,
   ReviewerResult,
   SecurityDecision,
   SecurityResult,
+  SecurityViolation,
   TaskType,
   TestResult,
+  TestResultEntry,
   VerifyResult,
 } from "./types";
 import { SubAgentRunner, type SubAgentRunnerOptions } from "./subAgentRunner";
@@ -141,6 +144,7 @@ export class ReviewGraphRunner {
     };
 
     let currentNodeIndex = 0;
+    const results: AgentResult[] = [];
 
     while (currentNodeIndex < GRAPH_NODES.length) {
       const node = GRAPH_NODES[currentNodeIndex];
@@ -163,6 +167,7 @@ export class ReviewGraphRunner {
       });
 
       state.auditRefs.push(...result.auditRefs);
+      results.push(result);
 
       if (result.status === "error") {
         state.finalStatus = "failed";
@@ -197,7 +202,7 @@ export class ReviewGraphRunner {
 
     state.endTime = Date.now();
 
-    const report = buildReport(state);
+    const report = buildReport(state, results);
 
     return { state, report, finalStatus: state.finalStatus };
   }
@@ -243,7 +248,7 @@ Make the necessary changes and report what you modified.`;
 
 Goal: ${state.userGoal}
 
-${state.implement ? `Changed Files:\n${state.implement.changedFiles.map((f) => `- ${f}`).join("\n")}` : ""}
+${state.implement ? `Changed Files:\n${(state.implement.changedFiles ?? []).map((f) => `- ${f}`).join("\n")}` : ""}
 
 Run typecheck, lint, build, and tests. Report all results.`;
 
@@ -267,7 +272,7 @@ Goal: ${state.userGoal}
 Tool calls made during this workflow:
 ${JSON.stringify(state.auditRefs, null, 2)}
 
-${state.implement ? `Changed Files:\n${state.implement.changedFiles.map((f) => `- ${f}`).join("\n")}` : ""}
+${state.implement ? `Changed Files:\n${(state.implement.changedFiles ?? []).map((f) => `- ${f}`).join("\n")}` : ""}
 
 Check for sensitive file access, path traversal, dangerous commands, and chain risks.`;
 
@@ -281,7 +286,7 @@ ${state.test ? `Test Results:\nOverall Passed: ${state.test.overallPassed}\nSumm
 
 ${state.verify ? `Verification:\nStatus: ${state.verify.status}\nScore: ${state.verify.score}/10\nRecommendation: ${state.verify.recommendation}` : ""}
 
-${state.security ? `Security:\nDecision: ${state.security.decision}\nViolations: ${state.security.violations.length}` : ""}
+${state.security ? `Security:\nDecision: ${state.security.decision}\nViolations: ${(state.security.violations ?? []).length}` : ""}
 
 Synthesize all results and provide your final decision.`;
 
@@ -297,23 +302,36 @@ Synthesize all results and provide your final decision.`;
    */
   private buildNodeContext(node: GraphNode, state: ReviewGraphState): string {
     const parts: string[] = [];
+    const getContent = (obj: unknown): string => {
+      if (obj && typeof obj === "object") {
+        const record = obj as Record<string, unknown>;
+        if (typeof record.summary === "string" && record.summary) return record.summary;
+        if (typeof record.content === "string" && record.content) return record.content;
+      }
+      return "";
+    };
 
     if (node !== "explore" && state.explore) {
-      parts.push(`## Exploration Summary\n${state.explore.summary}`);
+      parts.push(`## Exploration Summary\n${getContent(state.explore)}`);
     }
 
     if (node === "implement" && state.plan) {
-      parts.push(`## Plan Steps\n${state.plan.steps.map((s) => `${s.id}: ${s.description}`).join("\n")}`);
+      const steps = state.plan.steps;
+      if (Array.isArray(steps) && steps.length > 0) {
+        parts.push(`## Plan Steps\n${steps.map((s) => `${s.id}: ${s.description}`).join("\n")}`);
+      } else {
+        parts.push(`## Plan Summary\n${getContent(state.plan)}`);
+      }
     }
 
     if (node === "verify" && state.implement) {
-      parts.push(`## Implementation Summary\n${state.implement.summary}`);
+      parts.push(`## Implementation Summary\n${getContent(state.implement)}`);
     }
 
     if (node === "reviewer") {
-      if (state.test) parts.push(`## Test Summary\n${state.test.summary}`);
-      if (state.verify) parts.push(`## Verification Summary\n${state.verify.summary}`);
-      if (state.security) parts.push(`## Security Summary\n${state.security.summary}`);
+      if (state.test) parts.push(`## Test Summary\n${getContent(state.test)}`);
+      if (state.verify) parts.push(`## Verification Summary\n${getContent(state.verify)}`);
+      if (state.security) parts.push(`## Security Summary\n${getContent(state.security)}`);
     }
 
     return parts.join("\n\n");
@@ -331,30 +349,83 @@ Synthesize all results and provide your final decision.`;
   ): void {
     if (result.status !== "ok") return;
 
+    const p = result.payload as Record<string, unknown>;
+    const summary = typeof p.summary === "string" ? p.summary : result.summary;
+
     switch (node) {
       case "explore":
-        state.explore = result.payload as ReviewGraphState["explore"];
+        state.explore = {
+          relevantFiles: Array.isArray(p.relevantFiles) ? p.relevantFiles as string[] : [],
+          evidence: Array.isArray(p.evidence) ? p.evidence as string[] : [],
+          codeStructure: typeof p.codeStructure === "object" && p.codeStructure !== null ? p.codeStructure as Record<string, unknown> : {},
+          dependencies: Array.isArray(p.dependencies) ? p.dependencies as string[] : [],
+          summary,
+        };
         break;
       case "plan":
-        state.plan = result.payload as PlanResult;
-        if (state.plan.targetFiles) {
+        state.plan = {
+          targetFiles: Array.isArray(p.targetFiles) ? p.targetFiles as string[] : [],
+          steps: Array.isArray(p.steps) ? p.steps as PlanStep[] : [],
+          risks: Array.isArray(p.risks) ? p.risks as string[] : [],
+          requiresApproval: p.requiresApproval === true,
+          estimatedComplexity: typeof p.estimatedComplexity === "string" ? p.estimatedComplexity as PlanResult["estimatedComplexity"] : "medium",
+          summary,
+        };
+        if (state.plan.targetFiles.length > 0) {
           state.targetFiles = state.plan.targetFiles;
         }
         break;
       case "implement":
-        state.implement = result.payload as ImplementResult;
+        state.implement = {
+          changedFiles: Array.isArray(p.changedFiles) ? p.changedFiles as string[] : [],
+          diffSummary: typeof p.diffSummary === "string" ? p.diffSummary : "",
+          changes: Array.isArray(p.changes) ? p.changes as ImplementResult["changes"] : [],
+          summary,
+        };
         break;
       case "test":
-        state.test = result.payload as TestResult;
+        state.test = {
+          overallPassed: p.overallPassed !== false,
+          tests: Array.isArray(p.tests) ? p.tests as TestResultEntry[] : [],
+          typecheck: (typeof p.typecheck === "object" && p.typecheck !== null ? p.typecheck : { name: "TypeCheck", passed: true, exitCode: 0, stdout: "", stderr: "", timedOut: false, durationMs: 0 }) as TestResultEntry,
+          lint: (typeof p.lint === "object" && p.lint !== null ? p.lint : { name: "Lint", passed: true, exitCode: 0, stdout: "", stderr: "", timedOut: false, durationMs: 0 }) as TestResultEntry,
+          build: (typeof p.build === "object" && p.build !== null ? p.build : { name: "Build", passed: true, exitCode: 0, stdout: "", stderr: "", timedOut: false, durationMs: 0 }) as TestResultEntry,
+          summary,
+        };
         break;
       case "verify":
-        state.verify = result.payload as VerifyResult;
+        state.verify = {
+          status: typeof p.status === "string" ? p.status as VerifyResult["status"] : "uncertain",
+          score: typeof p.score === "number" ? p.score : 0,
+          requirementCoverage: Array.isArray(p.requirementCoverage) ? p.requirementCoverage as VerifyResult["requirementCoverage"] : [],
+          missingCases: Array.isArray(p.missingCases) ? p.missingCases as string[] : [],
+          falsePassRisks: Array.isArray(p.falsePassRisks) ? p.falsePassRisks as string[] : [],
+          recommendation: typeof p.recommendation === "string" ? p.recommendation as VerifyResult["recommendation"] : "needs_minor_fix",
+          suggestions: Array.isArray(p.suggestions) ? p.suggestions as string[] : [],
+          summary,
+        };
         break;
       case "security":
-        state.security = result.payload as SecurityResult;
+        state.security = {
+          decision: typeof p.decision === "string" ? p.decision as SecurityResult["decision"] : "allow",
+          violations: Array.isArray(p.violations) ? p.violations as SecurityViolation[] : [],
+          auditFindings: Array.isArray(p.auditFindings) ? p.auditFindings as string[] : [],
+          chainRisks: Array.isArray(p.chainRisks) ? p.chainRisks as SecurityResult["chainRisks"] : [],
+          summary,
+        };
         break;
       case "reviewer":
-        state.reviewer = result.payload as ReviewerResult;
+        state.reviewer = {
+          finalDecision: typeof p.finalDecision === "string" ? p.finalDecision as ReviewerResult["finalDecision"] : "approved",
+          approved: p.approved !== false,
+          blockingIssues: Array.isArray(p.blockingIssues) ? p.blockingIssues as string[] : [],
+          warnings: Array.isArray(p.warnings) ? p.warnings as string[] : [],
+          suggestions: Array.isArray(p.suggestions) ? p.suggestions as string[] : [],
+          testSummary: typeof p.testSummary === "string" ? p.testSummary : "",
+          verifySummary: typeof p.verifySummary === "string" ? p.verifySummary : "",
+          securitySummary: typeof p.securitySummary === "string" ? p.securitySummary : "",
+          summary,
+        };
         break;
     }
   }

@@ -23,6 +23,11 @@ import { extractProjectBoundary } from "./sessionTypes";
 import { MemoryAutoWriter } from "./memoryAutoWriter";
 import type { MemoryAutoWriterConfig } from "./memoryAutoWriter";
 import { ReviewGraphRunner } from "./reviewGraph/graphRunner";
+import {
+  extractStructuredJsonRanges,
+  extractMeaningfulContent,
+  tryParseStructuredPayload,
+} from "./textSanitizer";
 import type { ReviewGraphRunOutput } from "./reviewGraph/graphRunner";
 import type { ReviewGraphRunnerOptions } from "./reviewGraph/types";
 import { formatReportAsText } from "./reviewGraph/reportBuilder";
@@ -46,6 +51,8 @@ export interface GatewayOptions {
   autoToolLoopMaxSteps?: number;
   devTaskMaxSteps?: number;
   devTaskMaxFixRounds?: number;
+  sessionTokenBudget?: number;
+  sessionCostBudgetCents?: number;
   sessionManager?: SessionManager;
   memoryAutoWriterConfig?: Partial<MemoryAutoWriterConfig>;
   mcpManager?: GatewayMcpManager;
@@ -105,7 +112,7 @@ export class Gateway {
   /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(options: GatewayOptions) {
     const contextBuilder = options.contextBuilder ?? new ContextBuilder();
-    const autoToolLoopMaxSteps = options.autoToolLoopMaxSteps ?? 5;
+    const autoToolLoopMaxSteps = options.autoToolLoopMaxSteps ?? 15;
 
     this.memorySearch = options.memorySearch;
     this.modelProvider = options.modelProvider;
@@ -135,6 +142,8 @@ export class Gateway {
       maxToolCalls: autoToolLoopMaxSteps,
       devTaskMaxSteps: options.devTaskMaxSteps,
       devTaskMaxFixRounds: options.devTaskMaxFixRounds,
+      sessionTokenBudget: options.sessionTokenBudget,
+      sessionCostBudgetCents: options.sessionCostBudgetCents,
     });
 
     if (options.toolRegistry && options.toolCallExecutor) {
@@ -275,7 +284,7 @@ export class Gateway {
           projectBoundary: this.resolveProjectBoundary(request.sessionId),
         };
 
-        if (this.reviewGraphRunner && this.autoReviewGraphEnabled) {
+        if (this.reviewGraphRunner && this.autoReviewGraphEnabled && this.shouldUseReviewGraph(input)) {
           const reviewResult = await this.reviewGraphRunner.run({
             userGoal: input,
             taskType: undefined,
@@ -313,7 +322,16 @@ export class Gateway {
         hasError = true;
         errorMessage = this.toErrorMessage(err);
         responseText = "模型调用失败，Gateway 已捕获错误，没有让程序崩溃。";
+        console.error("[GATEWAY_ERROR] errorMessage:", errorMessage);
+        console.error("[GATEWAY_ERROR] stack:", err instanceof Error ? err.stack : "no stack");
         this.recordCircuitFailure(errorMessage);
+        try {
+          const fs = require("node:fs");
+          fs.mkdirSync("logs", { recursive: true });
+          fs.appendFileSync("logs/model-debug.log", `[GATEWAY_ERROR] ${errorMessage}\n${err instanceof Error ? err.stack : "no stack"}\n`);
+        } catch (logErr) {
+          console.error("[GATEWAY_ERROR] failed to write log file:", logErr);
+        }
       }
 
       await this.recordAudit({
@@ -360,6 +378,7 @@ export class Gateway {
         durationMs,
         hasError,
         errorMessage,
+        toolCallCount: toolCalls.length,
       });
       await this.recordAudit({
         type: "gateway.response.completed",
@@ -465,6 +484,8 @@ export class Gateway {
       const fatalMessage = this.toErrorMessage(err);
       const durationMs = Date.now() - startedAt;
       const text = "Gateway 内部异常，已捕获错误，没有让程序崩溃。";
+      console.error("[GATEWAY_FATAL] errorMessage:", fatalMessage);
+      console.error("[GATEWAY_FATAL] stack:", err instanceof Error ? err.stack : "no stack");
 
       await this.recordMetrics({
         durationMs,
@@ -713,27 +734,33 @@ export class Gateway {
     errorMessage?: string;
     rateLimited?: boolean;
     circuitOpen?: boolean;
+    toolCallCount?: number;
+    toolRetryCount?: number;
   }): Promise<void> {
     if (!this.metricsCollector) {
       return;
     }
 
-    const collector = this.metricsCollector as {
-      record?: (input: unknown) => void | Promise<void>;
-      observe?: (input: unknown) => void | Promise<void>;
-      collect?: (input: unknown) => void | Promise<void>;
-    };
+    try {
+      const collector = this.metricsCollector as {
+        record?: (input: unknown) => void | Promise<void>;
+        observe?: (input: unknown) => void | Promise<void>;
+        collect?: (input: unknown) => void | Promise<void>;
+      };
 
-    if (typeof collector.record === "function") {
-      await collector.record(input);
-      return;
-    }
-    if (typeof collector.observe === "function") {
-      await collector.observe(input);
-      return;
-    }
-    if (typeof collector.collect === "function") {
-      await collector.collect(input);
+      if (typeof collector.record === "function") {
+        await collector.record(input);
+        return;
+      }
+      if (typeof collector.observe === "function") {
+        await collector.observe(input);
+        return;
+      }
+      if (typeof collector.collect === "function") {
+        await collector.collect(input);
+      }
+    } catch {
+      // metrics recording should never crash the request handler
     }
   }
 
@@ -1008,11 +1035,13 @@ export class Gateway {
       /重构/,
       /优化/,
       /创建/,
+      /制作/,
       /修改/,
       /删除/,
       /测试/,
       /调试/,
       /编写/,
+      /生成/,
     ];
 
     const hasDevKeyword = devKeywords.some((pattern) => pattern.test(trimmed));
@@ -1025,7 +1054,6 @@ export class Gateway {
       /^(thanks|thank you|谢谢)/i,
       /^(what is|what are|什么是|怎么)/i,
       /^(how are you|你好吗)/i,
-      /\?$/
     ];
 
     const isCasual = casualPatterns.some((pattern) => pattern.test(trimmed));
@@ -1119,9 +1147,21 @@ function isRecentMemoryDate(date: string): boolean {
  * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
 export function sanitizeFallbackText(raw: string): string {
-  let text = raw.replace(/\uFFFD/g, "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  let text = raw
+    .replace(/\uFFFD/g, "")
+    .replace(/<think>[\s\S]*?<\/think>/g, "")
+    .replace(/\[Tool Result\][\s\S]*?\[\/Tool Result\]/g, "")
+    .trim();
   if (!text) {
     return "";
+  }
+
+  if (text.startsWith("{") && text.endsWith("}")) {
+    const parsed = tryParseStructuredPayload(text);
+    if (parsed && parsed.type !== "tool_call") {
+      const content = extractMeaningfulContent(parsed);
+      if (content) return content;
+    }
   }
 
   const ranges = extractStructuredJsonRanges(text)
@@ -1142,6 +1182,12 @@ export function sanitizeFallbackText(raw: string): string {
   }
 
   for (const range of [...ranges].reverse()) {
+    if (range.parsed) {
+      const content = extractMeaningfulContent(range.parsed);
+      if (content && !range.parsed.type) {
+        return content;
+      }
+    }
     if (range.parsed?.type === "tool_call" || range.parsed?.type === "final") {
       text = text.slice(0, range.start) + text.slice(range.end);
     }
@@ -1166,93 +1212,53 @@ function buildPlainTextFallbackResponse(
     return sanitized;
   }
 
-  const successfulWrites = toolCalls.filter(
+  const successful = toolCalls.filter((toolCall) => toolCall.status === "success");
+  const failed = toolCalls.filter((toolCall) => toolCall.status !== "success");
+  const successfulWrites = successful.filter(
     (toolCall) =>
-      toolCall.status === "success" &&
-      (toolCall.toolName === "file.write" ||
-        toolCall.toolName === "file.edit" ||
-        toolCall.toolName === "file.multi_edit" ||
-        toolCall.toolName === "file.patch")
+      toolCall.toolName === "file.write" ||
+      toolCall.toolName === "file.edit" ||
+      toolCall.toolName === "file.multi_edit" ||
+      toolCall.toolName === "file.patch"
   );
-  const successfulRuns = toolCalls.filter(
-    (toolCall) => toolCall.status === "success" && toolCall.toolName === "shell.run"
+  const successfulRuns = successful.filter(
+    (toolCall) => toolCall.toolName === "shell.run"
   );
+
+  const lines: string[] = ["## 任务总结\n"];
 
   if (successfulWrites.length > 0) {
     const files = successfulWrites
       .map((toolCall) => toolCall.input.path)
       .filter((value): value is string => typeof value === "string" && value.trim() !== "")
       .map((value) => value.trim());
-    const summary = files.length > 0 ? files.join(", ") : "目标文件";
-    return `已完成文件写入：${summary}。`;
+    const summary = files.length > 0 ? files.map((f) => `\`${f}\``).join(", ") : "目标文件";
+    lines.push(`### 文件操作\n- ✅ 已完成文件写入：${summary}\n`);
   }
 
   if (successfulRuns.length > 0) {
-    return "工具执行已完成，但模型没有返回可直接展示的最终说明。";
+    lines.push("### 命令执行\n");
+    for (const tc of successfulRuns) {
+      const cmd = typeof tc.input.command === "string" ? tc.input.command.slice(0, 80) : "shell.run";
+      lines.push(`- ✅ ${cmd}`);
+    }
+    lines.push("");
+  }
+
+  if (failed.length > 0) {
+    lines.push("### 失败操作\n");
+    for (const tc of failed) {
+      lines.push(`- ❌ ${tc.toolName}${tc.error ? `：${tc.error.slice(0, 100)}` : ""}`);
+    }
+    lines.push("");
+  }
+
+  if (toolCalls.length > 0) {
+    lines.push(`共执行 **${toolCalls.length}** 个工具调用（${successful.length} 成功，${failed.length} 失败）。`);
+    return lines.join("\n");
   }
 
   return "模型没有返回可执行的最终结果。";
-}
-
-function extractStructuredJsonRanges(raw: string): Array<{ json: string; start: number; end: number }> {
-  const results: Array<{ json: string; start: number; end: number }> = [];
-  let start = -1;
-  let depth = 0;
-  let inString = false;
-  let escapeNext = false;
-
-  for (let index = 0; index < raw.length; index += 1) {
-    const char = raw[index];
-
-    if (escapeNext) {
-      escapeNext = false;
-      continue;
-    }
-
-    if (char === "\\" && inString) {
-      escapeNext = true;
-      continue;
-    }
-
-    if (char === "\"") {
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) {
-      continue;
-    }
-
-    if (char === "{") {
-      if (depth === 0) {
-        start = index;
-      }
-      depth += 1;
-      continue;
-    }
-
-    if (char === "}" && depth > 0) {
-      depth -= 1;
-      if (depth === 0 && start >= 0) {
-        results.push({
-          json: raw.slice(start, index + 1),
-          start,
-          end: index + 1,
-        });
-        start = -1;
-      }
-    }
-  }
-
-  return results;
-}
-
-function tryParseStructuredPayload(raw: string): Record<string, unknown> | undefined {
-  try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
