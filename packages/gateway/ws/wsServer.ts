@@ -26,6 +26,7 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
  */
 export interface GatewayWsServerHandle {
   url: string;
+  token: string;
   /** 方法 `close`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
   close(): Promise<void>;
 }
@@ -229,10 +230,16 @@ export async function startGatewayWsServer(
   console.log(
     `[gateway:ws] listening on ws://${authConfig.host}:${authConfig.port}${WS_PATH}`
   );
-  console.log(`[gateway:ws] auth token: ${authConfig.token ? "enabled" : "disabled"}`);
+  if (process.env.GATEWAY_WS_TOKEN) {
+    console.log(`[gateway:ws] auth token: enabled (from GATEWAY_WS_TOKEN)`);
+  } else {
+    console.log(`[gateway:ws] auth token: auto-generated`);
+    console.log(`[gateway:ws] token: ${authConfig.token}`);
+  }
 
   return {
     url: `ws://${authConfig.host}:${authConfig.port}${WS_PATH}`,
+    token: authConfig.token,
     close,
   };
 }

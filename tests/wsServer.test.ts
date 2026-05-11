@@ -13,7 +13,7 @@ test("ws server returns BAD_REQUEST for invalid JSON", async () => {
   }, async () => {
     const server = await startGatewayWsServer(runtimeDouble());
     try {
-      const ws = await connect(server.url);
+      const ws = await connect(server.url, server.token);
       ws.send("{not-json");
       const message = await nextMessage(ws);
       const parsed = JSON.parse(message) as {
@@ -51,9 +51,10 @@ test("ws server rejects auth failures without crashing", async () => {
  * `connect` 用于固定测试场景中的一个可观察行为，重点验证输入、输出、异常分支和回归边界。
  * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
-function connect(url: string): Promise<WebSocket> {
+function connect(url: string, token?: string): Promise<WebSocket> {
+  const connectUrl = token ? `${url}?token=${token}` : url;
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url, { headers: { Origin: "http://localhost:3000" } });
+    const ws = new WebSocket(connectUrl, { headers: { Origin: "http://localhost:3000" } });
     const timer = setTimeout(() => reject(new Error("connect timeout")), 1_000);
     ws.once("open", () => {
       clearTimeout(timer);

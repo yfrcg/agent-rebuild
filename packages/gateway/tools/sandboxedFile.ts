@@ -1,5 +1,6 @@
 
 import * as fs from "node:fs";
+import { promises as fsp } from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
 import { glob } from "glob";
@@ -84,9 +85,75 @@ function createFileReadTool(projectRoot: string): GatewayTool {
       const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
       const filePath = requirePath(input);
       const target = resolveWorkspaceTarget(workspaceRoot, filePath);
+      const MAX_READ_CHARS = 65536;
+      const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB hard limit
+      const offset = typeof input.offset === "number" && input.offset > 0 ? Math.floor(input.offset) : 0;
+      const limit = typeof input.limit === "number" && input.limit > 0 ? Math.floor(input.limit) : 0;
+      const stat = await fsp.stat(target);
+      if (stat.size > MAX_FILE_BYTES) {
+        return {
+          ok: false,
+          error: `File too large: ${stat.size} bytes exceeds the ${MAX_FILE_BYTES} byte limit. Use offset/limit parameters or shell.run (Get-Content) to read specific ranges.`,
+          metadata: {
+            path: relativeWorkspacePath(workspaceRoot, target),
+            sizeBytes: stat.size,
+            maxBytes: MAX_FILE_BYTES,
+          },
+        };
+      }
+      if (stat.size > MAX_READ_CHARS * 2) {
+        const handle = await fsp.open(target, "r");
+        const buf = Buffer.alloc(MAX_READ_CHARS);
+        const { bytesRead } = await handle.read(buf, 0, MAX_READ_CHARS, 0);
+        await handle.close();
+        const content = buf.toString("utf8", 0, bytesRead);
+        return {
+          ok: true,
+          content,
+          metadata: {
+            path: relativeWorkspacePath(workspaceRoot, target),
+            truncated: true,
+            originalSizeBytes: stat.size,
+            warning: `File truncated: showing first ${MAX_READ_CHARS} chars of ${stat.size} byte file. Use offset/limit parameters or shell.run (Get-Content) for specific ranges.`,
+          },
+        };
+      }
+      const fullContent = await fsp.readFile(target, "utf8");
+
+      // If offset/limit specified, extract the requested line range
+      if (offset > 0 || limit > 0) {
+        const allLines = fullContent.split("\n");
+        const startLine = offset;
+        const endLine = limit > 0 ? startLine + limit : allLines.length;
+        const selectedLines = allLines.slice(startLine, endLine);
+        const content = selectedLines.join("\n");
+        const totalLines = allLines.length;
+        return {
+          ok: true,
+          content: content.length > MAX_READ_CHARS ? content.slice(0, MAX_READ_CHARS) : content,
+          metadata: {
+            path: relativeWorkspacePath(workspaceRoot, target),
+            lineRange: `${startLine}-${Math.min(endLine, totalLines)} of ${totalLines}`,
+            truncated: content.length > MAX_READ_CHARS,
+          },
+        };
+      }
+
+      if (fullContent.length > MAX_READ_CHARS) {
+        return {
+          ok: true,
+          content: fullContent.slice(0, MAX_READ_CHARS),
+          metadata: {
+            path: relativeWorkspacePath(workspaceRoot, target),
+            truncated: true,
+            originalLength: fullContent.length,
+            warning: `File truncated: showing first ${MAX_READ_CHARS} chars of ${fullContent.length} char file.`,
+          },
+        };
+      }
       return {
         ok: true,
-        content: fs.readFileSync(target, "utf8"),
+        content: fullContent,
         metadata: {
           path: relativeWorkspacePath(workspaceRoot, target),
         },
@@ -167,8 +234,10 @@ function createFileWriteTool(projectRoot: string): GatewayTool {
       const content = requireText(input.content, "input.content required");
       const target = resolveWorkspaceTarget(workspaceRoot, filePath);
       const dir = path.dirname(target);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+      try {
+        await fsp.access(dir);
+      } catch {
+        await fsp.mkdir(dir, { recursive: true });
       }
       await writeTextFileRobustly(target, content);
       return successPathOutput(workspaceRoot, target);
@@ -275,7 +344,7 @@ function createFileEditTool(projectRoot: string): GatewayTool {
         "input.newText required"
       );
       const target = resolveWorkspaceTarget(workspaceRoot, filePath);
-      const source = fs.readFileSync(target, "utf8");
+      const source = await fsp.readFile(target, "utf8");
       if (!source.includes(oldText)) {
         return {
           ok: false,
@@ -346,7 +415,7 @@ function createFileListTool(projectRoot: string): GatewayTool {
       const workspaceRoot = resolveContextProjectRoot(projectRoot, context);
       const filePath = requirePath(input);
       const target = resolveWorkspaceTarget(workspaceRoot, filePath);
-      const entries = fs.readdirSync(target, { withFileTypes: true }).map((entry) => ({
+      const entries = (await fsp.readdir(target, { withFileTypes: true })).map((entry) => ({
         name: entry.name,
         type: entry.isDirectory() ? "dir" : entry.isFile() ? "file" : "other",
       }));
@@ -397,7 +466,7 @@ async function writeTextFileRobustly(target: string, content: string): Promise<v
 
   for (let attempt = 0; attempt <= WRITE_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
-      fs.writeFileSync(target, content, "utf8");
+      await fsp.writeFile(target, content, "utf8");
       return;
     } catch (error) {
       lastError = error;
@@ -441,6 +510,14 @@ function filePathSchema() {
     properties: {
       path: {
         type: "string",
+      },
+      offset: {
+        type: "number",
+        description: "Line number to start reading from (0-based). Omit to start from beginning.",
+      },
+      limit: {
+        type: "number",
+        description: "Maximum number of lines to read. Omit to read the entire file (up to 64KB limit).",
       },
     },
     required: ["path"],
@@ -685,15 +762,10 @@ function createFileGrepTool(projectRoot: string): GatewayTool {
       const results: Array<{ file: string; line: number; preview: string; context: string[] }> = [];
       let filesSearched = 0;
 
-      /**
-       * 函数 `searchDir` 的职责说明。
-       * `searchDir` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
-       * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-       */
-      function searchDir(dir: string) {
+      async function searchDir(dir: string) {
         let entries: fs.Dirent[];
         try {
-          entries = fs.readdirSync(dir, { withFileTypes: true });
+          entries = await fsp.readdir(dir, { withFileTypes: true });
         } catch {
           return;
         }
@@ -704,10 +776,10 @@ function createFileGrepTool(projectRoot: string): GatewayTool {
 
           const fullPath = path.join(dir, entry.name);
           if (entry.isDirectory()) {
-            searchDir(fullPath);
+            await searchDir(fullPath);
           } else if (entry.isFile()) {
             try {
-              const stat = fs.statSync(fullPath);
+              const stat = await fsp.stat(fullPath);
               if (stat.size > MAX_FILE_SIZE) continue;
               if (stat.size === 0) continue;
             } catch {
@@ -717,7 +789,7 @@ function createFileGrepTool(projectRoot: string): GatewayTool {
             filesSearched++;
             let lines: string[];
             try {
-              const content = fs.readFileSync(fullPath, "utf8");
+              const content = await fsp.readFile(fullPath, "utf8");
               lines = content.split("\n");
             } catch {
               continue;
@@ -741,7 +813,7 @@ function createFileGrepTool(projectRoot: string): GatewayTool {
         }
       }
 
-      searchDir(searchPath);
+      await searchDir(searchPath);
 
       return {
         ok: true,
@@ -829,7 +901,7 @@ function createFileMultiEditTool(projectRoot: string): GatewayTool {
 
       let content: string;
       try {
-        content = fs.readFileSync(target, "utf8");
+        content = await fsp.readFile(target, "utf8");
       } catch (err) {
         return { ok: false, error: `Cannot read file: ${err instanceof Error ? err.message : String(err)}` };
       }
@@ -927,7 +999,7 @@ function createFilePatchTool(projectRoot: string): GatewayTool {
 
       let content: string;
       try {
-        content = fs.readFileSync(target, "utf8");
+        content = await fsp.readFile(target, "utf8");
       } catch (err) {
         return { ok: false, error: `Cannot read file: ${err instanceof Error ? err.message : String(err)}` };
       }

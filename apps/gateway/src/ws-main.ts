@@ -2,6 +2,15 @@
 import { createGatewayRuntime } from "../../../packages/gateway/runtime";
 import { startGatewayWsServer } from "../../../packages/gateway/ws/wsServer";
 
+process.on("unhandledRejection", (reason) => {
+  console.error("[ws-main] unhandledRejection:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[ws-main] uncaughtException:", err);
+  process.exit(1);
+});
+
 /**
  * WebSocket Gateway 命令行入口。
  *

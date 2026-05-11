@@ -1,8 +1,9 @@
+import * as crypto from "node:crypto";
 
 export interface GatewayWsAuthConfig {
   host: string;
   port: number;
-  token?: string;
+  token: string;
   allowedOrigins: string[];
   maxConnections: number;
   maxMessageBytes: number;
@@ -21,14 +22,20 @@ export interface GatewayWsAuthConfig {
  *
  * 解析失败时使用保守默认值，避免一个错误环境变量导致服务无法启动；
  * 真正的安全边界仍由 token、Origin 白名单和沙箱配置共同承担。
+ *
+ * 如果未提供 `GATEWAY_WS_TOKEN`，会自动生成一个随机 token 并打印到控制台，
+ * 确保 WS 端点始终需要认证。
  */
 export function loadGatewayWsAuthConfig(
   env: NodeJS.ProcessEnv = process.env
 ): GatewayWsAuthConfig {
+  const configuredToken = normalizeOptional(env.GATEWAY_WS_TOKEN);
+  const token = configuredToken ?? crypto.randomBytes(24).toString("hex");
+
   return {
     host: env.GATEWAY_WS_HOST?.trim() || "127.0.0.1",
     port: parsePort(env.GATEWAY_WS_PORT, 8787),
-    token: normalizeOptional(env.GATEWAY_WS_TOKEN),
+    token,
     allowedOrigins: parseAllowedOrigins(env.GATEWAY_WS_ALLOWED_ORIGINS),
     maxConnections: parsePositiveInteger(env.GATEWAY_WS_MAX_CONNECTIONS, 20),
     maxMessageBytes: parsePositiveInteger(env.GATEWAY_WS_MAX_MESSAGE_BYTES, 1_048_576),

@@ -15,6 +15,15 @@ import { printRuntimeConfig } from "../../../packages/gateway/runtimeConfigPrint
 import { maybeAutoCompactSession } from "../../../packages/gateway/sessionAutoCompaction";
 import { recordTranscript } from "../../../packages/gateway/transcriptRecorder";
 
+process.on("unhandledRejection", (reason) => {
+  console.error("[gateway] unhandledRejection:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[gateway] uncaughtException:", err);
+  process.exit(1);
+});
+
 /**
  * 函数 `main` 的职责说明。
  * `main` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
