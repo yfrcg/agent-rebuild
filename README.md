@@ -1,6 +1,6 @@
 # Agent Rebuild
 
-**中文** | [English](#english)
+**中文** | [English](#english) | [快速进入：从 0 学做一个智能体](#从-0-学做一个智能体)
 
 > 一个受 OpenClaw 与 Claude Code 启发的 TypeScript Agent Runtime，围绕长期记忆、工具执行、Gateway 编排、MCP 集成与可审计开发工作流构建。
 
