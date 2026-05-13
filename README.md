@@ -26,6 +26,14 @@ AI Agent Gateway for Windows-native local development. It turns model responses,
 
 ## 视觉总览
 
+### 动态运行图
+
+<p align="center">
+  <img src="docs/assets/gateway-runtime-animation.svg" alt="agent-rebuild Gateway runtime animated flow" width="920" />
+</p>
+
+这张动态图把“用户输入 -> Gateway -> 上下文 -> 模型 -> 工具执行 -> 审计/事件 -> Web UI”的主路径压缩成一屏。移动光点代表一次请求中的模型调用、工具证据回填和实时事件广播。
+
 ### 运行链路
 
 ```mermaid
@@ -202,6 +210,10 @@ VITE_GATEWAY_WS_URL=ws://127.0.0.1:8787/v1/ws
 源码里已经放了少量 `Learning note` 注释。阅读时可以在编辑器里搜索 `Learning note`，它们是主链路上的教学路标：每个注释都标在一个“应该停下来理解”的函数附近。
 
 ### 学习路线图
+
+<p align="center">
+  <img src="docs/assets/learning-path-animation.svg" alt="animated beginner path for building a local AI agent gateway" width="920" />
+</p>
 
 ```mermaid
 flowchart TD

@@ -1,0 +1,114 @@
+<svg width="920" height="360" viewBox="0 0 920 360" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Beginner learning path animation</title>
+  <desc id="desc">Animated beginner path for learning how to build a local AI agent gateway from runtime basics to multi-agent review.</desc>
+  <style>
+    .bg { fill: #08111f; }
+    .panel { fill: #101827; stroke: #273449; stroke-width: 1; }
+    .title { fill: #f8fafc; font: 700 18px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .small { fill: #a7b4c8; font: 12px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .step { fill: #162236; stroke: #475569; stroke-width: 1.2; }
+    .step-hot { fill: #122f2a; stroke: #22c55e; stroke-width: 1.4; }
+    .num { fill: #38bdf8; font: 700 14px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .label { fill: #e5e7eb; font: 600 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .caption { fill: #94a3b8; font: 11px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .path-base { stroke: #334155; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+    .path-live { stroke: url(#learnGradient); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 16 18; animation: moveDash 2.1s linear infinite; }
+    .learner { filter: url(#glow); animation: learner 8s ease-in-out infinite; }
+    .pulse { animation: pulse 2.4s ease-in-out infinite; transform-origin: center; }
+    .pulse2 { animation: pulse 2.4s ease-in-out infinite; animation-delay: .8s; transform-origin: center; }
+    .pulse3 { animation: pulse 2.4s ease-in-out infinite; animation-delay: 1.6s; transform-origin: center; }
+    @keyframes moveDash { to { stroke-dashoffset: -68; } }
+    @keyframes pulse { 0%,100% { opacity: .72; } 50% { opacity: 1; filter: url(#glow); } }
+    @keyframes learner {
+      0% { transform: translate(86px,238px); }
+      12% { transform: translate(180px,160px); }
+      24% { transform: translate(280px,238px); }
+      36% { transform: translate(380px,160px); }
+      48% { transform: translate(480px,238px); }
+      60% { transform: translate(580px,160px); }
+      72% { transform: translate(680px,238px); }
+      86% { transform: translate(780px,160px); }
+      100% { transform: translate(834px,238px); }
+    }
+  </style>
+  <defs>
+    <linearGradient id="learnGradient" x1="80" y1="160" x2="850" y2="240" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38bdf8"/>
+      <stop offset=".45" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect class="bg" width="920" height="360" rx="18"/>
+  <rect class="panel" x="24" y="24" width="872" height="312" rx="14"/>
+  <text class="title" x="48" y="62">Build a local AI Agent Gateway from zero</text>
+  <text class="small" x="48" y="84">Follow the moving dot: each stop maps to source files and a small exercise in the README.</text>
+
+  <path class="path-base" d="M86 238 C130 126 170 126 180 160 S250 270 280 238 S350 128 380 160 S450 270 480 238 S550 128 580 160 S650 270 680 238 S750 128 780 160 S820 210 834 238"/>
+  <path class="path-live" d="M86 238 C130 126 170 126 180 160 S250 270 280 238 S350 128 380 160 S450 270 480 238 S550 128 580 160 S650 270 680 238 S750 128 780 160 S820 210 834 238"/>
+
+  <g class="pulse">
+    <rect class="step" x="48" y="214" width="94" height="54" rx="10"/>
+    <text class="num" x="66" y="236">0</text>
+    <text class="label" x="88" y="236">Node</text>
+    <text class="caption" x="66" y="254">runtime</text>
+  </g>
+  <g class="pulse2">
+    <rect class="step" x="132" y="132" width="96" height="54" rx="10"/>
+    <text class="num" x="150" y="154">1</text>
+    <text class="label" x="172" y="154">REPL</text>
+    <text class="caption" x="150" y="172">main.ts</text>
+  </g>
+  <g class="pulse3">
+    <rect class="step" x="232" y="214" width="96" height="54" rx="10"/>
+    <text class="num" x="250" y="236">2</text>
+    <text class="label" x="272" y="236">Runtime</text>
+    <text class="caption" x="250" y="254">wiring</text>
+  </g>
+  <g class="pulse">
+    <rect class="step" x="332" y="132" width="96" height="54" rx="10"/>
+    <text class="num" x="350" y="154">3</text>
+    <text class="label" x="372" y="154">Gateway</text>
+    <text class="caption" x="350" y="172">handle()</text>
+  </g>
+  <g class="pulse2">
+    <rect class="step" x="432" y="214" width="96" height="54" rx="10"/>
+    <text class="num" x="450" y="236">4</text>
+    <text class="label" x="472" y="236">Loop</text>
+    <text class="caption" x="450" y="254">tools</text>
+  </g>
+  <g class="pulse3">
+    <rect class="step-hot" x="532" y="132" width="96" height="54" rx="10"/>
+    <text class="num" x="550" y="154">5</text>
+    <text class="label" x="572" y="154">Safety</text>
+    <text class="caption" x="550" y="172">executor</text>
+  </g>
+  <g class="pulse">
+    <rect class="step" x="632" y="214" width="96" height="54" rx="10"/>
+    <text class="num" x="650" y="236">6</text>
+    <text class="label" x="672" y="236">Memory</text>
+    <text class="caption" x="650" y="254">retrieval</text>
+  </g>
+  <g class="pulse2">
+    <rect class="step" x="732" y="132" width="96" height="54" rx="10"/>
+    <text class="num" x="750" y="154">7</text>
+    <text class="label" x="772" y="154">Web UI</text>
+    <text class="caption" x="750" y="172">events</text>
+  </g>
+  <g class="pulse3">
+    <rect class="step-hot" x="788" y="214" width="84" height="54" rx="10"/>
+    <text class="num" x="804" y="236">8</text>
+    <text class="label" x="826" y="236">Graph</text>
+    <text class="caption" x="804" y="254">agents</text>
+  </g>
+
+  <circle class="learner" cx="0" cy="0" r="9" fill="#f59e0b"/>
+  <circle class="learner" cx="0" cy="0" r="17" fill="#f59e0b" opacity=".14"/>
+</svg>

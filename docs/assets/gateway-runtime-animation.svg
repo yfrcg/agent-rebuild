@@ -1,0 +1,136 @@
+<svg width="920" height="470" viewBox="0 0 920 470" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">agent-rebuild Gateway runtime animation</title>
+  <desc id="desc">Animated diagram showing user input flowing through transport, gateway runtime, context, model, tool executor, memory, audit, and live events.</desc>
+  <style>
+    .bg { fill: #0b1020; }
+    .panel { fill: #111827; stroke: #263244; stroke-width: 1; }
+    .node { fill: #172033; stroke: #3b82f6; stroke-width: 1.4; }
+    .node-alt { fill: #102820; stroke: #22c55e; stroke-width: 1.4; }
+    .node-warn { fill: #2a1d10; stroke: #f59e0b; stroke-width: 1.4; }
+    .label { fill: #e5e7eb; font: 600 15px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .small { fill: #9ca3af; font: 12px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .tiny { fill: #94a3b8; font: 11px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .line { stroke: #334155; stroke-width: 2.5; stroke-linecap: round; }
+    .flow { stroke: url(#flowGradient); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 10 16; animation: dash 1.8s linear infinite; }
+    .glow { filter: url(#glow); }
+    .pulse-blue { animation: pulseBlue 2.4s ease-in-out infinite; transform-origin: center; }
+    .pulse-green { animation: pulseGreen 2.4s ease-in-out infinite; transform-origin: center; }
+    .packet-a { animation: packetA 5.5s linear infinite; }
+    .packet-b { animation: packetB 5.5s linear infinite; animation-delay: 1.2s; opacity: 0; }
+    .packet-c { animation: packetC 5.5s linear infinite; animation-delay: 2.3s; opacity: 0; }
+    .bar-a { animation: bar 2.8s ease-in-out infinite; }
+    .bar-b { animation: bar 2.8s ease-in-out infinite; animation-delay: .45s; }
+    .bar-c { animation: bar 2.8s ease-in-out infinite; animation-delay: .9s; }
+    .scan { animation: scan 3.2s ease-in-out infinite; opacity: .65; }
+    @keyframes dash { to { stroke-dashoffset: -52; } }
+    @keyframes pulseBlue { 0%,100% { stroke-width: 1.4; filter: none; } 50% { stroke-width: 2.6; filter: url(#glow); } }
+    @keyframes pulseGreen { 0%,100% { stroke-width: 1.4; filter: none; } 50% { stroke-width: 2.6; filter: url(#greenGlow); } }
+    @keyframes packetA {
+      0% { transform: translate(120px,104px); opacity: 0; }
+      8% { opacity: 1; }
+      22% { transform: translate(302px,104px); opacity: 1; }
+      40% { transform: translate(478px,104px); opacity: 1; }
+      58% { transform: translate(650px,104px); opacity: 1; }
+      76% { transform: translate(650px,250px); opacity: 1; }
+      100% { transform: translate(798px,250px); opacity: 0; }
+    }
+    @keyframes packetB {
+      0% { transform: translate(456px,170px); opacity: 0; }
+      12% { opacity: 1; }
+      42% { transform: translate(300px,288px); opacity: 1; }
+      72% { transform: translate(456px,170px); opacity: 1; }
+      100% { transform: translate(456px,170px); opacity: 0; }
+    }
+    @keyframes packetC {
+      0% { transform: translate(650px,170px); opacity: 0; }
+      12% { opacity: 1; }
+      44% { transform: translate(650px,348px); opacity: 1; }
+      74% { transform: translate(798px,348px); opacity: 1; }
+      100% { transform: translate(798px,348px); opacity: 0; }
+    }
+    @keyframes bar { 0%,100% { width: 32px; opacity: .45; } 50% { width: 96px; opacity: 1; } }
+    @keyframes scan { 0%,100% { transform: translateY(0); } 50% { transform: translateY(58px); } }
+  </style>
+  <defs>
+    <linearGradient id="flowGradient" x1="80" y1="0" x2="850" y2="470" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38bdf8"/>
+      <stop offset=".5" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="greenGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.12 0 0 0 0 0.85 0 0 0 0 0.42 0 0 0 1 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect class="bg" width="920" height="470" rx="18"/>
+  <rect class="panel" x="24" y="24" width="872" height="422" rx="14"/>
+  <text class="label" x="48" y="58">agent-rebuild live runtime</text>
+  <text class="small" x="48" y="80">Model calls, tools, memory, audit, and WebSocket events move through one Gateway.</text>
+
+  <path class="line" d="M130 124 H284 H454 H626 V250 H772"/>
+  <path class="line" d="M454 170 C410 218 356 260 300 288 C360 318 414 258 454 170"/>
+  <path class="line" d="M626 170 V348 H772"/>
+  <path class="flow" d="M130 124 H284 H454 H626 V250 H772"/>
+  <path class="flow" d="M454 170 C410 218 356 260 300 288 C360 318 414 258 454 170"/>
+  <path class="flow" d="M626 170 V348 H772"/>
+
+  <rect class="node pulse-blue" x="50" y="96" width="160" height="56" rx="10"/>
+  <text class="label" x="78" y="121">User / IDE</text>
+  <text class="tiny" x="78" y="139">task input</text>
+
+  <rect class="node" x="244" y="96" width="160" height="56" rx="10"/>
+  <text class="label" x="276" y="121">Transport</text>
+  <text class="tiny" x="276" y="139">REPL or WebSocket</text>
+
+  <rect class="node pulse-blue" x="418" y="96" width="170" height="74" rx="10"/>
+  <text class="label" x="452" y="122">Gateway</text>
+  <text class="tiny" x="452" y="141">orchestration</text>
+  <text class="tiny" x="452" y="157">policy and metrics</text>
+
+  <rect class="node-alt pulse-green" x="620" y="96" width="170" height="74" rx="10"/>
+  <text class="label" x="662" y="122">Model</text>
+  <text class="tiny" x="662" y="141">final JSON</text>
+  <text class="tiny" x="662" y="157">or tool call JSON</text>
+
+  <rect class="node-alt" x="222" y="260" width="168" height="68" rx="10"/>
+  <text class="label" x="260" y="288">Context</text>
+  <text class="tiny" x="260" y="307">memory + repo map</text>
+
+  <rect class="node-warn pulse-blue" x="560" y="226" width="176" height="68" rx="10"/>
+  <text class="label" x="594" y="254">Tool Executor</text>
+  <text class="tiny" x="594" y="273">schema + permission</text>
+
+  <rect class="node" x="560" y="324" width="176" height="68" rx="10"/>
+  <text class="label" x="606" y="352">Events</text>
+  <text class="tiny" x="606" y="371">audit + live timeline</text>
+
+  <rect class="node" x="760" y="226" width="96" height="166" rx="10"/>
+  <text class="label" x="784" y="254">UI</text>
+  <text class="tiny" x="782" y="275">chat.delta</text>
+  <text class="tiny" x="782" y="293">tool.done</text>
+  <text class="tiny" x="782" y="311">run.finished</text>
+  <rect class="bar-a" x="782" y="335" width="32" height="7" rx="3.5" fill="#38bdf8"/>
+  <rect class="bar-b" x="782" y="354" width="32" height="7" rx="3.5" fill="#22c55e"/>
+  <rect class="bar-c" x="782" y="373" width="32" height="7" rx="3.5" fill="#f59e0b"/>
+
+  <circle class="packet-a glow" r="7" fill="#38bdf8"/>
+  <circle class="packet-b glow" r="7" fill="#22c55e"/>
+  <circle class="packet-c glow" r="7" fill="#f59e0b"/>
+
+  <rect x="48" y="368" width="404" height="46" rx="10" fill="#0f172a" stroke="#263244"/>
+  <rect class="scan" x="60" y="378" width="380" height="2" rx="1" fill="#38bdf8"/>
+  <text class="small" x="66" y="394">Safety funnel: validate -> permission -> path guard -> execute -> audit</text>
+  <text class="tiny" x="66" y="410">Every tool call must pass through the Gateway. No bypass path.</text>
+</svg>
