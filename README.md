@@ -195,6 +195,147 @@ VITE_GATEWAY_WS_URL=ws://127.0.0.1:8787/v1/ws
 
 所有工具调用都会进入 `ToolCallExecutor`，经过 schema 校验、权限策略、安全画像、审计记录和结果截断。
 
+## 从 0 学做一个智能体
+
+这一节面向第一次学习 Agent 工程的读者。目标不是一次读完所有源码，而是按“能跑起来 -> 能理解一次请求 -> 能加一个工具 -> 能做记忆和 UI -> 能做多 Agent”的顺序，把这个项目当成一本可运行的教学指导书。
+
+源码里已经放了少量 `Learning note` 注释。阅读时可以在编辑器里搜索 `Learning note`，它们是主链路上的教学路标：每个注释都标在一个“应该停下来理解”的函数附近。
+
+### 学习路线图
+
+```mermaid
+flowchart TD
+  A[0. TypeScript and Node runtime] --> B[1. Run the mock Gateway]
+  B --> C[2. Understand runtime composition]
+  C --> D[3. Trace one chat request]
+  D --> E[4. Understand the model and tool loop]
+  E --> F[5. Add a safe tool]
+  F --> G[6. Add memory and retrieval]
+  G --> H[7. Add WebSocket visualization]
+  H --> I[8. Add multi-agent review]
+  I --> J[Build your own local Agent Gateway]
+```
+
+### 先学什么
+
+| 阶段 | 你要掌握的东西 | 在本项目里看哪里 | 学完能做什么 |
+| --- | --- | --- | --- |
+| 0 | TypeScript、Node.js、Promise、文件系统、进程执行 | [`package.json`](package.json), [`tsconfig.json`](tsconfig.json) | 看懂脚本、类型检查和项目入口。 |
+| 1 | 一个 CLI 程序如何启动 | [`apps/gateway/src/main.ts`](apps/gateway/src/main.ts) | 写出最小 REPL：读取输入并返回回答。 |
+| 2 | 依赖如何组装成运行时 | [`packages/gateway/runtime.ts`](packages/gateway/runtime.ts) | 理解配置、模型、工具、记忆、会话怎样接到一起。 |
+| 3 | 一次用户请求如何穿过系统 | [`packages/gateway/gateway.ts`](packages/gateway/gateway.ts) | 画出 request -> context -> model -> tool -> response 链路。 |
+| 4 | LLM 工具调用循环 | [`packages/gateway/agentRunner.ts`](packages/gateway/agentRunner.ts) | 理解模型为什么能“决定调用工具”。 |
+| 5 | 工具注册、校验和安全执行 | [`packages/gateway/builtinTools.ts`](packages/gateway/builtinTools.ts), [`packages/gateway/toolCallExecutor.ts`](packages/gateway/toolCallExecutor.ts) | 新增一个只读工具并写测试。 |
+| 6 | 上下文、记忆和检索 | [`packages/gateway/contextBuilder.ts`](packages/gateway/contextBuilder.ts), [`packages/memory/src/hybridSearch.ts`](packages/memory/src/hybridSearch.ts) | 让 Agent 记住历史信息并在回答前检索。 |
+| 7 | WebSocket 协议和可视化 | [`packages/gateway/ws/router.ts`](packages/gateway/ws/router.ts), [`packages/ws-client/src/gatewayClient.ts`](packages/ws-client/src/gatewayClient.ts), [`apps/web-ui/src/App.tsx`](apps/web-ui/src/App.tsx) | 把 CLI Agent 做成本地 Web 控制台。 |
+| 8 | 多 Agent 工作流 | [`packages/gateway/reviewGraph/graphRunner.ts`](packages/gateway/reviewGraph/graphRunner.ts), [`packages/gateway/reviewGraph/subAgentRunner.ts`](packages/gateway/reviewGraph/subAgentRunner.ts) | 做出“计划、实现、测试、审查”的自动协作流程。 |
+
+### 教学式源码导读
+
+```mermaid
+sequenceDiagram
+  participant CLI as main.ts / ws-main.ts
+  participant Runtime as runtime.ts
+  participant Gateway as gateway.ts
+  participant Context as contextBuilder.ts
+  participant Runner as agentRunner.ts
+  participant Model as ModelProvider
+  participant Tools as toolCallExecutor.ts
+  participant Memory as hybridSearch.ts
+
+  CLI->>Runtime: createGatewayRuntime()
+  Runtime->>Gateway: new Gateway(...)
+  Gateway->>Context: buildContext()
+  Context->>Memory: search relevant memory
+  Gateway->>Runner: run(request)
+  Runner->>Model: generate(messages)
+  Model-->>Runner: final JSON or tool call JSON
+  Runner->>Tools: execute(toolCall)
+  Tools-->>Runner: tool result
+  Runner->>Model: continue with evidence
+  Model-->>Gateway: final answer
+```
+
+重点阅读这些 `Learning note` 注释：
+
+| 注释位置 | 这段注释教什么 |
+| --- | --- |
+| [`packages/gateway/runtime.ts`](packages/gateway/runtime.ts) | Composition Root：配置、模型、记忆、工具、会话、MCP、指标如何被装配。 |
+| [`packages/gateway/gateway.ts`](packages/gateway/gateway.ts) | Request Orchestrator：一次请求进入 Gateway 后如何被守卫、委托和归一化。 |
+| [`packages/gateway/agentRunner.ts`](packages/gateway/agentRunner.ts) | LLM Control Loop：构建消息、调用模型、解析工具 JSON、执行工具、继续循环。 |
+| [`packages/gateway/contextBuilder.ts`](packages/gateway/contextBuilder.ts) | Layered Context：系统提示、项目模式、记忆和用户任务怎样组合成 prompt。 |
+| [`packages/gateway/toolCallExecutor.ts`](packages/gateway/toolCallExecutor.ts) | Tool Funnel：工具调用如何经过 schema、权限、沙箱和实际执行。 |
+| [`packages/gateway/ws/router.ts`](packages/gateway/ws/router.ts) | WS API Surface：新增 WebSocket 方法应该改哪些地方。 |
+| [`packages/memory/src/hybridSearch.ts`](packages/memory/src/hybridSearch.ts) | Hybrid Retrieval：全文检索和向量检索如何融合排序。 |
+
+### 从最小 Agent 开始复刻
+
+如果你想从空目录做一个简化版，可以按下面的里程碑复刻。每一步都先做最小可运行版本，再回到本项目看完整实现。
+
+```text
+step-01  CLI loop
+         read user input -> print model response
+
+step-02  model provider
+         define ModelProvider.generate(messages)
+
+step-03  structured output
+         require model to return { "type": "final", "text": "..." }
+
+step-04  first tool
+         add file.read with schema validation
+
+step-05  tool loop
+         model returns { "type": "tool_call", "name": "...", "input": {...} }
+
+step-06  safety layer
+         block path escape and dangerous shell commands
+
+step-07  memory
+         write notes, index notes, retrieve relevant snippets
+
+step-08  WebSocket UI
+         emit run.started, tool.started, chat.delta, run.finished
+
+step-09  multi-agent
+         split work into explore -> plan -> implement -> test -> review
+```
+
+### 动手练习
+
+| 练习 | 修改范围 | 验收方式 |
+| --- | --- | --- |
+| 写一个最小 REPL | 新建实验文件，参考 [`apps/gateway/src/main.ts`](apps/gateway/src/main.ts) | 输入一句话，终端能输出固定回答。 |
+| 接入 Mock Model | 参考 [`packages/model/mockProvider.ts`](packages/model/mockProvider.ts) | 不配置 API Key 也能跑通一次请求。 |
+| 新增只读工具 `repo.countFiles` | [`packages/gateway/tools/repoTools.ts`](packages/gateway/tools/repoTools.ts) 或新建工具文件，再注册到 [`packages/gateway/builtinTools.ts`](packages/gateway/builtinTools.ts) | `tool.list` 能看到工具，`tool.call` 能返回文件数量。 |
+| 给工具加安全策略 | [`packages/gateway/toolCallExecutor.ts`](packages/gateway/toolCallExecutor.ts), [`packages/gateway/permissionPolicy.ts`](packages/gateway/permissionPolicy.ts) | 越界路径被拒绝，并写入审计。 |
+| 给上下文加一层项目摘要 | [`packages/gateway/contextBuilder.ts`](packages/gateway/contextBuilder.ts) | 模型请求前能看到项目摘要消息。 |
+| 新增 WS 方法 `runtime.pingDetailed` | [`packages/gateway/ws/schemas.ts`](packages/gateway/ws/schemas.ts), [`packages/gateway/ws/router.ts`](packages/gateway/ws/router.ts) | WebSocket 调用返回模型名、时间和会话数。 |
+| 新增一个 ReviewGraph 节点 | [`packages/gateway/reviewGraph/graphRunner.ts`](packages/gateway/reviewGraph/graphRunner.ts) | 多 Agent 报告里出现新节点结果。 |
+
+### 推荐阅读顺序
+
+1. [`packages/gateway/runtime.ts`](packages/gateway/runtime.ts)：先看系统如何被组装。
+2. [`apps/gateway/src/main.ts`](apps/gateway/src/main.ts)：再看 REPL 如何调用运行时。
+3. [`packages/gateway/gateway.ts`](packages/gateway/gateway.ts)：理解请求总入口。
+4. [`packages/gateway/contextBuilder.ts`](packages/gateway/contextBuilder.ts)：理解 prompt 从哪里来。
+5. [`packages/gateway/agentRunner.ts`](packages/gateway/agentRunner.ts)：理解 Agent 循环。
+6. [`packages/gateway/toolCallExecutor.ts`](packages/gateway/toolCallExecutor.ts)：理解工具安全执行。
+7. [`packages/gateway/builtinTools.ts`](packages/gateway/builtinTools.ts)：理解工具如何注册。
+8. [`packages/gateway/ws/router.ts`](packages/gateway/ws/router.ts)：理解 UI 和 Gateway 如何通信。
+9. [`apps/web-ui/src/App.tsx`](apps/web-ui/src/App.tsx)：理解前端如何展示运行过程。
+10. [`packages/gateway/reviewGraph/graphRunner.ts`](packages/gateway/reviewGraph/graphRunner.ts)：最后看多 Agent 自动化。
+
+### 学习成果检查表
+
+- 能解释 `Gateway.handle()` 和 `AgentRunner.run()` 的职责边界。
+- 能说明为什么工具调用不能绕过 `ToolCallExecutor`。
+- 能新增一个工具，并补上 schema、权限策略和测试。
+- 能说清楚 prompt 由哪些层组成，哪些内容不应该直接塞进上下文。
+- 能解释 FTS、向量检索和 RRF 融合在记忆系统里的作用。
+- 能新增一个 WebSocket 方法，并让前端展示它的结果。
+- 能把一个复杂开发任务拆成 Explore、Plan、Implement、Test、Verify、Security、Reviewer。
+
 ## 架构模块
 
 ```text

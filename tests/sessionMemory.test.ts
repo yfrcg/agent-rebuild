@@ -46,8 +46,10 @@ function createTestProjectDir(workspace: string, name = "test-project"): string 
  * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
 function createSessionManager(workspace: string): SessionManager {
-  const snapshotPath = path.join(workspace, "sessions.json");
-  return new SessionManager(new SessionStore(snapshotPath), workspace);
+  const store = new SessionStore();
+  const manager = new SessionManager(store, workspace);
+  manager.createSession("Test Session");
+  return manager;
 }
 
 test("1. createSession initializes working-memory.json", () => {

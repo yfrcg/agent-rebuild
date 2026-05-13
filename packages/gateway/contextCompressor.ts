@@ -5,9 +5,43 @@ import * as path from "node:path";
 import type { ChatMessage } from "../model/types";
 import type { SessionMemoryPatch } from "./sessionMemoryManager";
 
-const CHARS_PER_TOKEN = 4;
+const CHARS_PER_TOKEN_LATIN = 4;
+const CHARS_PER_TOKEN_CJK = 1.5;
+const CHARS_PER_TOKEN_DEFAULT = 2.5;
 
-const BUDGET_UTILIZATION_THRESHOLD = 0.5;
+const CJK_RANGES = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFE30-\uFE4F\u2E80-\u2EFF\u3000-\u303F\uFF00-\uFFEF]/g;
+
+export function estimateTokensFromText(text: string): number {
+  const cjkCount = (text.match(CJK_RANGES) || []).length;
+  const nonCjkCount = text.length - cjkCount;
+  return Math.ceil(cjkCount / CHARS_PER_TOKEN_CJK + nonCjkCount / CHARS_PER_TOKEN_LATIN);
+}
+
+const TOOL_RESULT_AUTO_SUMMARIZE_THRESHOLD = 10240;
+const TOOL_RESULT_MAX_CHARS = 4096;
+
+export function autoSummarizeToolResult(content: string): { summarized: string; wasSummarized: boolean } {
+  if (content.length <= TOOL_RESULT_AUTO_SUMMARIZE_THRESHOLD) {
+    return { summarized: content, wasSummarized: false };
+  }
+
+  const lines = content.split("\n");
+  const head = lines.slice(0, 20).join("\n");
+  const tail = lines.slice(-10).join("\n");
+  const omitted = lines.length - 30;
+
+  const summarized = [
+    head,
+    "",
+    `[... ${omitted} lines omitted, total ${content.length} chars ...]`,
+    "",
+    tail,
+  ].join("\n").slice(0, TOOL_RESULT_MAX_CHARS);
+
+  return { summarized, wasSummarized: true };
+}
+
+const BUDGET_UTILIZATION_THRESHOLD = 0.6;
 const BUDGET_HIGH_UTILIZATION = 0.7;
 const BUDGET_DEFAULT_MAX_CHARS = 30_000;
 const BUDGET_HIGH_MAX_CHARS = 15_000;
@@ -17,7 +51,7 @@ const SNIP_PLACEHOLDER = "[Earlier tool result replaced to save context]";
 const SNIPPABLE_TOOL_NAMES = new Set(["file.read", "file.list", "memory.search", "memory.get"]);
 const KEEP_RECENT_RESULTS = 4;
 
-const MICROCOMPACT_IDLE_MS = 5 * 60 * 1_000;
+const MICROCOMPACT_IDLE_MS = 15 * 60 * 1_000;
 const MICROCOMPACT_KEEP_RECENT = 2;
 const MICROCOMPACT_CLEARED = "[Old tool result cleared]";
 
@@ -39,6 +73,7 @@ export interface CompressorStats {
   tier4Autocompact: boolean;
   totalCharsBefore: number;
   totalCharsAfter: number;
+  estimatedTokens: number;
 }
 
 interface TrackedToolResult {
@@ -59,7 +94,7 @@ export class ContextCompressor {
   /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(options: ContextCompressorOptions = {}) {
     this.maxContextTokens = options.maxContextTokens ?? 100_000;
-    this.maxContextChars = this.maxContextTokens * CHARS_PER_TOKEN;
+    this.maxContextChars = this.maxContextTokens * CHARS_PER_TOKEN_DEFAULT;
     this.toolResultDir = options.toolResultDir ?? path.resolve(process.cwd(), "logs", "tool-results");
   }
 
@@ -68,8 +103,10 @@ export class ContextCompressor {
    * `updateTokenEstimate` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
    * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
    */
-  updateTokenEstimate(estimatedTokens: number): void {
-    this.lastEstimatedTokens = estimatedTokens;
+  updateTokenEstimate(textOrTokens: number | string): void {
+    this.lastEstimatedTokens = typeof textOrTokens === "string"
+      ? estimateTokensFromText(textOrTokens)
+      : textOrTokens;
     this.lastApiCallTime = Date.now();
   }
 
@@ -95,6 +132,7 @@ export class ContextCompressor {
       tier4Autocompact: false,
       totalCharsBefore,
       totalCharsAfter,
+      estimatedTokens: this.lastEstimatedTokens,
     };
   }
 
@@ -142,7 +180,7 @@ export class ContextCompressor {
 
       messages.length = 0;
       messages.push(...compacted);
-      this.lastEstimatedTokens = this.estimateTokens(this.estimateTotalChars(messages));
+      this.lastEstimatedTokens = this.estimateTokensFromMessages(messages);
       return true;
     } catch {
       return false;
@@ -163,6 +201,7 @@ export class ContextCompressor {
     const filename = `${Date.now()}-${sanitizeFilename(toolName)}.txt`;
     const filepath = path.join(this.toolResultDir, filename);
     fs.writeFileSync(filepath, result);
+    this.cleanupPersistedResults();
 
     const lines = result.split("\n");
     const preview = lines.slice(0, LARGE_RESULT_PREVIEW_LINES).join("\n");
@@ -174,6 +213,29 @@ export class ContextCompressor {
       `Preview (first ${LARGE_RESULT_PREVIEW_LINES} lines):`,
       preview,
     ].join("\n");
+  }
+
+  private cleanupPersistedResults(): void {
+    const TTL_MS = 60 * 60 * 1000;
+    try {
+      if (!fs.existsSync(this.toolResultDir)) return;
+      const entries = fs.readdirSync(this.toolResultDir);
+      const now = Date.now();
+      for (const entry of entries) {
+        const match = entry.match(/^(\d+)-/);
+        if (!match) continue;
+        const timestamp = parseInt(match[1], 10);
+        if (now - timestamp > TTL_MS) {
+          try {
+            fs.unlinkSync(path.join(this.toolResultDir, entry));
+          } catch {
+            /* best-effort cleanup */
+          }
+        }
+      }
+    } catch {
+      /* cleanup should never break the main flow */
+    }
   }
 
   /**
@@ -359,13 +421,12 @@ export class ContextCompressor {
     return total;
   }
 
-  /**
-   * 方法 `estimateTokens` 的职责说明。
-   * `estimateTokens` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
-  private estimateTokens(chars: number): number {
-    return Math.ceil(chars / CHARS_PER_TOKEN);
+  private estimateTokensFromMessages(messages: ChatMessage[]): number {
+    let total = 0;
+    for (const msg of messages) {
+      total += estimateTokensFromText(msg.content) + 4; // 4 tokens overhead per message
+    }
+    return total;
   }
 
   /**

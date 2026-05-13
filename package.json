@@ -12,7 +12,7 @@
     "reindex": "tsx scripts/reindex.ts",
     "build": "tsc",
     "test": "tsx scripts/run-tests.ts",
-    "test:smoke": "node --import tsx --test tests/autoToolLoop.test.ts",
+    "test:smoke": "node --import tsx --test tests/devTaskLoop.test.ts",
     "backfill:embeddings": "tsx scripts/backfill-embeddings.ts",
     "scheduler": "tsx scripts/scheduler.ts",
     "gateway": "tsx apps/gateway/src/main.ts",

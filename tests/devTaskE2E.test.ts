@@ -6,10 +6,13 @@ import { existsSync, unlinkSync } from "node:fs";
 import {
   createRealApiGateway,
   bypassRequest,
+  shouldRunRealApiTests,
   WORKSPACE,
 } from "./helpers/realApiTestHelper";
 
-describe("E2E dev task closed loop (real DeepSeek API)", () => {
+const describeLive = shouldRunRealApiTests() ? describe : describe.skip;
+
+describeLive("E2E dev task closed loop (real MiniMax API)", () => {
   after(() => {
     try {
       const p = `${WORKSPACE}/tests/_e2e_broken_fixture.ts`;

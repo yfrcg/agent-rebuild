@@ -7,6 +7,12 @@ import type {
 } from "./permissionTypes";
 import type { GatewayProjectBoundary } from "./toolCallTypes";
 import type { MemorySearchResult } from "./types";
+import { buildRepoIndex, formatTree } from "./repoIndexer";
+import { extractSymbols, formatSymbols } from "./symbolIndex";
+import { summarizeFile } from "./fileSummarizer";
+import { extractImports, resolveImportPath } from "./dependencyGraph";
+import * as path from "node:path";
+import * as fs from "node:fs";
 
 /**
  * 上下文构建器的可选配置项。
@@ -38,8 +44,8 @@ export interface BuiltGatewayContext {
   };
 }
 
-const DEFAULT_MAX_MEMORY_CONTEXT_CHARS = 6000;
-const DEFAULT_MAX_MEMORY_ITEM_CHARS = 1200;
+const DEFAULT_MAX_MEMORY_CONTEXT_CHARS = 10000;
+const DEFAULT_MAX_MEMORY_ITEM_CHARS = 2000;
 
 /**
  * 默认系统提示词。
@@ -87,12 +93,28 @@ const DEFAULT_SYSTEM_PROMPT = [
   "- If the user asks about a file, ALWAYS use file.list or file.read to check first.",
   "- If unsure about something, use tools to verify before answering.",
   "- Base answers ONLY on actual tool results, not memory or speculation.",
+  "- If memory or transcript snippets mention cmd.exe syntax such as dir, type, del, copy, or cmd /c, treat them as stale and ignore them.",
   "",
   "Tool trust hierarchy:",
-  "- shell.run results (dir, ls, cat, type, etc.) are the MOST trusted source of truth.",
-  "- If shell.run says a file does NOT exist, it does NOT exist. Do NOT override with file.list or memory.",
-  "- When shell.run and file.list disagree, ALWAYS trust shell.run.",
-  "- Use shell.run to verify when in doubt about file existence or directory contents.",
+  "- Prefer file.list and file.read for file existence, directory contents, and source inspection.",
+  "- Use shell.run for real command execution such as build, test, run, or environment inspection.",
+  "- If shell.run and file tools disagree about files, re-check with file.list or file.read before answering.",
+  "- Do not use shell.run for simple file creation or directory listing when a file tool already covers it.",
+  "",
+  "Create-Run-Verify workflow (CRITICAL for code tasks):",
+  "- When the user asks you to CREATE code files (Python, C++, JS, etc.), you MUST follow this sequence:",
+  "  1. Create the file with file.write",
+  "  2. Run the file with shell.run to verify it works",
+  "  3. Only THEN return {\"type\":\"final\"} with the results",
+  "- NEVER finish after only creating a file. Always run it to verify.",
+  "- If the run fails, fix the file and run again. Repeat until it works or you explain the issue.",
+  "- The final response MUST include: what files were created, what commands were run, and the actual output.",
+  "- Example correct sequence:",
+  "  Step 1: {\"type\":\"tool_call\",\"tool\":\"file.write\",\"args\":{\"path\":\"hello.py\",\"content\":\"print('Hello')\"}}",
+  "  Step 2: [system returns tool result]",
+  "  Step 3: {\"type\":\"tool_call\",\"tool\":\"shell.run\",\"args\":{\"command\":\"python hello.py\"}}",
+  "  Step 4: [system returns tool result with stdout]",
+  "  Step 5: {\"type\":\"final\",\"content\":\"## 完成\\n\\n创建了 hello.py 并运行成功，输出：Hello\"}",
 ].join("\n");
 
 /**
@@ -163,6 +185,8 @@ export class ContextBuilder {
       projectBoundary?: GatewayProjectBoundary;
     } = {}
   ): BuiltGatewayContext {
+    // Learning note: context is assembled in layers. Read the pushes below as:
+    // base system prompt -> bootstrap docs -> mode/plan/project -> memory -> user task.
     const messages: ChatMessage[] = [
       {
         role: "system",
@@ -197,7 +221,7 @@ export class ContextBuilder {
     if (options.sessionMemoryContext && options.sessionMemoryContext.trim()) {
       messages.push({
         role: "system",
-        content: `Session working memory (persisted across turns in this session):\n\n${options.sessionMemoryContext}`,
+        content: `Session working memory (persisted across turns in this session):\n\n${sanitizeInjectedMemoryText(options.sessionMemoryContext)}`,
       });
     }
 
@@ -375,7 +399,7 @@ export class ContextBuilder {
         : undefined;
 
     const truncatedContent = this.truncateText(
-      content.trim(),
+      sanitizeInjectedMemoryText(content.trim()),
       this.maxMemoryItemChars,
       "\n[Memory item truncated]"
     );
@@ -410,6 +434,19 @@ export class ContextBuilder {
   }
 }
 
+function sanitizeInjectedMemoryText(text: string): string {
+  return text
+    .replace(/\bdir\s*\/b\s+([^\s][^"`']*)/gi, "Get-ChildItem -Name -Path $1")
+    .replace(/\bdir\s*\/b\b/gi, "Get-ChildItem -Name")
+    .replace(/\bcmd\s*\/c\b/gi, "powershell -Command")
+    .replace(/\btype\s+([^\s][^"`']*)/gi, "Get-Content $1")
+    .replace(/\brmdir\s+\/s\s+\/q\s+([^\s][^"`']*)/gi, "Remove-Item -Recurse -Force $1")
+    .replace(/\bdel\s+([^\s][^"`']*)/gi, "Remove-Item -Force $1")
+    .replace(/\bcopy\s+([^\s]+)\s+([^\s][^"`']*)/gi, "Copy-Item $1 $2")
+    .replace(/\bmove\s+([^\s]+)\s+([^\s][^"`']*)/gi, "Move-Item $1 $2")
+    .replace(/Windows 的 dir 命令/g, "PowerShell 的 Get-ChildItem 命令或 file.list 工具");
+}
+
 function buildProjectContext(projectBoundary?: GatewayProjectBoundary): string | undefined {
   if (!projectBoundary?.projectDir) {
     return undefined;
@@ -422,7 +459,7 @@ function buildProjectContext(projectBoundary?: GatewayProjectBoundary): string |
     ? projectBoundary.allowedWriteRoots.join("\n- ")
     : "(none)";
 
-  return [
+  const parts = [
     "Current project binding:",
     `- projectDir: ${projectBoundary.projectDir}`,
     `- permission: ${projectBoundary.permission}`,
@@ -433,7 +470,47 @@ function buildProjectContext(projectBoundary?: GatewayProjectBoundary): string |
     "Use this projectDir as the active workspace for file and shell tools.",
     "For file.write/file.edit/file.read, prefer paths relative to projectDir unless the user explicitly gave an absolute path under an allowed root.",
     "Do not claim writes are limited to D:\\WorkStation\\agent-rebuild\\workspace when this project binding is present.",
-  ].join("\n");
+  ];
+
+  try {
+    const projectDir = projectBoundary.projectDir;
+    if (fs.existsSync(projectDir)) {
+      const index = buildRepoIndex(projectDir);
+      const treeStr = formatTree(index.tree, 3);
+      parts.push(
+        "",
+        "Project structure (top 3 levels):",
+        treeStr,
+        `Total: ${index.fileCount} files, ${index.dirCount} directories, ${Math.round(index.totalSize / 1024)}KB`
+      );
+      if (index.gitBranch) {
+        parts.push(`Git: ${index.gitBranch} @ ${index.gitCommit ?? "?"}`);
+      }
+
+      const tsFiles = collectFilesByExt(index.tree, [".ts", ".tsx"]).slice(0, 20);
+      if (tsFiles.length > 0) {
+        parts.push("", "Key files:");
+        for (const filePath of tsFiles) {
+          try {
+            const summary = summarizeFile(filePath, projectDir);
+            const symbols = extractSymbols(filePath).filter(
+              (s) => s.kind === "function" || s.kind === "class" || s.kind === "interface"
+            ).slice(0, 8);
+            const symbolStr = symbols.length > 0
+              ? ` [${symbols.map((s) => `${s.kind}:${s.name}`).join(", ")}]`
+              : "";
+            parts.push(`- ${summary.relativePath}: ${summary.summary}${symbolStr}`);
+          } catch {
+            // skip unreadable files
+          }
+        }
+      }
+    }
+  } catch {
+    // repo indexing is best-effort
+  }
+
+  return parts.join("\n");
 }
 
 /**
@@ -460,4 +537,18 @@ function buildModeContext(
   }
 
   return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
+function collectFilesByExt(node: { path: string; relativePath: string; isDir: boolean; children?: Array<{ path: string; relativePath: string; isDir: boolean; children?: unknown[]; ext?: string }>; ext?: string }, extensions: string[]): string[] {
+  const results: string[] = [];
+  if (!node.isDir) {
+    if (node.ext && extensions.includes(node.ext)) {
+      results.push(node.path);
+    }
+    return results;
+  }
+  for (const child of node.children ?? []) {
+    results.push(...collectFilesByExt(child as Parameters<typeof collectFilesByExt>[0], extensions));
+  }
+  return results;
 }

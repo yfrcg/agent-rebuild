@@ -14,8 +14,8 @@ import type {
 } from "./toolCallTypes";
 import type { GatewayToolOutput, ToolResult } from "./toolTypes";
 
-const MAX_INLINE_RESULT_CHARS = 8_000;
-const EXECUTION_PREVIEW_CHARS = 2_000;
+const MAX_INLINE_RESULT_CHARS = 16_000;
+const EXECUTION_PREVIEW_CHARS = 4_000;
 
 export class ToolCallExecutor {
   private readonly registry: GatewayToolCallExecutorOptions["registry"];
@@ -46,7 +46,36 @@ export class ToolCallExecutor {
    * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
    */
   async execute(request: GatewayToolCallRequest): Promise<GatewayToolCallRecord> {
+    // Learning note: every tool call passes through this funnel. Follow the code
+    // from validation -> permission decision -> sandbox/path checks -> tool.execute().
     throwIfAborted(request.signal);
+
+    // Check dangerous commands on ORIGINAL input before translation (rm -rf → Remove-Item)
+    if (request.toolName === "shell.run" || request.toolName === "bash.run") {
+      const originalCommand = typeof request.input.command === "string" ? request.input.command.trim() : "";
+      if (originalCommand) {
+        const dangerousPattern = detectDangerousShellCommand(originalCommand);
+        if (dangerousPattern) {
+          const record: GatewayToolCallRecord = {
+            id: request.id,
+            toolName: request.toolName,
+            input: request.input,
+            status: "denied",
+            riskLevel: "dangerous",
+            toolCall: { id: request.id, name: request.toolName, args: request.input },
+            sessionId: request.sessionId,
+            requestId: request.requestId,
+            permissionMode: request.permissionMode,
+            planState: request.planState,
+            createdAt: request.createdAt,
+          };
+          this.denyRecord(record, `shell 命令包含危险操作（${dangerousPattern}），已拒绝。shell 只能在 projectDir 内执行安全操作。`);
+          await this.writeAudit(record);
+          return record;
+        }
+      }
+    }
+
     const normalizedInput = normalizeToolInput(
       request.toolName,
       request.input,

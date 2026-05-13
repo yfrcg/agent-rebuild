@@ -1,3 +1,4 @@
+import { getDb } from "../storage/src/db";
 
 export type CircuitState = "closed" | "open" | "half-open";
 
@@ -10,33 +11,75 @@ export interface CircuitCheckResult {
 export interface GatewayCircuitBreakerOptions {
   failureThreshold: number;
   cooldownMs: number;
+  breakerId?: string;
 }
 
-/**
- * 一个轻量级熔断器实现。
- *
- * 它的职责是保护 Gateway 不被持续失败的上游模型服务拖垮：
- * 当连续失败达到阈值时，直接短路后续请求；冷却时间过去后再放少量请求探测恢复情况。
- */
+let ensuredDb: unknown = null;
+
+function ensureTable(): void {
+  const db = getDb();
+  if (ensuredDb === db) return;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS circuit_breaker_state (
+      breaker_id TEXT PRIMARY KEY,
+      state TEXT NOT NULL DEFAULT 'closed',
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      opened_at INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  ensuredDb = db;
+}
+
+function loadState(breakerId: string): { state: CircuitState; consecutiveFailures: number; openedAt: number } | undefined {
+  const db = getDb();
+  const row = db.prepare(
+    `SELECT state, consecutive_failures, opened_at FROM circuit_breaker_state WHERE breaker_id = ?`
+  ).get(breakerId) as Record<string, unknown> | undefined;
+  if (!row) return undefined;
+  return {
+    state: (row.state as CircuitState) ?? "closed",
+    consecutiveFailures: (row.consecutive_failures as number) ?? 0,
+    openedAt: (row.opened_at as number) ?? 0,
+  };
+}
+
+function saveState(breakerId: string, state: CircuitState, consecutiveFailures: number, openedAt: number): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO circuit_breaker_state (breaker_id, state, consecutive_failures, opened_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(breaker_id) DO UPDATE SET
+       state = excluded.state,
+       consecutive_failures = excluded.consecutive_failures,
+       opened_at = excluded.opened_at,
+       updated_at = excluded.updated_at`
+  ).run(breakerId, state, consecutiveFailures, openedAt, new Date().toISOString());
+}
+
 export class GatewayCircuitBreaker {
   private state: CircuitState = "closed";
   private consecutiveFailures = 0;
   private openedAt = 0;
+  private readonly breakerId: string;
 
-  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
-  constructor(private readonly options: GatewayCircuitBreakerOptions) {}
+  constructor(private readonly options: GatewayCircuitBreakerOptions) {
+    this.breakerId = options.breakerId ?? "default";
+    ensureTable();
+    const persisted = loadState(this.breakerId);
+    if (persisted) {
+      this.state = persisted.state;
+      this.consecutiveFailures = persisted.consecutiveFailures;
+      this.openedAt = persisted.openedAt;
+    }
+  }
 
-  /**
-   * 在真正发请求之前判断当前是否允许通过。
-   *
-   * 如果熔断器处于 `open`，则根据冷却时间决定继续拒绝，
-   * 还是切换为 `half-open` 允许一次试探请求。
-   */
   beforeRequest(now = Date.now()): CircuitCheckResult {
     if (this.state === "open") {
       const elapsed = now - this.openedAt;
       if (elapsed >= this.options.cooldownMs) {
         this.state = "half-open";
+        this.persist();
         return {
           allowed: true,
           state: this.state,
@@ -58,23 +101,12 @@ export class GatewayCircuitBreaker {
     };
   }
 
-  /**
-   * 记录一次成功调用。
-   *
-   * 一旦上游请求成功，就说明当前链路恢复正常，
-   * 因此直接清空失败计数并关闭熔断状态。
-   */
   onSuccess(): void {
     this.consecutiveFailures = 0;
     this.state = "closed";
+    this.persist();
   }
 
-  /**
-   * 记录一次失败调用。
-   *
-   * 当连续失败次数达到阈值时，熔断器会立刻打开，
-   * 后续请求改走快速失败，避免继续堆压上游。
-   */
   onFailure(now = Date.now()): void {
     this.consecutiveFailures += 1;
 
@@ -82,16 +114,19 @@ export class GatewayCircuitBreaker {
       this.state = "open";
       this.openedAt = now;
     }
+    this.persist();
   }
 
-  /**
-   * 读取当前熔断状态。
-   *
-   * 这里复用了 `beforeRequest()` 的状态推进逻辑，
-   * 保证“读取状态”和“真正请求前检查”看到的是同一套结果。
-   */
   getState(now = Date.now()): CircuitState {
     const probe = this.beforeRequest(now);
     return probe.state;
+  }
+
+  private persist(): void {
+    try {
+      saveState(this.breakerId, this.state, this.consecutiveFailures, this.openedAt);
+    } catch {
+      /* persist failure should not break request flow */
+    }
   }
 }

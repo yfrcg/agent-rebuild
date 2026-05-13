@@ -945,6 +945,10 @@ h2 {
   align-items: start;
 }
 
+.message-bubble.assistant {
+  max-width: 80%;
+}
+
 .message-bubble.user {
   max-width: 88%;
   margin-left: auto;
@@ -1058,15 +1062,27 @@ h2 {
 }
 
 .tool-call-card {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   gap: 10px;
+  align-items: center;
   padding: 8px 12px;
   border: 1px solid var(--border-soft);
   border-left: 3px solid #6366f1;
   border-radius: 6px;
   background: rgba(99, 102, 241, 0.04);
   margin: 2px 0;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.tool-call-card:hover {
+  background: rgba(99, 102, 241, 0.07);
+}
+
+.tool-call-card.expanded {
+  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(99, 102, 241, 0.2);
 }
 
 .tool-call-card-icon {
@@ -1104,6 +1120,30 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 480px;
+}
+
+.tool-call-card-toggle {
+  font-size: 10px;
+  color: var(--muted);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.tool-call-card-details {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: #101828;
+  color: #e7edf7;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .process-block {
@@ -1319,7 +1359,7 @@ h2 {
 .overview-grid,
 .resource-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -1604,6 +1644,34 @@ label {
   line-height: 1;
   padding: 6px 8px;
   text-align: center;
+}
+
+.event-filter {
+  display: flex;
+  gap: 4px;
+}
+
+.event-filter button {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.event-filter button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.event-filter button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .event-summary {
@@ -2247,5 +2315,880 @@ label {
 
   .approval-card {
     padding: 10px;
+  }
+}
+
+/* ---- Markdown Renderer Styles ---- */
+
+.bubble-markdown {
+  margin-top: 5px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.bubble-markdown p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+
+.bubble-markdown p:first-child {
+  margin-top: 0;
+}
+
+.bubble-markdown .md-h1 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 16px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.bubble-markdown .md-h2 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 14px 0 6px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.bubble-markdown .md-h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 12px 0 4px;
+}
+
+.bubble-markdown .md-h4 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 10px 0 4px;
+}
+
+.bubble-markdown .md-inline-code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: rgba(99, 102, 241, 0.08);
+  color: #6366f1;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.bubble-markdown .md-code-block {
+  margin: 8px 0;
+  border-radius: var(--radius);
+  background: #101828;
+  color: #e7edf7;
+  padding: 12px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bubble-markdown .md-code-block code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+
+.bubble-markdown .md-table-wrapper {
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.bubble-markdown .md-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.bubble-markdown .md-table th,
+.bubble-markdown .md-table td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.bubble-markdown .md-table th {
+  background: var(--surface-soft);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.bubble-markdown .md-table tr:nth-child(even) td {
+  background: var(--surface-soft);
+}
+
+.bubble-markdown .md-blockquote {
+  margin: 8px 0;
+  padding: 8px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--text-soft);
+}
+
+.bubble-markdown .md-blockquote p {
+  margin: 2px 0;
+}
+
+.bubble-markdown .md-hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+
+.bubble-markdown .md-list {
+  margin: 4px 0;
+  padding-left: 22px;
+}
+
+.bubble-markdown .md-list li {
+  margin: 2px 0;
+  line-height: 1.6;
+}
+
+.bubble-markdown .md-list li::marker {
+  color: var(--muted);
+}
+
+.bubble-markdown a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.bubble-markdown a:hover {
+  text-decoration: underline;
+}
+
+.bubble-markdown strong {
+  font-weight: 700;
+}
+
+.bubble-markdown em {
+  font-style: italic;
+}
+
+.bubble-markdown img {
+  max-width: 100%;
+  border-radius: var(--radius);
+}
+
+.message-bubble.assistant .bubble-markdown {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.message-bubble.user .bubble-body .bubble-markdown {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* ---- Session Status Bar ---- */
+
+.session-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 28px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--surface-soft);
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.status-bar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.running {
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.status-dot.ready {
+  background: var(--success);
+}
+
+.status-dot.disconnected {
+  background: var(--muted);
+}
+
+@media (max-width: 860px) {
+  .session-status-bar {
+    padding: 6px 16px;
+    gap: 8px;
+  }
+
+  .message-bubble.assistant {
+    max-width: 100%;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   Visual Enhancement Layer — Rich Animations & Effects
+   ═══════════════════════════════════════════════════════ */
+
+/* --- New keyframes --- */
+
+@keyframes message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes typing-dot {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes subtle-glow {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 12px 0 rgba(239, 68, 68, 0.1); }
+}
+
+@keyframes ripple-expand {
+  from {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  to {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+@keyframes status-pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+@keyframes slide-down-expand {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    max-height: 500px;
+    transform: translateY(0);
+  }
+}
+
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer-wave {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes nav-indicator-slide {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+/* --- Chat message entrance --- */
+
+.message-bubble {
+  animation: message-enter 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.message-bubble:nth-child(1) { animation-delay: 0ms; }
+.message-bubble:nth-child(2) { animation-delay: 40ms; }
+.message-bubble:nth-child(3) { animation-delay: 80ms; }
+.message-bubble:nth-child(4) { animation-delay: 120ms; }
+.message-bubble:nth-child(5) { animation-delay: 160ms; }
+.message-bubble:nth-child(n+6) { animation-delay: 200ms; }
+
+/* --- Typing indicator (3 bouncing dots) --- */
+
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 18px;
+  background: var(--surface-soft);
+  border-radius: 18px;
+  border-bottom-left-radius: 4px;
+}
+
+.typing-indicator .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: typing-dot 1.4s ease-in-out infinite;
+}
+
+.typing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* --- Sidebar brand gradient animation --- */
+
+.rail-brand {
+  position: relative;
+  overflow: hidden;
+}
+
+.rail-brand::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg,
+    rgba(239, 68, 68, 0.06) 0%,
+    rgba(239, 68, 68, 0.02) 40%,
+    rgba(99, 102, 241, 0.04) 70%,
+    rgba(239, 68, 68, 0.06) 100%
+  );
+  background-size: 200% 200%;
+  animation: gradient-shift 8s ease infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.rail-brand > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- Sidebar nav hover indicator --- */
+
+.rail-nav-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.rail-nav-button::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.rail-nav-button.active::before {
+  transform: scaleY(1);
+}
+
+.rail-nav-button:hover::before {
+  transform: scaleY(0.5);
+  opacity: 0.5;
+}
+
+/* --- Enhanced card hover effects --- */
+
+.metric-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.metric-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  background: radial-gradient(circle at 50% 0%, rgba(239, 68, 68, 0.06), transparent 70%);
+  transition: opacity var(--transition-normal);
+  pointer-events: none;
+}
+
+.metric-card:hover::after {
+  opacity: 1;
+}
+
+.metric-card strong {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.tool-card,
+.data-card,
+.memory-card,
+.approval-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.tool-card::before,
+.data-card::before,
+.memory-card::before,
+.approval-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), rgba(99, 102, 241, 0.5));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tool-card:hover::before,
+.data-card:hover::before,
+.memory-card:hover::before,
+.approval-card:hover::before {
+  transform: scaleX(1);
+}
+
+/* --- Session item hover polish --- */
+
+.session-item {
+  position: relative;
+}
+
+.session-item::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.04), transparent);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.session-item:hover::after {
+  opacity: 1;
+}
+
+.session-item.active::after {
+  opacity: 1;
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.06), transparent);
+}
+
+.session-select,
+.session-actions {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- Composer focus glow --- */
+
+.composer textarea {
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.composer textarea:focus {
+  border-color: rgba(239, 68, 68, 0.4);
+  box-shadow:
+    0 0 0 3px rgba(239, 68, 68, 0.08),
+    inset 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+/* --- Send button pulse when has content --- */
+
+.composer-actions .btn-primary:not(:disabled) {
+  position: relative;
+  overflow: hidden;
+}
+
+.composer-actions .btn-primary:not(:disabled)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  animation: subtle-glow 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* --- Tool call card enhanced states --- */
+
+.tool-call-card:hover {
+  transform: translateX(2px);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+}
+
+.tool-call-card.expanded {
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.12);
+}
+
+/* Tool call status indicator animation */
+
+.tool-call-card .tool-call-spinner {
+  position: relative;
+}
+
+.tool-call-card .tool-call-spinner::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  animation: status-pulse-ring 1.5s ease-out infinite;
+}
+
+/* Tool call details expand animation */
+
+.tool-call-card-details {
+  animation: slide-down-expand 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* --- Event inspector polish --- */
+
+.event-row {
+  position: relative;
+}
+
+.event-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.event-row:hover::before {
+  background: var(--accent);
+}
+
+.event-kind {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Button press ripple effect --- */
+
+.btn-primary,
+.btn-secondary,
+.btn-danger,
+.new-chat-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary::before,
+.btn-secondary::before,
+.btn-danger::before,
+.new-chat-button::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  transition: none;
+  pointer-events: none;
+}
+
+.btn-primary:active::before,
+.btn-secondary:active::before,
+.btn-danger:active::before,
+.new-chat-button:active::before {
+  animation: ripple-expand 0.5s ease-out;
+}
+
+/* --- Toast notification polish --- */
+
+.toast-container {
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.toast.success {
+  border-left: 3px solid var(--success);
+}
+
+.toast.error {
+  border-left: 3px solid var(--danger);
+}
+
+.toast.info {
+  border-left: 3px solid #6366f1;
+}
+
+/* --- Thinking block polish --- */
+
+.thinking-block {
+  position: relative;
+  overflow: hidden;
+}
+
+.thinking-block::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, #6366f1, rgba(99, 102, 241, 0.3));
+  border-radius: 1px;
+}
+
+.thinking-toggle {
+  transition: color var(--transition-fast);
+}
+
+.thinking-toggle:hover {
+  color: var(--text);
+}
+
+/* --- Bubble body markdown link hover --- */
+
+.bubble-markdown a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--transition-fast);
+}
+
+.bubble-markdown a:hover {
+  border-bottom-color: var(--accent);
+}
+
+/* --- Code block copy button hover --- */
+
+.bubble-markdown pre {
+  position: relative;
+}
+
+/* --- Status bar enhancements --- */
+
+.session-status-bar {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.status-dot {
+  position: relative;
+}
+
+.status-dot.running::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: status-pulse-ring 1.5s ease-out infinite;
+}
+
+/* --- Smooth scroll for message stream --- */
+
+.message-stream {
+  scroll-behavior: smooth;
+  overscroll-behavior-y: contain;
+}
+
+/* --- Panel glass effect on scroll --- */
+
+.chat-toolbar {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* --- Tab button enhanced states --- */
+
+.tab-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.tab-button::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: var(--accent);
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateX(-50%);
+}
+
+.tab-button.active::after {
+  width: 100%;
+}
+
+.tab-button:hover::after {
+  width: 60%;
+  opacity: 0.5;
+}
+
+/* --- Search box focus enhancement --- */
+
+.search-box {
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.search-box:focus-within {
+  border-color: rgba(239, 68, 68, 0.3);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.06);
+}
+
+/* --- Approval card entrance --- */
+
+.approval-card {
+  animation: message-enter 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* --- Metric card icon bounce on hover --- */
+
+.metric-card > span:first-child {
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.metric-card:hover > span:first-child {
+  transform: scale(1.08);
+}
+
+/* --- Segmented control enhanced --- */
+
+.segmented button.active {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* --- Memory card source badge animation --- */
+
+.memory-card small {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Audit row expand animation --- */
+
+.audit-row + .result-box {
+  animation: slide-down-expand 0.2s ease both;
+}
+
+/* --- Confirm dialog backdrop blur --- */
+
+.confirm-overlay,
+.modal-backdrop {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* --- Empty state subtle animation --- */
+
+.empty-state {
+  animation: count-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* --- New chat button enhanced --- */
+
+.new-chat-button:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card);
+}
+
+/* --- Scrollbar styling override (thinner) --- */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+/* --- Selection color --- */
+
+::selection {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--text);
+}
+
+/* --- Focus-visible for keyboard nav --- */
+
+*:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* --- Reduced motion support --- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .message-bubble {
+    animation: none;
+    opacity: 1;
+  }
+
+  .approval-card {
+    animation: none;
+    opacity: 1;
+  }
+
+  .empty-state {
+    animation: none;
+    opacity: 1;
+  }
+
+  .rail-brand::before {
+    animation: none;
   }
 }

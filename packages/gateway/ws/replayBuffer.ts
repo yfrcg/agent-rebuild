@@ -1,91 +1,177 @@
-
+import { getDb } from "../../storage/src/db";
 import type { WsEvent } from "./protocol";
 
-/**
- * WebSocket 事件回放缓冲。
- *
- * 它同时按客户端和会话保存最近事件：客户端维度用于诊断或点对点补发，
- * 会话维度用于断线重连后根据 `lastSeq` 补发会话内事件。
- */
+export interface ReplayEntry {
+  seq: number;
+  sessionId: string;
+  event: string;
+  payload: string;
+  createdAt: string;
+}
+
+let ensuredDb: unknown = null;
+
+function ensureTable(): void {
+  const db = getDb();
+  if (ensuredDb === db) return;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS replay_buffer (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      seq INTEGER NOT NULL,
+      session_id TEXT NOT NULL,
+      event TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_replay_session_seq ON replay_buffer(session_id, seq);
+  `);
+  ensuredDb = db;
+}
+
+export function appendReplayEntry(entry: {
+  sessionId: string;
+  event: string;
+  payload: unknown;
+  createdAt: string;
+}): ReplayEntry {
+  ensureTable();
+  const db = getDb();
+  const maxSeq = db.prepare(
+    `SELECT COALESCE(MAX(seq), 0) as max_seq FROM replay_buffer WHERE session_id = ?`
+  ).get(entry.sessionId) as { max_seq: number };
+  const seq = maxSeq.max_seq + 1;
+
+  const payloadJson = entry.payload !== undefined ? JSON.stringify(entry.payload) : "{}";
+  db.prepare(
+    `INSERT INTO replay_buffer (seq, session_id, event, payload_json, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(seq, entry.sessionId, entry.event, payloadJson, entry.createdAt);
+
+  return {
+    seq,
+    sessionId: entry.sessionId,
+    event: entry.event,
+    payload: payloadJson,
+    createdAt: entry.createdAt,
+  };
+}
+
+export function getReplayEntries(sessionId: string, afterSeq = 0): ReplayEntry[] {
+  ensureTable();
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT seq, session_id, event, payload_json, created_at
+     FROM replay_buffer
+     WHERE session_id = ? AND seq > ?
+     ORDER BY seq ASC`
+  ).all(sessionId, afterSeq) as Array<Record<string, unknown>>;
+
+  return rows.map((row) => ({
+    seq: row.seq as number,
+    sessionId: row.session_id as string,
+    event: row.event as string,
+    payload: row.payload_json as string,
+    createdAt: row.created_at as string,
+  }));
+}
+
+export function getSessionReplaySize(sessionId: string): number {
+  ensureTable();
+  const db = getDb();
+  const row = db.prepare(
+    `SELECT COUNT(*) as count FROM replay_buffer WHERE session_id = ?`
+  ).get(sessionId) as { count: number };
+  return row.count;
+}
+
+export function pruneReplayBuffer(maxEntriesPerSession: number): number {
+  ensureTable();
+  const db = getDb();
+  const sessions = db.prepare(
+    `SELECT DISTINCT session_id FROM replay_buffer`
+  ).all() as Array<{ session_id: string }>;
+
+  let pruned = 0;
+  for (const { session_id } of sessions) {
+    const result = db.prepare(
+      `DELETE FROM replay_buffer WHERE session_id = ? AND id NOT IN (
+        SELECT id FROM replay_buffer WHERE session_id = ? ORDER BY seq DESC LIMIT ?
+      )`
+    ).run(session_id, session_id, maxEntriesPerSession);
+    pruned += result.changes;
+  }
+  return pruned;
+}
+
+export function clearSessionReplay(sessionId: string): void {
+  ensureTable();
+  const db = getDb();
+  db.prepare(`DELETE FROM replay_buffer WHERE session_id = ?`).run(sessionId);
+}
+
+export function clearAllReplay(): void {
+  ensureTable();
+  const db = getDb();
+  db.prepare(`DELETE FROM replay_buffer`).run();
+}
+
 export class ReplayBuffer {
   private readonly maxEvents: number;
-  private readonly eventsByClient = new Map<string, WsEvent[]>();
-  private readonly eventsBySession = new Map<string, WsEvent[]>();
-  private nextGlobalSeq = 1;
+  private readonly clientBuffers = new Map<string, WsEvent[]>();
 
-  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
-  constructor(options?: { maxEvents?: number }) {
-    this.maxEvents = options?.maxEvents ?? 200;
+  constructor(options: { maxEvents?: number } = {}) {
+    this.maxEvents = options.maxEvents ?? 1000;
+    ensureTable();
   }
 
-  /** 同时写入客户端和会话缓冲，适合已经带完整序号的事件。 */
-  append(clientId: string, event: WsEvent): void {
-    this.appendClient(clientId, event);
-    if (event.sessionId) {
-      this.appendSession(event.sessionId, event);
-    }
+  appendSessionEvent(event: Omit<WsEvent, "seq">): WsEvent {
+    const entry = appendReplayEntry({
+      sessionId: event.sessionId ?? "",
+      event: event.event,
+      payload: event.payload,
+      createdAt: event.createdAt,
+    });
+
+    return { ...event, seq: entry.seq };
   }
 
-  /**
-   * 为会话事件补齐全局递增序号并写入会话缓冲。
-   *
-   * 全局序号能让不同客户端看到一致的事件顺序，
-   * 也避免每个连接单独编号造成恢复语义不一致。
-   */
-  appendSessionEvent(event: Omit<WsEvent, "seq"> & { seq?: number }): WsEvent {
-    const fullEvent: WsEvent = {
-      ...event,
-      type: "event",
-      seq: event.seq ?? this.nextGlobalSeq,
-    };
-    this.nextGlobalSeq = Math.max(this.nextGlobalSeq, fullEvent.seq + 1);
-    if (fullEvent.sessionId) {
-      this.appendSession(fullEvent.sessionId, fullEvent);
-    }
-    return fullEvent;
-  }
-
-  /** 读取某个会话在指定序号之后的所有可回放事件。 */
-  getSessionSince(sessionId: string, lastSeq: number): WsEvent[] {
-    return (this.eventsBySession.get(sessionId) ?? []).filter(
-      (event) => event.seq > lastSeq
-    );
-  }
-
-  /** 判断服务端是否仍保存该会话的回放历史。 */
-  hasSessionHistory(sessionId: string): boolean {
-    return this.eventsBySession.has(sessionId);
-  }
-
-  /** 写入客户端维度缓冲，并按最大容量裁掉最旧事件。 */
   appendClient(clientId: string, event: WsEvent): void {
-    const events = this.eventsByClient.get(clientId) ?? [];
-    events.push(event);
-    if (events.length > this.maxEvents) {
-      events.splice(0, events.length - this.maxEvents);
+    let buffer = this.clientBuffers.get(clientId);
+    if (!buffer) {
+      buffer = [];
+      this.clientBuffers.set(clientId, buffer);
     }
-    this.eventsByClient.set(clientId, events);
-  }
-
-  /** 写入会话维度缓冲，并按最大容量裁掉最旧事件。 */
-  private appendSession(sessionId: string, event: WsEvent): void {
-    const events = this.eventsBySession.get(sessionId) ?? [];
-    events.push(event);
-    if (events.length > this.maxEvents) {
-      events.splice(0, events.length - this.maxEvents);
+    buffer.push(event);
+    while (buffer.length > this.maxEvents) {
+      buffer.shift();
     }
-    this.eventsBySession.set(sessionId, events);
   }
 
-  /** 读取某个客户端在指定序号之后的事件。 */
-  getSince(clientId: string, lastSeq: number): WsEvent[] {
-    return (this.eventsByClient.get(clientId) ?? []).filter(
-      (event) => event.seq > lastSeq
-    );
+  hasSessionHistory(sessionId: string): boolean {
+    return getSessionReplaySize(sessionId) > 0;
   }
 
-  /** 客户端断开后清理它的点对点缓冲。 */
+  getSessionSince(sessionId: string, lastSeq: number): WsEvent[] {
+    const entries = getReplayEntries(sessionId, lastSeq);
+    return entries.map((entry) => {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(entry.payload);
+      } catch {
+        payload = entry.payload;
+      }
+      return {
+        type: "event" as const,
+        seq: entry.seq,
+        event: entry.event as WsEvent["event"],
+        sessionId: entry.sessionId,
+        payload,
+        createdAt: entry.createdAt,
+      };
+    });
+  }
+
   clear(clientId: string): void {
-    this.eventsByClient.delete(clientId);
+    this.clientBuffers.delete(clientId);
   }
 }

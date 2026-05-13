@@ -2,21 +2,29 @@
 import type { ChatMessage } from "../core/src/types";
 export type { ChatMessage } from "../core/src/types";
 
-/**
- * 模型调用的统一返回结构。
- *
- * `text` 是业务层真正关心的文本结果，
- * `raw` 则用于调试、审计或保留供应商原始返回体。
- */
+export interface ModelUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 export interface ModelResponse {
   text: string;
   raw?: unknown;
+  usage?: ModelUsage;
+}
+
+export interface ModelToolDefinition {
+  name: string;
+  description: string;
+  parameters?: Record<string, unknown>;
 }
 
 export interface ModelGenerateOptions {
   signal?: AbortSignal;
   onDelta?: (delta: string) => void | Promise<void>;
   responseFormat?: { type: "json_object" | "text" };
+  tools?: ModelToolDefinition[];
 }
 
 /**

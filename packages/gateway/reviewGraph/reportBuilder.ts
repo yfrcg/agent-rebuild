@@ -1,6 +1,7 @@
 
 import type {
   AgentChainEntry,
+  AgentResult,
   AgentReviewReport,
   FinalStatus,
   ReviewGraphState,
@@ -11,8 +12,17 @@ import type {
  * `buildAgentChain` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
  * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
-function buildAgentChain(state: ReviewGraphState): AgentChainEntry[] {
+function buildAgentChain(state: ReviewGraphState, results?: AgentResult[]): AgentChainEntry[] {
   const chain: AgentChainEntry[] = [];
+
+  const durationByNode = new Map<string, number>();
+  if (results) {
+    for (const r of results) {
+      if (r.durationMs > 0) {
+        durationByNode.set(r.node, r.durationMs);
+      }
+    }
+  }
 
   const nodes = [
     { node: "explore" as const, result: state.explore },
@@ -30,7 +40,7 @@ function buildAgentChain(state: ReviewGraphState): AgentChainEntry[] {
         node,
         agentName: node.charAt(0).toUpperCase() + node.slice(1),
         status: "ok",
-        durationMs: 0,
+        durationMs: durationByNode.get(node) ?? 0,
         summary: result.summary ?? "",
       });
     }
@@ -120,7 +130,7 @@ function getSuggestions(state: ReviewGraphState): string[] {
  * `buildReport` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
  * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
-export function buildReport(state: ReviewGraphState): AgentReviewReport {
+export function buildReport(state: ReviewGraphState, results?: AgentResult[]): AgentReviewReport {
   const totalDurationMs = state.endTime
     ? state.endTime - state.startTime
     : Date.now() - state.startTime;
@@ -129,7 +139,7 @@ export function buildReport(state: ReviewGraphState): AgentReviewReport {
     runId: state.runId,
     userGoal: state.userGoal,
     taskType: state.taskType,
-    agentChain: buildAgentChain(state),
+    agentChain: buildAgentChain(state, results),
     changedFiles: getChangedFiles(state),
     testResult: state.test ?? {
       overallPassed: false,

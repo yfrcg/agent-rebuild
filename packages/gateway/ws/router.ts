@@ -5,6 +5,7 @@ import { readTranscript } from "../../session/src/transcript";
 import { discoverSkills, getSkillByName } from "../../core/src/skills";
 import { recordTranscript } from "../transcriptRecorder";
 import { readAuditTail } from "./auditTail";
+import { getSessionUsage, getSessionRecords } from "../../storage/src/usageStore";
 import { createGatewayRequest } from "../requestHandler";
 import { extractProjectBoundary, type GatewaySession } from "../sessionTypes";
 import { createGatewayToolCallRequest } from "../toolCallFactory";
@@ -28,6 +29,11 @@ import {
 } from "./protocol";
 import type { RunManager } from "./runManager";
 import { validateWsRequestParams } from "./schemas";
+import {
+  extractStructuredJsonRanges,
+  extractMeaningfulContent,
+  tryParseStructuredPayload,
+} from "../textSanitizer";
 
 /**
  * WS 路由处理所需的共享上下文。
@@ -58,6 +64,8 @@ export async function handleWsRequest(
   request: WsRequest,
   context: WsRouterContext
 ): Promise<WsResponse | void> {
+  // Learning note: this switch is the WebSocket API surface. Add a new WS method
+  // by validating params in schemas.ts, routing here, then testing router behavior.
   context.connections.markSeen(client.clientId);
   const schema = validateWsRequestParams(request);
   if (!schema.ok) {
@@ -83,6 +91,10 @@ export async function handleWsRequest(
       return handleSessionRename(client, request, context);
     case "session.delete":
       return handleSessionDelete(request, context);
+    case "session.purge":
+      return handleSessionPurge(request, context);
+    case "session.usage":
+      return handleSessionUsage(request);
     case "session.bindProject":
       return handleSessionBindProject(request, context);
     case "session.getTranscript":
@@ -319,6 +331,25 @@ function handleSessionDelete(request: WsRequest, context: WsRouterContext): WsRe
     payload: { deleted: true },
   });
   return ok(request.id, { deleted: true, sessionId });
+}
+
+function handleSessionPurge(request: WsRequest, context: WsRouterContext): WsResponse {
+  const params = asRecord(request.params);
+  const keepRecent = typeof params?.keepRecent === "number" ? params.keepRecent : 10;
+  const olderThanDays = typeof params?.olderThanDays === "number" ? params.olderThanDays : 30;
+  const result = context.runtime.sessionManager.purgeSessions({ keepRecent, olderThanDays });
+  return ok(request.id, result);
+}
+
+function handleSessionUsage(request: WsRequest): WsResponse {
+  const params = asRecord(request.params);
+  const sessionId = typeof params?.sessionId === "string" ? params.sessionId : undefined;
+  if (!sessionId) {
+    return fail(request.id, "BAD_REQUEST", "sessionId is required.");
+  }
+  const summary = getSessionUsage(sessionId);
+  const records = getSessionRecords(sessionId, 20);
+  return ok(request.id, { summary, records });
 }
 
 /**
@@ -570,10 +601,42 @@ async function executeChatRun(
       },
     });
 
+    // Buffer delta text to suppress raw JSON from being sent to the client.
+    // When the model streams a tool_call or final JSON, we accumulate it here
+    // and only forward non-JSON text deltas.
+    let deltaBuffer = "";
+    let jsonDetected = false;
+
     const response = await context.runtime.gateway.handle(gatewayRequest, {
       signal: run.abortController.signal,
       onEvent: async (event) => {
         if (event.type === "chat.delta") {
+          deltaBuffer += event.delta;
+
+          if (jsonDetected) {
+            // Already detected JSON in the buffer — suppress all subsequent deltas
+            return;
+          }
+
+          // Check if the buffer contains a JSON structure
+          const jsonStart = deltaBuffer.indexOf('{"');
+          if (jsonStart >= 0 && (deltaBuffer.includes('"type"') || deltaBuffer.includes('"tool"'))) {
+            jsonDetected = true;
+            // If there's plain text before the JSON, forward just that part
+            const textPrefix = deltaBuffer.slice(0, jsonStart).trim();
+            if (textPrefix) {
+              context.connections.broadcastToSession(run.sessionId, {
+                type: "event",
+                event: "chat.delta",
+                runId,
+                sessionId: run.sessionId,
+                payload: { delta: textPrefix, text: textPrefix },
+              });
+            }
+            return;
+          }
+
+          // No JSON detected yet — forward the delta
           context.connections.broadcastToSession(run.sessionId, {
             type: "event",
             event: "chat.delta",
@@ -582,6 +645,9 @@ async function executeChatRun(
             payload: { delta: event.delta, text: event.delta },
           });
         } else if (event.type === "tool.started") {
+          // Tool call JSON was complete — clear the buffer
+          deltaBuffer = "";
+          jsonDetected = false;
           context.connections.broadcastToSession(run.sessionId, {
             type: "event",
             event: "tool.started",
@@ -602,6 +668,7 @@ async function executeChatRun(
     });
 
     const responseText = normalizeAssistantResponseText(response.text);
+    try { const fs = require("node:fs"); fs.mkdirSync("logs", { recursive: true }); fs.appendFileSync("logs/model-debug.log", `[COMPLETED] response.text.len=${response.text.length} responseText.len=${responseText.length}\n[COMPLETED] responseText=${JSON.stringify(responseText).slice(0, 500)}\n`); } catch {}
     recordSessionMessage(context, run.sessionId, "assistant", responseText);
     context.connections.broadcastToSession(run.sessionId, {
       type: "event",
@@ -1017,7 +1084,19 @@ function recordSessionMessage(
 function normalizeAssistantResponseText(raw: string): string {
   const cleaned = raw.trim().replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   if (!cleaned) {
+    try { const fs = require("node:fs"); fs.mkdirSync("logs", { recursive: true }); fs.appendFileSync("logs/model-debug.log", `[NORMALIZE] empty after think strip, raw.len=${raw.length}\n`); } catch {}
     return raw.trim();
+  }
+
+  if (cleaned.startsWith("{") && cleaned.endsWith("}")) {
+    const parsed = tryParseStructuredPayload(cleaned);
+    if (parsed && parsed.type !== "tool_call") {
+      const content = extractMeaningfulContent(parsed);
+      if (content) {
+        try { const fs = require("node:fs"); fs.appendFileSync("logs/model-debug.log", `[NORMALIZE] JSON path → content.len=${content.length}\n`); } catch {}
+        return content;
+      }
+    }
   }
 
   const structured = extractStructuredJsonRanges(cleaned)
@@ -1029,11 +1108,19 @@ function normalizeAssistantResponseText(raw: string): string {
     .reverse()
     .find((entry) => entry.parsed?.type === "final" && typeof entry.parsed.content === "string" && entry.parsed.content.trim() !== "");
   if (finalPayload?.parsed && typeof finalPayload.parsed.content === "string") {
+    try { const fs = require("node:fs"); fs.appendFileSync("logs/model-debug.log", `[NORMALIZE] finalPayload path → content.len=${finalPayload.parsed.content.trim().length}\n`); } catch {}
     return finalPayload.parsed.content.trim();
   }
 
   let text = cleaned;
   for (const entry of [...structured].reverse()) {
+    if (entry.parsed) {
+      const content = extractMeaningfulContent(entry.parsed);
+      if (content && !entry.parsed.type) {
+        try { const fs = require("node:fs"); fs.appendFileSync("logs/model-debug.log", `[NORMALIZE] meaningfulContent path → content.len=${content.length}\n`); } catch {}
+        return content;
+      }
+    }
     if (entry.parsed?.type === "tool_call" || entry.parsed?.type === "final") {
       text = text.slice(0, entry.start) + text.slice(entry.end);
     }
@@ -1046,68 +1133,8 @@ function normalizeAssistantResponseText(raw: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
+  try { const fs = require("node:fs"); fs.appendFileSync("logs/model-debug.log", `[NORMALIZE] fallback path → text.len=${text.length}\n`); } catch {}
   return text;
-}
-
-function extractStructuredJsonRanges(raw: string): Array<{ json: string; start: number; end: number }> {
-  const results: Array<{ json: string; start: number; end: number }> = [];
-  let start = -1;
-  let depth = 0;
-  let inString = false;
-  let escapeNext = false;
-
-  for (let index = 0; index < raw.length; index += 1) {
-    const char = raw[index];
-
-    if (escapeNext) {
-      escapeNext = false;
-      continue;
-    }
-
-    if (char === "\\" && inString) {
-      escapeNext = true;
-      continue;
-    }
-
-    if (char === "\"") {
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) {
-      continue;
-    }
-
-    if (char === "{") {
-      if (depth === 0) {
-        start = index;
-      }
-      depth += 1;
-      continue;
-    }
-
-    if (char === "}" && depth > 0) {
-      depth -= 1;
-      if (depth === 0 && start >= 0) {
-        results.push({
-          json: raw.slice(start, index + 1),
-          start,
-          end: index + 1,
-        });
-        start = -1;
-      }
-    }
-  }
-
-  return results;
-}
-
-function tryParseStructuredPayload(raw: string): Record<string, unknown> | undefined {
-  try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
 }
 
 function findSession(runtime: GatewayRuntime, sessionId: string) {

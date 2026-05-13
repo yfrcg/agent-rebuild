@@ -14,6 +14,14 @@ export function createWebFetchTool(): GatewayTool[] {
 const BLOCKED_PROTOCOLS = new Set(["file:", "ftp:", "data:", "javascript:", "vbscript:"]);
 const MAX_BODY_CHARS = 20000;
 
+function isInternalHostname(hostname: string): boolean {
+  if (!hostname) return false;
+  const h = hostname.toLowerCase();
+  if (h === "localhost" || h === "[::1]" || h === "0.0.0.0") return true;
+  if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|169\.254\.)/.test(h)) return true;
+  return false;
+}
+
 /**
  * 函数 `createWebFetch` 的职责说明。
  * `createWebFetch` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
@@ -82,6 +90,10 @@ function createWebFetch(): GatewayTool {
 
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
         return { ok: false, error: `Unsupported protocol: ${parsed.protocol}` };
+      }
+
+      if (isInternalHostname(parsed.hostname)) {
+        return { ok: false, error: "禁止访问内网地址。", status: 403 };
       }
 
       const maxChars = clampNumber(input.maxChars, 15000, 1000, 50000);

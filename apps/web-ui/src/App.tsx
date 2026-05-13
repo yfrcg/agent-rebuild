@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GatewayError } from "@ws-client/types";
+import { MarkdownRenderer } from "./components/MarkdownRenderer";
 import { GatewayProvider, useGateway } from "./providers/GatewayProvider";
 import { useApprovalStore, type ApprovalEntry } from "./stores/approvalStore";
 import { useConnectionStore } from "./stores/connectionStore";
@@ -108,7 +109,7 @@ let toastIdCounter = 0;
 
 function ConsoleApp() {
   const [activePage, setActivePage] = useState<PageId>("chat");
-  const [eventsOpen, setEventsOpen] = useState(false);
+  const [eventsOpen, setEventsOpen] = useState(true);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [pageKey, setPageKey] = useState(0);
   const sessions = useSessionStore((s) => s.sessions);
@@ -531,7 +532,7 @@ function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: 
   const [playbackActive, setPlaybackActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
-  const [activeToolCalls, setActiveToolCalls] = useState<ToolCallActivityItem[]>([]);
+  const [sessionUsage, setSessionUsage] = useState<{ totalTokens: number; totalCostCents: number; totalPromptTokens: number; totalCompletionTokens: number; requestCount: number } | null>(null);
   const lastFinalRef = useRef("");
   const sawDeltaRef = useRef(false);
   const streamEndRef = useRef<HTMLDivElement | null>(null);
@@ -540,60 +541,6 @@ function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: 
   const isRunning = phase === "starting" || phase === "running" || phase === "streaming";
   const ready = connectionState === "ready" && Boolean(currentSessionId);
   const liveText = isRunning ? cleanAgentText(deltaBuffer) : playbackActive ? playbackText : "";
-
-  const runEvents = useMemo(() => {
-    return events
-      .filter((event) => event.sessionId === currentSessionId)
-      .filter((event) => !runId || !event.runId || event.runId === runId)
-      .slice(0, 80)
-      .reverse();
-  }, [events, currentSessionId, runId]);
-
-  const prevRunIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (runId !== prevRunIdRef.current) {
-      prevRunIdRef.current = runId;
-      if (isRunning) {
-        setActiveToolCalls([]);
-      }
-    }
-    const toolEvents = [...runEvents]
-      .reverse()
-      .filter((event) => event.event.startsWith("tool."));
-    if (toolEvents.length === 0 && !isRunning) return;
-    const calls = new Map<string, ToolCallActivityItem>();
-    for (const ev of toolEvents) {
-      const payload = ev.payload as Record<string, unknown> | undefined;
-      const name = (payload?.toolName ?? payload?.tool ?? "unknown") as string;
-      const callId = String(payload?.toolCallId ?? payload?.id ?? `${name}-${ev.seq}`);
-      if (ev.event === "tool.started") {
-        calls.set(callId, {
-          id: callId,
-          tool: name,
-          status: "running",
-          detail: summarizeToolInput(payload?.inputPreview ?? payload?.input),
-        });
-      } else if (ev.event === "tool.finished") {
-        const previous = calls.get(callId);
-        calls.set(callId, {
-          id: callId,
-          tool: previous?.tool ?? name,
-          status: "done",
-          detail: formatToolCompletion(payload?.durationMs),
-        });
-      } else if (ev.event === "tool.failed") {
-        const msg = (payload?.error ?? payload?.message ?? "failed") as string;
-        const previous = calls.get(callId);
-        calls.set(callId, {
-          id: callId,
-          tool: previous?.tool ?? name,
-          status: "failed",
-          detail: msg,
-        });
-      }
-    }
-    setActiveToolCalls(Array.from(calls.values()).slice(-4));
-  }, [runEvents, isRunning, runId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -637,6 +584,20 @@ function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: 
   }, [client, connectionState]);
 
   useEffect(() => {
+    if (!currentSessionId || connectionState !== "ready") return;
+    let cancelled = false;
+    client.sessionUsage(currentSessionId)
+      .then((payload) => {
+        if (!cancelled) {
+          const summary = (payload as Record<string, unknown>).summary as { totalTokens: number; totalCostCents: number; totalPromptTokens: number; totalCompletionTokens: number; requestCount: number } | undefined;
+          if (summary) setSessionUsage(summary);
+        }
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [client, currentSessionId, connectionState, phase]);
+
+  useEffect(() => {
     if (deltaBuffer.trim()) sawDeltaRef.current = true;
   }, [deltaBuffer]);
 
@@ -673,7 +634,7 @@ function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: 
 
   useEffect(() => {
     streamEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [messages.length, liveText, runEvents.length, phase]);
+  }, [messages.length, liveText, phase]);
 
   const send = async () => {
     const text = input.trim();
@@ -719,7 +680,7 @@ function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: 
   const changeModelProvider = async (model: string) => {
     try {
       const result = await client.runtimeUpdateConfig({
-        model: model as "mock" | "deepseek" | "tokenplan" | "minimax",
+        model: model as "mock" | "tokenplan" | "minimax",
       });
       setRuntime((prev) => ({ ...prev, ...result }));
       addToast(`模型供应商已切换为 ${labelForModel(model, runtime?.availableModels)}`, "success");
@@ -739,7 +700,7 @@ function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: 
               <label className="topline-item provider-select">
                 <span>模型</span>
                 <select
-                  value={String(runtime?.model ?? runtime?.modelProvider ?? "deepseek")}
+                  value={String(runtime?.model ?? runtime?.modelProvider ?? "tokenplan")}
                   disabled={!runtime || isRunning}
                   onChange={(e) => changeModelProvider(e.target.value)}
                 >
@@ -772,6 +733,14 @@ function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: 
               </label>
               <span className="topline-sep" />
               <span className="topline-item">工作目录 {current?.projectDir ? shortPath(current.projectDir) : "未绑定"}</span>
+              {sessionUsage && sessionUsage.totalTokens > 0 && (
+                <>
+                  <span className="topline-sep" />
+                  <span className="topline-item" title={`输入 ${sessionUsage.totalPromptTokens?.toLocaleString() ?? 0} / 输出 ${sessionUsage.totalCompletionTokens?.toLocaleString() ?? 0}`}>
+                    Token {sessionUsage.totalTokens.toLocaleString()} · ${(sessionUsage.totalCostCents / 100).toFixed(2)}
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <div className="toolbar-meta">
@@ -798,26 +767,25 @@ function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: 
               </div>
             </>
           )}
-          {messages.length === 0 && !liveText && runEvents.length === 0 && !transcriptLoading && (
+          {messages.length === 0 && !liveText && !transcriptLoading && (
             <EmptyState
               icon="message"
               title="开始一次任务"
-              text={ready ? "输入任务后，这里会同步展示模型输出、运行过程和工具调用。" : "先确认 Gateway 已连接，并选择一个会话。"}
+              text={ready ? "输入任务后，右侧事件面板会同步展示工具调用过程。" : "先确认 Gateway 已连接，并选择一个会话。"}
             />
           )}
           {messages.map((message, index) => (
             <MessageBubble key={`${message.role}-${index}`} role={message.role} text={message.text} />
           ))}
-          {(isRunning || runEvents.length > 0) && (
-            <ProcessTimeline
-              events={runEvents}
-              phase={phase}
-              runtime={runtime}
-              liveTextAvailable={Boolean(liveText)}
-            />
-          )}
-          {activeToolCalls.length > 0 && (
-            <ToolCallActivity calls={activeToolCalls} running={isRunning} />
+          {isRunning && !liveText && (
+            <div className="message-bubble assistant">
+              <div className="bubble-avatar">A</div>
+              <div className="typing-indicator">
+                <span className="dot" />
+                <span className="dot" />
+                <span className="dot" />
+              </div>
+            </div>
           )}
           {liveText && <MessageBubble role="assistant" text={liveText} active={isRunning || playbackActive} />}
           {(error || runError) && <div className="inline-error">{error ?? runError}</div>}
@@ -837,7 +805,7 @@ function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: 
             placeholder={ready ? "输入任务，Enter 发送，Shift+Enter 换行" : "请先连接 Gateway 并选择会话"}
           />
           <div className="composer-actions">
-            <span>{input.length > 0 ? `${input.length} 字` : "过程、工具调用和最终回答会在同一条时间线里出现"}</span>
+            <span>{input.length > 0 ? `${input.length} 字` : "Enter 发送，Shift+Enter 换行"}</span>
             <div className="button-row">
               <button className="secondary icon-text" onClick={() => goTo("resources")}>
                 <Icon name="layers" />
@@ -856,6 +824,35 @@ function ChatPage({ goTo, addToast }: { goTo: (page: PageId) => void; addToast: 
               )}
             </div>
           </div>
+        </div>
+        <div className="session-status-bar">
+          <span className="status-bar-item">
+            <span className={`status-dot ${isRunning ? "running" : ready ? "ready" : "disconnected"}`} />
+            {isRunning ? "运行中" : ready ? "就绪" : "未连接"}
+          </span>
+          {currentSessionId && (
+            <span className="status-bar-item" title={currentSessionId}>
+              会话: {currentSessionId.slice(0, 8)}...
+            </span>
+          )}
+          {sessionUsage && (
+            <>
+              <span className="status-bar-item">
+                Token: {sessionUsage.totalTokens.toLocaleString()}
+              </span>
+              <span className="status-bar-item">
+                费用: ${(sessionUsage.totalCostCents / 100).toFixed(2)}
+              </span>
+              <span className="status-bar-item">
+                请求: {sessionUsage.requestCount}
+              </span>
+            </>
+          )}
+          {events.length > 0 && (
+            <span className="status-bar-item">
+              事件: {events.length}
+            </span>
+          )}
         </div>
       </section>
     </div>
@@ -956,6 +953,11 @@ function OverviewPage({ goTo }: { goTo: (page: PageId) => void }) {
   }, [client]);
 
   const failedEvents = events.filter((event) => event.event.includes("failed"));
+  const metrics = (runtime?.metrics ?? null) as Record<string, unknown> | null;
+  const totalTokens = Number(metrics?.totalTokens ?? 0);
+  const totalCostCents = Number(metrics?.totalCostCents ?? 0);
+  const totalPromptTokens = Number(metrics?.totalPromptTokens ?? 0);
+  const totalCompletionTokens = Number(metrics?.totalCompletionTokens ?? 0);
 
   return (
     <div className="single-column">
@@ -967,13 +969,15 @@ function OverviewPage({ goTo }: { goTo: (page: PageId) => void }) {
       </div>
       <div className="overview-grid">
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <div className="skeleton skeleton-card" key={i} />)
+          Array.from({ length: 6 }).map((_, i) => <div className="skeleton skeleton-card" key={i} />)
         ) : (
           <>
             <MetricCard label="会话" value={sessions.length} hint="已持久化会话数" icon="message" />
             <MetricCard label="工具" value={tools.length || Number(runtime?.toolCount ?? 0)} hint="可调用工具总数" icon="wrench" />
             <MetricCard label="事件" value={events.length} hint="当前前端缓存事件" icon="pulse" />
             <MetricCard label="异常" value={failedEvents.length} hint="失败事件数量" icon="shield" tone={failedEvents.length ? "danger" : "success"} />
+            <MetricCard label="Token 总量" value={totalTokens} hint={`输入 ${totalPromptTokens.toLocaleString()} / 输出 ${totalCompletionTokens.toLocaleString()}`} icon="pulse" tone={totalTokens > 0 ? "accent" : "success"} />
+            <MetricCard label="预估费用" value={totalCostCents} hint={`$${(totalCostCents / 100).toFixed(2)} USD`} icon="shield" tone={totalCostCents > 100 ? "warning" : "success"} />
           </>
         )}
       </div>
@@ -1348,7 +1352,15 @@ function EventInspector({
   const events = useEventStore((s) => s.events);
   const clearEvents = useEventStore((s) => s.clearEvents);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string>("tool");
   const groups = useMemo(() => summarizeEvents(events), [events]);
+
+  const filteredEvents = useMemo(() => {
+    if (filter === "all") return events;
+    if (filter === "tool") return events.filter((e) => e.event.startsWith("tool.") || e.event.startsWith("run."));
+    if (filter === "chat") return events.filter((e) => e.event.startsWith("chat.") || e.event.startsWith("run."));
+    return events;
+  }, [events, filter]);
 
   if (collapsed) {
     return (
@@ -1364,17 +1376,26 @@ function EventInspector({
   return (
     <aside className="event-inspector">
       <div className="inspector-head">
-        <div><span className="eyebrow">Live Events</span><strong>{events.length}</strong></div>
+        <div><span className="eyebrow">Live Events</span><strong>{filteredEvents.length}</strong></div>
         <div className="button-row">
           <button className="icon-button" onClick={onToggle} title="收起事件流"><Icon name="x" /></button>
           <button className="icon-button" onClick={clearEvents} title="清空"><Icon name="trash" /></button>
         </div>
       </div>
+      <div className="event-filter">
+        {[
+          ["tool", "工具"],
+          ["chat", "对话"],
+          ["all", "全部"],
+        ].map(([id, label]) => (
+          <button key={id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>
+        ))}
+      </div>
       <div className="event-summary">
         {groups.map((group) => <span key={group.name}>{group.name} {group.count}</span>)}
       </div>
       <div className="event-list">
-        {events.map((event) => {
+        {filteredEvents.map((event) => {
           const key = `${event.seq}-${event.event}`;
           return (
             <button className="event-row" key={key} onClick={() => setExpanded(expanded === key ? null : key)}>
@@ -1387,7 +1408,7 @@ function EventInspector({
             </button>
           );
         })}
-        {events.length === 0 && <EmptyState icon="pulse" title="事件流为空" text="运行任务后这里会显示实时生命周期。" />}
+        {filteredEvents.length === 0 && <EmptyState icon="pulse" title="事件流为空" text="运行任务后这里会显示实时生命周期。" />}
       </div>
     </aside>
   );
@@ -1417,11 +1438,14 @@ function MessageBubble({ role, text, active }: { role: MessageRole; text: string
           <div className="bubble-segments">
             {segments!.map((seg, i) => seg.type === "tool_card"
               ? <ToolCallCard key={i} tool={seg.tool} args={seg.args} />
-              : seg.text.trim() ? <p key={i}>{seg.text}{active && i === segments!.length - 1 && <span className="cursor">|</span>}</p> : null
+              : seg.text.trim() ? <div key={i} className="bubble-markdown"><MarkdownRenderer content={seg.text} />{active && i === segments!.length - 1 && <span className="cursor">|</span>}</div> : null
             )}
           </div>
         ) : (
-          <p>{processed.content}{active && <span className="cursor">|</span>}</p>
+          <div className="bubble-markdown">
+            <MarkdownRenderer content={processed.content} />
+            {active && <span className="cursor">|</span>}
+          </div>
         )}
       </div>
     </article>
@@ -1429,6 +1453,7 @@ function MessageBubble({ role, text, active }: { role: MessageRole; text: string
 }
 
 function ToolCallCard({ tool, args }: { tool: string; args: Record<string, unknown> }) {
+  const [expanded, setExpanded] = useState(false);
   const friendly: Record<string, { icon: IconName; label: string; desc: (a: Record<string, unknown>) => string }> = {
     "file.read": { icon: "file", label: "读取文件", desc: (a) => String(a.path ?? "") },
     "file.write": { icon: "file", label: "写入文件", desc: (a) => String(a.path ?? "") },
@@ -1442,13 +1467,20 @@ function ToolCallCard({ tool, args }: { tool: string; args: Record<string, unkno
     "web.search": { icon: "search", label: "网页搜索", desc: (a) => String(a.query ?? "") },
   };
   const info = friendly[tool] ?? { icon: "wrench" as IconName, label: tool, desc: () => JSON.stringify(args).slice(0, 80) };
+  const hasDetails = Object.keys(args).length > 0;
   return (
-    <div className="tool-call-card">
+    <div className={`tool-call-card ${expanded ? "expanded" : ""}`} onClick={() => hasDetails && setExpanded(!expanded)}>
       <span className="tool-call-card-icon"><Icon name={info.icon} /></span>
       <div className="tool-call-card-body">
         <strong>{info.label}</strong>
         <code>{info.desc(args)}</code>
       </div>
+      {hasDetails && (
+        <span className="tool-call-card-toggle">{expanded ? "▲" : "▼"}</span>
+      )}
+      {expanded && (
+        <pre className="tool-call-card-details">{JSON.stringify(args, null, 2)}</pre>
+      )}
     </div>
   );
 }
@@ -1601,7 +1633,7 @@ function normalizeAuditPayload(payload: unknown): Array<Record<string, unknown>>
 }
 
 function cleanAgentText(raw: string): string {
-  return sanitizeStructuredAgentText(raw);
+  return unwrapFinalJson(raw.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/�/g, "").trim());
 }
 
 type MessageSegment =
@@ -1651,10 +1683,10 @@ function extractThinking(raw: string): { thinking: string | null; content: strin
   const thinkMatch = cleaned.match(/<think>([\s\S]*?)<\/think>/);
   if (thinkMatch) {
     const thinking = thinkMatch[1].trim();
-    const content = sanitizeStructuredAgentText(cleaned.replace(/<think>[\s\S]*?<\/think>/, "").trim());
+    const content = unwrapFinalJson(cleaned.replace(/<think>[\s\S]*?<\/think>/, "").trim());
     return { thinking: thinking || null, content: content || cleaned };
   }
-  return { thinking: null, content: sanitizeStructuredAgentText(cleaned) };
+  return { thinking: null, content: unwrapFinalJson(cleaned) };
 }
 
 function unwrapFinalJson(raw: string): string {
@@ -1663,45 +1695,31 @@ function unwrapFinalJson(raw: string): string {
   try {
     const parsed = JSON.parse(trimmed) as Record<string, unknown>;
     if (parsed.type === "final" && typeof parsed.content === "string") return parsed.content;
+    if (parsed.type === "tool_call") return raw;
+    const content = extractMeaningfulContent(parsed);
+    if (content) return content;
   } catch {
     // Keep non-JSON model output unchanged.
   }
   return raw;
 }
 
-function sanitizeStructuredAgentText(
-  raw: string,
-  options: { preserveThinking?: boolean } = {}
-): string {
-  let text = unwrapFinalJson(raw).replace(/\uFFFD/g, "");
-  if (!options.preserveThinking) {
-    text = text.replace(/<think>[\s\S]*?<\/think>/g, "");
+function extractMeaningfulContent(obj: Record<string, unknown>): string | undefined {
+  const priorityKeys = ["content", "text", "message", "response", "answer", "result", "output"];
+  for (const key of priorityKeys) {
+    if (typeof obj[key] === "string" && obj[key].trim()) return obj[key].trim();
   }
-
-  const ranges = extractStructuredJsonRanges(text)
-    .map((range) => ({
-      ...range,
-      parsed: tryParseStructuredPayload(range.json),
-    }));
-  const finalPayload = [...ranges]
-    .reverse()
-    .find((range) => range.parsed?.type === "final" && typeof range.parsed.content === "string" && range.parsed.content.trim() !== "");
-  if (finalPayload?.parsed && typeof finalPayload.parsed.content === "string") {
-    return finalPayload.parsed.content.trim();
+  if (obj.data && typeof obj.data === "object" && obj.data !== null && !Array.isArray(obj.data)) {
+    const nested = extractMeaningfulContent(obj.data as Record<string, unknown>);
+    if (nested) return nested;
   }
-
-  for (const range of [...ranges].reverse()) {
-    if (range.parsed?.type === "tool_call" || range.parsed?.type === "final") {
-      text = text.slice(0, range.start) + text.slice(range.end);
+  let longest = "";
+  for (const value of Object.values(obj)) {
+    if (typeof value === "string" && value.length > longest.length && !value.startsWith("{")) {
+      longest = value;
     }
   }
-
-  return text
-    .replace(/\[Tool Result\][\s\S]*?\[\/Tool Result\]/g, "")
-    .replace(/^\[[^\]]*JSON[^\]]*\]\s*$/gim, "")
-    .replace(/^\[TOOL_CALL\]\s*/gim, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return longest || undefined;
 }
 
 function extractStructuredJsonRanges(raw: string): Array<{ json: string; start: number; end: number }> {
@@ -1882,25 +1900,22 @@ function safeJson(value: unknown) {
 }
 
 function formatEventPayloadForDisplay(event: EventEntry): unknown {
-  const payload =
-    event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)
-      ? { ...(event.payload as Record<string, unknown>) }
-      : event.payload;
-
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return payload;
+  if (!event.payload || typeof event.payload !== "object" || Array.isArray(event.payload)) {
+    return event.payload;
   }
 
+  const payload: Record<string, unknown> = { ...asRecord(event.payload) };
+
   if (event.event === "chat.completed" && typeof payload.text === "string") {
-    payload.text = sanitizeStructuredAgentText(payload.text);
+    payload.text = unwrapFinalJson(payload.text.replace(/<think>[\s\S]*?<\/think>/g, "").trim());
   }
 
   if (event.event === "chat.delta") {
     if (typeof payload.text === "string") {
-      payload.text = sanitizeStructuredAgentText(payload.text);
+      payload.text = unwrapFinalJson(payload.text);
     }
     if (typeof payload.delta === "string") {
-      payload.delta = sanitizeStructuredAgentText(payload.delta);
+      payload.delta = unwrapFinalJson(payload.delta);
     }
   }
 
@@ -1920,7 +1935,6 @@ function providerOptions(runtime: RuntimeInfo | null): Array<{ id: string; label
     return fromRuntime.filter((option) => option.id && option.label);
   }
   return [
-    { id: "deepseek", label: "DeepSeek" },
     { id: "tokenplan", label: "MiniMax TokenPlan" },
     { id: "mock", label: "Mock" },
   ];
@@ -1933,7 +1947,6 @@ function labelForModel(
   const option = options?.find((item) => item.id === model);
   if (option) return option.label;
   if (model === "tokenplan" || model === "minimax") return "MiniMax TokenPlan";
-  if (model === "deepseek") return "DeepSeek";
   if (model === "mock") return "Mock";
   return model;
 }

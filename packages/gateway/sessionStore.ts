@@ -1,8 +1,6 @@
-
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 
+import { getDb } from "../storage/src/db";
 import { resolveWorkspacePath } from "../core/src/config";
 
 import type {
@@ -17,44 +15,178 @@ import type {
   GatewaySessionProjectPermission,
   GatewaySessionRenameInput,
   GatewaySessionSkillInput,
-  GatewaySessionStoreSnapshot,
 } from "./sessionTypes";
 import type {
   GatewayPermissionMode,
   GatewayPlanState,
 } from "./permissionTypes";
 
-/**
- * 默认的会话快照文件路径。
- *
- * 会话元数据放在 `logs/` 下，而具体消息内容放在 `workspace/sessions/`，
- * 这样“列表索引”和“详细 transcript”分工更清晰。
- */
-const DEFAULT_SNAPSHOT_PATH = path.resolve(
-  process.cwd(),
-  "logs",
-  "sessions",
-  "sessions.json"
-);
-
-/**
- * 获取当前 ISO 时间字符串。
- *
- * 抽成函数的目的，是避免各处重复 new Date().toISOString()，
- * 也方便以后做时间注入或测试替换。
- */
 function nowIso(): string {
   return new Date().toISOString();
 }
 
-/**
- * 会话元数据存储层。
- *
- * 这个类只管理会话列表、名称、时间戳和消息数量等轻量信息，
- * 不负责真正的消息逐行写入，那部分由 transcript 模块单独处理。
- */
+let ensuredDb: unknown = null;
+
+function ensureTable(): void {
+  const db = getDb();
+  if (ensuredDb === db) return;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      display_name TEXT,
+      title TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      transcript_path TEXT NOT NULL,
+      active_skills_json TEXT NOT NULL DEFAULT '[]',
+      pending_approvals_json TEXT NOT NULL DEFAULT '[]',
+      permission_mode TEXT NOT NULL DEFAULT 'default',
+      plan_state_json TEXT,
+      dev_task_state_json TEXT,
+      project_dir TEXT,
+      permission TEXT NOT NULL DEFAULT 'chat-only',
+      project_bound INTEGER NOT NULL DEFAULT 0,
+      project_bound_at TEXT,
+      project_binding_source TEXT,
+      allowed_read_roots_json TEXT NOT NULL DEFAULT '[]',
+      allowed_write_roots_json TEXT NOT NULL DEFAULT '[]',
+      command_cwd TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
+  `);
+  ensuredDb = db;
+}
+
+function rowToSession(row: Record<string, unknown>): GatewaySession {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    displayName: (row.display_name as string) ?? undefined,
+    title: (row.title as string) ?? undefined,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+    messageCount: (row.message_count as number) ?? 0,
+    transcriptPath: row.transcript_path as string,
+    activeSkills: safeParseJsonArray(row.active_skills_json as string),
+    pendingApprovals: safeParseApprovals(row.pending_approvals_json as string),
+    permissionMode: ((row.permission_mode as string) ?? "default") as GatewayPermissionMode,
+    planState: row.plan_state_json ? JSON.parse(row.plan_state_json as string) as GatewayPlanState : undefined,
+    devTaskState: row.dev_task_state_json ? JSON.parse(row.dev_task_state_json as string) as GatewaySessionDevTaskState : undefined,
+    projectDir: (row.project_dir as string) ?? null,
+    permission: (row.permission === "project-write" ? "project-write" : "chat-only") as GatewaySessionProjectPermission,
+    projectBound: Boolean(row.project_bound),
+    projectBoundAt: (row.project_bound_at as string) ?? undefined,
+    projectBindingSource: (row.project_binding_source as string) as GatewayProjectBindingSource | undefined,
+    allowedReadRoots: safeParseJsonArray(row.allowed_read_roots_json as string),
+    allowedWriteRoots: safeParseJsonArray(row.allowed_write_roots_json as string),
+    commandCwd: (row.command_cwd as string) ?? null,
+  };
+}
+
+function safeParseJsonArray(raw: string): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function safeParseApprovals(raw: string): GatewayPendingApproval[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is GatewayPendingApproval =>
+        !!item &&
+        typeof item === "object" &&
+        typeof item.token === "string" &&
+        typeof item.toolName === "string" &&
+        !!item.input &&
+        typeof item.input === "object" &&
+        !Array.isArray(item.input) &&
+        typeof item.createdAt === "string" &&
+        typeof item.expiresAt === "string" &&
+        typeof item.message === "string"
+    );
+  } catch {
+    return [];
+  }
+}
+
+function insertSession(session: GatewaySession): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO sessions (
+      id, name, display_name, title, created_at, updated_at, message_count,
+      transcript_path, active_skills_json, pending_approvals_json,
+      permission_mode, plan_state_json, dev_task_state_json,
+      project_dir, permission, project_bound, project_bound_at,
+      project_binding_source, allowed_read_roots_json, allowed_write_roots_json, command_cwd
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    session.id,
+    session.name,
+    session.displayName ?? null,
+    session.title ?? null,
+    session.createdAt,
+    session.updatedAt,
+    session.messageCount,
+    session.transcriptPath,
+    JSON.stringify(session.activeSkills ?? []),
+    JSON.stringify(session.pendingApprovals ?? []),
+    session.permissionMode ?? "default",
+    session.planState ? JSON.stringify(session.planState) : null,
+    session.devTaskState ? JSON.stringify(session.devTaskState) : null,
+    session.projectDir ?? null,
+    session.permission ?? "chat-only",
+    session.projectBound ? 1 : 0,
+    session.projectBoundAt ?? null,
+    session.projectBindingSource ?? null,
+    JSON.stringify(session.allowedReadRoots ?? []),
+    JSON.stringify(session.allowedWriteRoots ?? []),
+    session.commandCwd ?? null
+  );
+}
+
+function updateSession(session: GatewaySession): void {
+  const db = getDb();
+  db.prepare(
+    `UPDATE sessions SET
+      name = ?, display_name = ?, title = ?, updated_at = ?, message_count = ?,
+      active_skills_json = ?, pending_approvals_json = ?,
+      permission_mode = ?, plan_state_json = ?, dev_task_state_json = ?,
+      project_dir = ?, permission = ?, project_bound = ?, project_bound_at = ?,
+      project_binding_source = ?, allowed_read_roots_json = ?, allowed_write_roots_json = ?, command_cwd = ?
+    WHERE id = ?`
+  ).run(
+    session.name,
+    session.displayName ?? null,
+    session.title ?? null,
+    session.updatedAt,
+    session.messageCount,
+    JSON.stringify(session.activeSkills ?? []),
+    JSON.stringify(session.pendingApprovals ?? []),
+    session.permissionMode ?? "default",
+    session.planState ? JSON.stringify(session.planState) : null,
+    session.devTaskState ? JSON.stringify(session.devTaskState) : null,
+    session.projectDir ?? null,
+    session.permission ?? "chat-only",
+    session.projectBound ? 1 : 0,
+    session.projectBoundAt ?? null,
+    session.projectBindingSource ?? null,
+    JSON.stringify(session.allowedReadRoots ?? []),
+    JSON.stringify(session.allowedWriteRoots ?? []),
+    session.commandCwd ?? null,
+    session.id
+  );
+}
+
 export interface SessionStoreOptions {
-  snapshotPath?: string;
   defaultAllowedReadRoots?: string[];
   defaultAllowedWriteRoots?: string[];
   defaultPermission?: GatewaySessionProjectPermission;
@@ -65,61 +197,59 @@ export class SessionStore {
   private readonly defaultAllowedWriteRoots: string[];
   private readonly defaultPermission: GatewaySessionProjectPermission;
 
-  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(optionsOrPath?: string | SessionStoreOptions) {
     if (typeof optionsOrPath === "string") {
-      this.snapshotPath = optionsOrPath;
       this.defaultAllowedReadRoots = [];
       this.defaultAllowedWriteRoots = [];
       this.defaultPermission = "chat-only";
     } else {
-      this.snapshotPath = optionsOrPath?.snapshotPath ?? DEFAULT_SNAPSHOT_PATH;
       this.defaultAllowedReadRoots = optionsOrPath?.defaultAllowedReadRoots ?? [];
       this.defaultAllowedWriteRoots = optionsOrPath?.defaultAllowedWriteRoots ?? [];
       this.defaultPermission = optionsOrPath?.defaultPermission ?? "chat-only";
     }
-    this.ensureSnapshotFile();
+    ensureTable();
   }
 
-  private readonly snapshotPath: string;
-
-  /**
-   * 加载全部会话，并按最近更新时间倒序排列。
-   *
-   * 这样列表展示时最活跃的会话会自然排在最前面。
-   */
   loadSessions(): GatewaySession[] {
-    const snapshot = this.readSnapshot();
-    return [...snapshot.sessions]
-      .map((session) => this.withFreshApprovals(session))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT * FROM sessions ORDER BY updated_at DESC`
+    ).all() as Array<Record<string, unknown>>;
+    return rows.map((row) => this.withFreshApprovals(rowToSession(row)));
   }
 
-  /**
-   * 覆盖保存整份会话列表快照。
-   */
   saveSessions(sessions: GatewaySession[]): void {
-    this.writeSnapshot({
-      sessions,
+    const db = getDb();
+    const existing = db.prepare(`SELECT id FROM sessions`).all() as Array<{ id: string }>;
+    const existingIds = new Set(existing.map((r) => r.id));
+    const newIds = new Set(sessions.map((s) => s.id));
+
+    const insertTx = db.transaction(() => {
+      for (const session of sessions) {
+        if (existingIds.has(session.id)) {
+          updateSession(session);
+        } else {
+          insertSession(session);
+        }
+      }
+      for (const id of existingIds) {
+        if (!newIds.has(id)) {
+          db.prepare(`DELETE FROM sessions WHERE id = ?`).run(id);
+        }
+      }
     });
+    insertTx();
   }
 
-  /**
-   * 创建一个全新的会话记录。
-   *
-   * 这里会同时生成：
-   * - 唯一会话 ID
-   * - transcript 文件路径
-   * - 初始时间戳和消息计数
-   */
   createSession(input?: GatewaySessionCreateInput): GatewaySession {
-    const sessions = this.loadSessions();
+    const db = getDb();
+    const count = (db.prepare(`SELECT COUNT(*) as c FROM sessions`).get() as { c: number }).c;
     const timestamp = Date.now();
     const id = `session-${timestamp}-${randomBytes(6).toString("hex")}`;
     const createdAt = nowIso();
     const session: GatewaySession = {
       id,
-      name: input?.name?.trim() || `Session ${sessions.length + 1}`,
+      name: input?.name?.trim() || `Session ${count + 1}`,
       createdAt,
       updatedAt: createdAt,
       messageCount: 0,
@@ -135,193 +265,118 @@ export class SessionStore {
       commandCwd: null,
     };
 
-    sessions.push(session);
-    this.saveSessions(sessions);
-
+    insertSession(session);
     return session;
   }
 
-  /**
-   * 列出所有会话。
-   */
   listSessions(): GatewaySession[] {
     return this.loadSessions();
   }
 
-  /**
-   * 按 ID 获取单个会话。
-   */
   getSession(id: GatewaySessionId): GatewaySession | undefined {
-    const session = this.readSnapshot().sessions.find((item) => item.id === id);
-    return session ? this.withFreshApprovals(session) : undefined;
+    const db = getDb();
+    const row = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+    return row ? this.withFreshApprovals(rowToSession(row)) : undefined;
   }
 
-  /**
-   * 重命名指定会话，并刷新更新时间。
-   */
   renameSession(input: GatewaySessionRenameInput): GatewaySession | undefined {
-    const sessions = this.loadSessions();
-    const target = sessions.find((session) => session.id === input.id);
-
-    if (!target) {
-      return undefined;
-    }
+    const session = this.getSession(input.id);
+    if (!session) return undefined;
 
     const name = input.name.trim();
-    target.name = name;
-    target.displayName = name;
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return target;
+    session.name = name;
+    session.displayName = name;
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return session;
   }
 
-  /**
-   * 方法 `setActiveSkills` 的职责说明。
-   * `setActiveSkills` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   setActiveSkills(input: GatewaySessionSkillInput): GatewaySession | undefined {
-    const sessions = this.loadSessions();
-    const target = sessions.find((session) => session.id === input.id);
+    const session = this.getSession(input.id);
+    if (!session) return undefined;
 
-    if (!target) {
-      return undefined;
-    }
-
-    target.activeSkills = [...new Set(input.skillNames.map((name) => name.trim()).filter(Boolean))];
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return target;
+    session.activeSkills = [...new Set(input.skillNames.map((name) => name.trim()).filter(Boolean))];
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return session;
   }
 
-  /**
-   * 方法 `setPermissionMode` 的职责说明。
-   * `setPermissionMode` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   setPermissionMode(
     id: GatewaySessionId,
     permissionMode: GatewayPermissionMode
   ): GatewaySession | undefined {
-    const sessions = this.loadSessions();
-    const target = sessions.find((session) => session.id === id);
+    const session = this.getSession(id);
+    if (!session) return undefined;
 
-    if (!target) {
-      return undefined;
-    }
-
-    target.permissionMode = permissionMode;
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return target;
+    session.permissionMode = permissionMode;
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return session;
   }
 
-  /**
-   * 方法 `setPlanState` 的职责说明。
-   * `setPlanState` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   setPlanState(
     id: GatewaySessionId,
     planState: GatewayPlanState | undefined
   ): GatewaySession | undefined {
-    const sessions = this.loadSessions();
-    const target = sessions.find((session) => session.id === id);
+    const session = this.getSession(id);
+    if (!session) return undefined;
 
-    if (!target) {
-      return undefined;
-    }
-
-    target.planState = planState;
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return target;
+    session.planState = planState;
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return session;
   }
 
-  /**
-   * 方法 `addPendingApproval` 的职责说明。
-   * `addPendingApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   addPendingApproval(
     input: GatewaySessionApprovalCreateInput
   ): GatewaySession | undefined {
-    const sessions = this.loadSessions();
-    const target = sessions.find((session) => session.id === input.id);
+    const session = this.getSession(input.id);
+    if (!session) return undefined;
 
-    if (!target) {
-      return undefined;
-    }
-
-    const approvals = this.pruneExpiredApprovals(target.pendingApprovals ?? []);
-    target.pendingApprovals = [...approvals, input.approval];
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return target;
+    const approvals = this.pruneExpiredApprovals(session.pendingApprovals ?? []);
+    session.pendingApprovals = [...approvals, input.approval];
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return session;
   }
 
-  /**
-   * 方法 `listPendingApprovals` 的职责说明。
-   * `listPendingApprovals` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   listPendingApprovals(id: GatewaySessionId): GatewayPendingApproval[] {
-    const session = this.readSnapshot().sessions.find((item) => item.id === id);
+    const session = this.getSession(id);
     return this.pruneExpiredApprovals(session?.pendingApprovals ?? []);
   }
 
-  /**
-   * 方法 `consumePendingApproval` 的职责说明。
-   * `consumePendingApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   consumePendingApproval(
     id: GatewaySessionId,
     token: string
   ): GatewaySessionApprovalConsumeResult {
-    const sessions = this.readSnapshot().sessions;
-    const target = sessions.find((session) => session.id === id);
+    const session = this.getRawSession(id);
+    if (!session) return { status: "missing" };
 
-    if (!target) {
-      return { status: "missing" };
-    }
-
-    const approvals = this.pruneExpiredApprovals(target.pendingApprovals ?? []);
+    const originalApprovals = session.pendingApprovals ?? [];
+    const approvals = this.pruneExpiredApprovals(originalApprovals);
     const index = approvals.findIndex((item) => item.token === token);
     if (index === -1) {
-      const expiredApproval = (target.pendingApprovals ?? []).find(
+      const expiredApproval = originalApprovals.find(
         (item) => item.token === token && this.isExpiredApproval(item)
       );
 
-      target.pendingApprovals = approvals;
-      target.updatedAt = nowIso();
-      this.saveSessions(sessions);
+      session.pendingApprovals = approvals;
+      session.updatedAt = nowIso();
+      updateSession(session);
 
       if (expiredApproval) {
-        return {
-          status: "expired",
-          approval: expiredApproval,
-        };
+        return { status: "expired", approval: expiredApproval };
       }
-
       return { status: "missing" };
     }
 
     const [approval] = approvals.splice(index, 1);
-    target.pendingApprovals = approvals;
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return {
-      status: "consumed",
-      approval,
-    };
+    session.pendingApprovals = approvals;
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return { status: "consumed", approval };
   }
 
-  /**
-   * 方法 `rejectPendingApproval` 的职责说明。
-   * `rejectPendingApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   rejectPendingApproval(
     id: GatewaySessionId,
     token: string
@@ -329,53 +384,30 @@ export class SessionStore {
     return this.removePendingApproval(id, token, "rejected");
   }
 
-  /**
-   * 方法 `clearPendingApprovals` 的职责说明。
-   * `clearPendingApprovals` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   clearPendingApprovals(id: GatewaySessionId): GatewayPendingApproval[] {
-    const sessions = this.readSnapshot().sessions;
-    const target = sessions.find((session) => session.id === id);
+    const session = this.getSession(id);
+    if (!session) return [];
 
-    if (!target) {
-      return [];
-    }
-
-    const approvals = this.pruneExpiredApprovals(target.pendingApprovals ?? []);
-    target.pendingApprovals = [];
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
+    const approvals = this.pruneExpiredApprovals(session.pendingApprovals ?? []);
+    session.pendingApprovals = [];
+    session.updatedAt = nowIso();
+    updateSession(session);
     return approvals;
   }
 
-  /**
-   * 方法 `setDevTaskState` 的职责说明。
-   * `setDevTaskState` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   setDevTaskState(
     id: GatewaySessionId,
     devTaskState: GatewaySessionDevTaskState | undefined
   ): GatewaySession | undefined {
-    const sessions = this.loadSessions();
-    const target = sessions.find((session) => session.id === id);
+    const session = this.getSession(id);
+    if (!session) return undefined;
 
-    if (!target) {
-      return undefined;
-    }
-
-    target.devTaskState = devTaskState;
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return target;
+    session.devTaskState = devTaskState;
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return session;
   }
 
-  /**
-   * 方法 `setProjectBinding` 的职责说明。
-   * `setProjectBinding` 负责写入或更新状态，维护时要关注幂等性、失败恢复和数据一致性。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   setProjectBinding(
     id: GatewaySessionId,
     binding: {
@@ -388,218 +420,72 @@ export class SessionStore {
       displayName?: string;
     }
   ): GatewaySession | undefined {
-    const sessions = this.loadSessions();
-    const target = sessions.find((session) => session.id === id);
+    const session = this.getSession(id);
+    if (!session) return undefined;
 
-    if (!target) {
-      return undefined;
-    }
-
-    target.projectDir = binding.projectDir;
-    target.permission = binding.permission;
-    target.projectBound = true;
-    target.projectBoundAt = nowIso();
-    target.projectBindingSource = binding.bindingSource ?? "repl";
-    target.allowedReadRoots = [...binding.allowedReadRoots];
-    target.allowedWriteRoots = [...binding.allowedWriteRoots];
-    target.commandCwd = binding.commandCwd;
+    session.projectDir = binding.projectDir;
+    session.permission = binding.permission;
+    session.projectBound = true;
+    session.projectBoundAt = nowIso();
+    session.projectBindingSource = binding.bindingSource ?? "repl";
+    session.allowedReadRoots = [...binding.allowedReadRoots];
+    session.allowedWriteRoots = [...binding.allowedWriteRoots];
+    session.commandCwd = binding.commandCwd;
     if (binding.displayName) {
-      target.displayName = binding.displayName;
+      session.displayName = binding.displayName;
     }
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return target;
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return session;
   }
 
-  /**
-   * 只刷新会话更新时间，不改其他字段。
-   */
   touchSession(id: GatewaySessionId): GatewaySession | undefined {
-    const sessions = this.loadSessions();
-    const target = sessions.find((session) => session.id === id);
+    const session = this.getSession(id);
+    if (!session) return undefined;
 
-    if (!target) {
-      return undefined;
-    }
-
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return target;
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return session;
   }
 
-  /**
-   * 增加某个会话的消息数量。
-   *
-   * 这里会把负数和非数值安全收敛成 0，避免脏输入把统计改坏。
-   */
   incrementMessageCount(
     id: GatewaySessionId,
     count = 1
   ): GatewaySession | undefined {
-    const sessions = this.loadSessions();
-    const target = sessions.find((session) => session.id === id);
-
-    if (!target) {
-      return undefined;
-    }
+    const session = this.getSession(id);
+    if (!session) return undefined;
 
     const safeCount = Number.isFinite(count) ? Math.max(0, count) : 0;
-    target.messageCount += safeCount;
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return target;
+    session.messageCount += safeCount;
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return session;
   }
 
   deleteSession(id: GatewaySessionId): boolean {
-    const sessions = this.loadSessions();
-    const index = sessions.findIndex((session) => session.id === id);
-    if (index === -1) {
-      return false;
-    }
-    sessions.splice(index, 1);
-    this.saveSessions(sessions);
-    return true;
+    const db = getDb();
+    const result = db.prepare(`DELETE FROM sessions WHERE id = ?`).run(id);
+    return result.changes > 0;
   }
 
-  /**
-   * 确保快照文件和父目录存在。
-   *
-   * 这是持久化层的启动兜底逻辑，
-   * 防止第一次运行时因为文件不存在导致后续读取失败。
-   */
-  private ensureSnapshotFile(): void {
-    const dirPath = path.dirname(this.snapshotPath);
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
-    }
-
-    if (!fs.existsSync(this.snapshotPath)) {
-      this.writeSnapshot({ sessions: [] });
-    }
+  deleteAll(): void {
+    ensureTable();
+    const db = getDb();
+    db.prepare(`DELETE FROM sessions`).run();
   }
 
-  /**
-   * 读取会话快照文件。
-   *
-   * 若文件为空、损坏或结构不合法，则返回空列表，
-   * 用宽容读取策略保护上层流程不中断。
-   */
-  private readSnapshot(): GatewaySessionStoreSnapshot {
-    this.ensureSnapshotFile();
-    const raw = fs.readFileSync(this.snapshotPath, "utf8").trim();
-
-    if (!raw) {
-      return { sessions: [] };
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as GatewaySessionStoreSnapshot;
-      if (!Array.isArray(parsed.sessions)) {
-        return { sessions: [] };
-      }
-      return {
-        sessions: parsed.sessions.map((session) => ({
-          ...session,
-          activeSkills: Array.isArray(session.activeSkills)
-            ? session.activeSkills.filter((name): name is string => typeof name === "string")
-            : [],
-          pendingApprovals: Array.isArray(session.pendingApprovals)
-            ? session.pendingApprovals.filter(
-                (item): item is GatewayPendingApproval =>
-                  !!item &&
-                  typeof item === "object" &&
-                  typeof item.token === "string" &&
-                  typeof item.toolName === "string" &&
-                  !!item.input &&
-                  typeof item.input === "object" &&
-                  !Array.isArray(item.input) &&
-                  typeof item.createdAt === "string" &&
-                  typeof item.expiresAt === "string" &&
-                  typeof item.message === "string"
-              )
-            : [],
-          permissionMode:
-            typeof session.permissionMode === "string"
-              ? session.permissionMode
-              : "default",
-          planState:
-            session.planState && typeof session.planState === "object"
-              ? session.planState
-              : undefined,
-          displayName:
-            typeof session.displayName === "string"
-              ? session.displayName
-              : undefined,
-          title:
-            typeof session.title === "string"
-              ? session.title
-              : undefined,
-          projectDir:
-            typeof session.projectDir === "string"
-              ? session.projectDir
-              : null,
-          permission:
-            session.permission === "chat-only" || session.permission === "project-write"
-              ? session.permission
-              : "chat-only",
-          projectBound:
-            typeof session.projectBound === "boolean"
-              ? session.projectBound
-              : (typeof session.projectDir === "string" && session.projectDir !== null),
-          projectBoundAt:
-            typeof session.projectBoundAt === "string"
-              ? session.projectBoundAt
-              : undefined,
-          projectBindingSource:
-            typeof session.projectBindingSource === "string"
-              ? session.projectBindingSource as GatewayProjectBindingSource
-              : undefined,
-          allowedReadRoots: Array.isArray(session.allowedReadRoots)
-            ? session.allowedReadRoots.filter((r): r is string => typeof r === "string")
-            : [],
-          allowedWriteRoots: Array.isArray(session.allowedWriteRoots)
-            ? session.allowedWriteRoots.filter((r): r is string => typeof r === "string")
-            : [],
-          commandCwd:
-            typeof session.commandCwd === "string"
-              ? session.commandCwd
-              : null,
-        })),
-      };
-    } catch {
-      return { sessions: [] };
-    }
+  private getRawSession(id: GatewaySessionId): GatewaySession | undefined {
+    const db = getDb();
+    const row = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+    return row ? rowToSession(row) : undefined;
   }
 
-  /**
-   * 把会话快照写回磁盘。
-   *
-   * 使用带缩进的 JSON，便于人工排查与手动修复。
-   */
-  private writeSnapshot(snapshot: GatewaySessionStoreSnapshot): void {
-    fs.writeFileSync(
-      this.snapshotPath,
-      `${JSON.stringify(snapshot, null, 2)}\n`,
-      "utf8"
-    );
-  }
-
-  /**
-   * 方法 `pruneExpiredApprovals` 的职责说明。
-   * `pruneExpiredApprovals` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   private pruneExpiredApprovals(
     approvals: GatewayPendingApproval[]
   ): GatewayPendingApproval[] {
     return approvals.filter((approval) => !this.isExpiredApproval(approval));
   }
 
-  /**
-   * 方法 `withFreshApprovals` 的职责说明。
-   * `withFreshApprovals` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   private withFreshApprovals(session: GatewaySession): GatewaySession {
     return {
       ...session,
@@ -616,24 +502,15 @@ export class SessionStore {
     };
   }
 
-  /**
-   * 方法 `removePendingApproval` 的职责说明。
-   * `removePendingApproval` 承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   private removePendingApproval(
     id: GatewaySessionId,
     token: string,
     successStatus: "consumed" | "rejected"
   ): GatewaySessionApprovalConsumeResult {
-    const sessions = this.readSnapshot().sessions;
-    const target = sessions.find((session) => session.id === id);
+    const session = this.getRawSession(id);
+    if (!session) return { status: "missing" };
 
-    if (!target) {
-      return { status: "missing" };
-    }
-
-    const originalApprovals = target.pendingApprovals ?? [];
+    const originalApprovals = session.pendingApprovals ?? [];
     const approvals = this.pruneExpiredApprovals(originalApprovals);
     const index = approvals.findIndex((item) => item.token === token);
     if (index === -1) {
@@ -641,35 +518,23 @@ export class SessionStore {
         (item) => item.token === token && this.isExpiredApproval(item)
       );
 
-      target.pendingApprovals = approvals;
-      target.updatedAt = nowIso();
-      this.saveSessions(sessions);
+      session.pendingApprovals = approvals;
+      session.updatedAt = nowIso();
+      updateSession(session);
 
       if (expiredApproval) {
-        return {
-          status: "expired",
-          approval: expiredApproval,
-        };
+        return { status: "expired", approval: expiredApproval };
       }
-
       return { status: "missing" };
     }
 
     const [approval] = approvals.splice(index, 1);
-    target.pendingApprovals = approvals;
-    target.updatedAt = nowIso();
-    this.saveSessions(sessions);
-    return {
-      status: successStatus,
-      approval,
-    };
+    session.pendingApprovals = approvals;
+    session.updatedAt = nowIso();
+    updateSession(session);
+    return { status: successStatus, approval };
   }
 
-  /**
-   * 方法 `isExpiredApproval` 的职责说明。
-   * `isExpiredApproval` 负责校验或解析外部输入，把不可信数据收窄成后续流程可安全使用的结构。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
-   */
   private isExpiredApproval(approval: GatewayPendingApproval): boolean {
     const expiresAtMs = Date.parse(approval.expiresAt);
     return Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();

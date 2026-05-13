@@ -40,7 +40,7 @@ const DEFAULT_CONFIG: MemoryAutoWriterConfig = {
   memoryMaxChars: 50_000,
   compressTriggerChars: 45_000,
   compressTargetChars: 30_000,
-  minImportanceScore: 0.6,
+  minImportanceScore: 0.45,
 };
 
 const LONG_TERM_PATTERNS: RegExp[] = [
@@ -361,8 +361,12 @@ export class MemoryAutoWriter {
       }
     }
 
-    if (source === "input" && text.length > 50) {
-      score += 0.1;
+    if (source === "input") {
+      if (text.length > 50) {
+        score += 0.15;
+      } else if (text.length > 20) {
+        score += 0.1;
+      }
     }
 
     if (text.length > 100) {

@@ -1,5 +1,4 @@
 
-import { DeepSeekProvider } from "../model/deepseekProvider";
 import { MockModelProvider } from "../model/mockProvider";
 import { TokenPlanProvider } from "../model/tokenPlanProvider";
 import type {
@@ -14,7 +13,6 @@ export const MODEL_PROVIDER_OPTIONS: Array<{
   id: GatewayModelName;
   label: string;
 }> = [
-  { id: "deepseek", label: "DeepSeek" },
   { id: "tokenplan", label: "MiniMax TokenPlan" },
   { id: "mock", label: "Mock" },
 ];
@@ -22,7 +20,7 @@ export const MODEL_PROVIDER_OPTIONS: Array<{
 /**
  * 根据配置创建模型提供商实例。
  *
- * 当前项目只支持 `deepseek`，因此这里返回值非常直接。
+ * 当前项目只支持 `tokenplan`，因此这里返回值非常直接。
  * 但保留工厂函数可以为未来增加更多模型时提供稳定扩展点。
  */
 export function createModelProvider(model: GatewayModelName): ModelProvider {
@@ -30,11 +28,7 @@ export function createModelProvider(model: GatewayModelName): ModelProvider {
     return new MockModelProvider();
   }
 
-  if (model === "tokenplan") {
-    return new TokenPlanProvider();
-  }
-
-  return new DeepSeekProvider();
+  return new TokenPlanProvider();
 }
 
 export class SwitchableModelProvider implements ModelProvider {

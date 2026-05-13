@@ -335,7 +335,7 @@ test("computeBackoffMs caps at 8000ms", () => {
 
 test("loadGatewayConfig includes devTaskMaxFixRounds with default", () => {
   const config = loadGatewayConfig();
-  assert.equal(config.devTaskMaxFixRounds, 3);
+  assert.equal(config.devTaskMaxFixRounds, 5);
 });
 
 test("loadGatewayConfig reads devTaskMaxFixRounds from env", () => {
@@ -343,9 +343,9 @@ test("loadGatewayConfig reads devTaskMaxFixRounds from env", () => {
   assert.equal(config.devTaskMaxFixRounds, 5);
 });
 
-test("loadGatewayConfig includes devTaskMaxSteps with default 15", () => {
+test("loadGatewayConfig includes devTaskMaxSteps with default 30", () => {
   const config = loadGatewayConfig();
-  assert.equal(config.devTaskMaxSteps, 15);
+  assert.equal(config.devTaskMaxSteps, 30);
 });
 
 test("loadGatewayConfig reads devTaskMaxSteps from env", () => {
@@ -355,16 +355,16 @@ test("loadGatewayConfig reads devTaskMaxSteps from env", () => {
 
 test("loadGatewayConfig falls back to default for invalid devTaskMaxSteps", () => {
   const config1 = loadGatewayConfig({ GATEWAY_DEV_TASK_MAX_STEPS: "abc" });
-  assert.equal(config1.devTaskMaxSteps, 15);
+  assert.equal(config1.devTaskMaxSteps, 30);
   const config2 = loadGatewayConfig({ GATEWAY_DEV_TASK_MAX_STEPS: "-1" });
-  assert.equal(config2.devTaskMaxSteps, 15);
+  assert.equal(config2.devTaskMaxSteps, 30);
   const config3 = loadGatewayConfig({ GATEWAY_DEV_TASK_MAX_STEPS: "0" });
-  assert.equal(config3.devTaskMaxSteps, 15);
+  assert.equal(config3.devTaskMaxSteps, 30);
 });
 
 test("loadGatewayConfig falls back to default for invalid devTaskMaxFixRounds", () => {
   const config = loadGatewayConfig({ GATEWAY_DEV_TASK_MAX_FIX_ROUNDS: "xyz" });
-  assert.equal(config.devTaskMaxFixRounds, 3);
+  assert.equal(config.devTaskMaxFixRounds, 5);
 });
 
 test("GatewaySession can hold devTaskState", () => {

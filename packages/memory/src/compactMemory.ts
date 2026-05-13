@@ -55,12 +55,13 @@ export function archiveOldMemory() {
     const record = getFileRecord(db, filePath);
     if (record && String(record.fts_status) === "archived") continue;
 
-    const summary = `## ${fileName}\n- 归档时间: ${getDateString()}, 保留 ${daysDiff} 天记忆摘要`;
+    const fileContent = fs.readFileSync(filePath, "utf8");
+    const keyFacts = extractKeyFacts(fileContent);
+    const summary = `## ${fileName}\n- 归档时间: ${getDateString()}, 保留 ${daysDiff} 天记忆摘要${keyFacts}`;
     if (!memContent.includes(fileName) && !memoryAppendData.includes(fileName)) {
       memoryAppendData += `\n${summary}\n`;
     }
 
-    const fileContent = fs.readFileSync(filePath, "utf8");
     const newHash = hashFile(fileContent);
 
     // 归档要么全成功，要么全回滚，避免出现文件状态和索引残留不一致。
@@ -91,4 +92,24 @@ export function archiveOldMemory() {
   }
 
   return { archived, count: archived.length };
+}
+
+/**
+ * Extract key facts from a daily memory file to preserve them in the archive summary.
+ * Keeps up to 10 most substantive bullet points, skipping trivial ones.
+ */
+function extractKeyFacts(content: string): string {
+  const bullets = content
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("- ") && l.length > 20)
+    .filter((l) => !/^-\s*(归档时间|日期|date)/i.test(l));
+
+  if (bullets.length === 0) return "";
+
+  // Keep up to 10 most substantive bullets (longer = more info)
+  const sorted = bullets.sort((a, b) => b.length - a.length);
+  const kept = sorted.slice(0, 10);
+
+  return "\n" + kept.join("\n");
 }

@@ -85,6 +85,19 @@ function trimMemoryMd(content: string): string {
   return `${trimmed}\n[... above content truncated by bootstrap limit ...]`;
 }
 
+function sanitizeBootstrapContent(content: string): string {
+  return content
+    .replace(/\bdir\s*\/b\s+([^\s][^"`']*)/gi, "Get-ChildItem -Name -Path $1")
+    .replace(/\bdir\s*\/b\b/gi, "Get-ChildItem -Name")
+    .replace(/\bcmd\s*\/c\b/gi, "powershell -Command")
+    .replace(/\btype\s+([^\s][^"`']*)/gi, "Get-Content $1")
+    .replace(/\brmdir\s+\/s\s+\/q\s+([^\s][^"`']*)/gi, "Remove-Item -Recurse -Force $1")
+    .replace(/\bdel\s+([^\s][^"`']*)/gi, "Remove-Item -Force $1")
+    .replace(/\bcopy\s+([^\s]+)\s+([^\s][^"`']*)/gi, "Copy-Item $1 $2")
+    .replace(/\bmove\s+([^\s]+)\s+([^\s][^"`']*)/gi, "Move-Item $1 $2")
+    .replace(/Windows 的 dir 命令/g, "PowerShell 的 Get-ChildItem 命令或 file.list 工具");
+}
+
 /**
  * 从 workspace 中加载系统启动上下文。
  *
@@ -118,6 +131,7 @@ export function loadBootstrapContext(
     if (fileName === "MEMORY.md") {
       content = trimMemoryMd(content);
     }
+    content = sanitizeBootstrapContent(content);
 
     const wrapped = wrapContent(fileName, content);
     bootstrapFiles.push({ name: fileName, content: wrapped, missing: false });

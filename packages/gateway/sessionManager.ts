@@ -165,6 +165,46 @@ export class SessionManager {
     return true;
   }
 
+  purgeSessions(options: { keepRecent?: number; olderThanDays?: number } = {}): { deleted: number; kept: number } {
+    const allSessions = this.sessionStore.listSessions();
+    const keepRecent = options.keepRecent ?? 10;
+    const olderThanDays = options.olderThanDays ?? 30;
+
+    const now = Date.now();
+    const cutoff = now - olderThanDays * 24 * 60 * 60 * 1000;
+
+    const sorted = [...allSessions].sort((a, b) => {
+      const aTime = new Date(a.updatedAt ?? a.createdAt ?? 0).getTime();
+      const bTime = new Date(b.updatedAt ?? b.createdAt ?? 0).getTime();
+      return bTime - aTime;
+    });
+
+    const keepSet = new Set<string>();
+    for (let i = 0; i < Math.min(keepRecent, sorted.length); i++) {
+      keepSet.add(sorted[i].id);
+    }
+
+    if (this.currentSessionId) {
+      keepSet.add(this.currentSessionId);
+    }
+
+    let deleted = 0;
+    for (const session of sorted) {
+      if (keepSet.has(session.id)) continue;
+
+      const sessionTime = new Date(session.updatedAt ?? session.createdAt ?? 0).getTime();
+      if (sessionTime >= cutoff) continue;
+
+      const messageCount = session.messageCount ?? 0;
+      if (messageCount > 0) continue;
+
+      this.deleteSession(session.id);
+      deleted++;
+    }
+
+    return { deleted, kept: allSessions.length - deleted };
+  }
+
   renameSession(sessionId: GatewaySessionId, name: string): GatewaySession {
     const renamed = this.sessionStore.renameSession({
       id: sessionId,

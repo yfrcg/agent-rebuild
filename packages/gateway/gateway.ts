@@ -167,6 +167,9 @@ export class Gateway {
     request: GatewayRequest,
     options: GatewayHandleOptions = {}
   ): Promise<GatewayResponse> {
+    // Learning note: handle() is the request orchestrator. It applies runtime
+    // guards first, then delegates model/tool looping to AgentRunner, and finally
+    // normalizes audit, metrics, debug info, and the public GatewayResponse.
     await this.ensureMcpInitialized();
     throwIfAborted(options.signal);
     const startedAt = Date.now();
@@ -313,6 +316,11 @@ export class Gateway {
           autoToolLoopInfo = result.autoToolLoop;
           devTaskInfo = result.devTask;
           builtContext = result.builtContext;
+          if (result.memorySearchError) {
+            // The request can still complete, but debug/audit must reflect degraded memory retrieval.
+            hasError = true;
+            errorMessage = result.memorySearchError;
+          }
           this.recordCircuitSuccess();
         }
       } catch (err) {

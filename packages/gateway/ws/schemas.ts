@@ -39,6 +39,10 @@ export function validateWsRequestParams(request: WsRequest): SchemaResult {
       return validateSessionRename(request.params);
     case "session.delete":
       return validateStringFields(request.params, ["sessionId"]);
+    case "session.purge":
+      return validateSessionPurge(request.params);
+    case "session.usage":
+      return validateStringFields(request.params, ["sessionId"]);
     case "session.bindProject":
       return validateStringFields(request.params, ["sessionId", "projectDir"]);
     case "session.getTranscript":
@@ -333,6 +337,26 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   );
 }
 
+function validateSessionPurge(params: unknown): SchemaResult {
+  const record = asRecord(params);
+  if (!record) {
+    return { ok: true };
+  }
+  if (
+    record.keepRecent !== undefined &&
+    (typeof record.keepRecent !== "number" || !Number.isInteger(record.keepRecent) || record.keepRecent < 0)
+  ) {
+    return bad("session.purge keepRecent must be a non-negative integer.");
+  }
+  if (
+    record.olderThanDays !== undefined &&
+    (typeof record.olderThanDays !== "number" || record.olderThanDays < 0)
+  ) {
+    return bad("session.purge olderThanDays must be a non-negative number.");
+  }
+  return { ok: true };
+}
+
 const UPDATABLE_RUNTIME_KEYS = new Set([
   "autoToolLoopEnabled",
   "autoReviewGraphEnabled",
@@ -348,7 +372,7 @@ function validateRuntimeUpdateConfig(params: unknown): SchemaResult {
   for (const [key, value] of Object.entries(record)) {
     if (key === "model") {
       if (typeof value !== "string" || !normalizeGatewayModelName(value)) {
-        return bad("runtime.updateConfig model must be mock, deepseek, or tokenplan.");
+        return bad("runtime.updateConfig model must be mock, tokenplan, or minimax.");
       }
       hasValid = true;
     } else if (UPDATABLE_RUNTIME_KEYS.has(key)) {

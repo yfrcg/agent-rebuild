@@ -31,6 +31,7 @@ import { createDevTools } from "./tools/devTools";
 import { createWebFetchTool } from "./tools/webFetch";
 import { createTodoTools } from "./tools/todoTools";
 import { createAgentTools } from "./tools/agentTools";
+import { createRepoTools } from "./tools/repoTools";
 import type {
   GatewayTool,
   GatewayToolContext,
@@ -99,6 +100,10 @@ export function createBuiltinToolRegistry(
   }
 
   for (const tool of createAgentTools(projectRoot)) {
+    registry.register(tool);
+  }
+
+  for (const tool of createRepoTools(projectRoot)) {
     registry.register(tool);
   }
 

@@ -4,8 +4,7 @@ import type {
   GatewayWsErrorCode,
   GatewayMethodResult,
 } from "./types";
-
-const GATEWAY_WS_PROTOCOL_VERSION = "1.0";
+import { GATEWAY_WS_PROTOCOL_VERSION } from "../../gateway/ws/protocol";
 
 export type RawMessageHandler = (data: string) => void;
 export type StateChangeHandler = (state: ConnectionState) => void;

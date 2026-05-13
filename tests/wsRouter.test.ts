@@ -505,7 +505,7 @@ function createRuntimeDouble(
     sandbox: {},
     auditLogger: { async log() {} },
     mcpManager: { async close() {} },
-    setModelProvider(model: "mock" | "deepseek" | "tokenplan") {
+    setModelProvider(model: "mock" | "tokenplan") {
       this.config.model = model;
       this.modelProvider.name = model;
     },
@@ -557,18 +557,17 @@ async function withTempWorkspace(run: () => Promise<void>): Promise<void> {
   const previousCwd = process.cwd();
   const previousWorkspaceRoot = process.env.WORKSPACE_ROOT;
   try {
-    closeDb();
     process.chdir(tempDir);
     process.env.WORKSPACE_ROOT = workspaceRoot;
     await run();
   } finally {
-    closeDb();
     process.chdir(previousCwd);
     if (previousWorkspaceRoot === undefined) {
       delete process.env.WORKSPACE_ROOT;
     } else {
       process.env.WORKSPACE_ROOT = previousWorkspaceRoot;
     }
+    closeDb();
     await rm(tempDir, { recursive: true, force: true });
   }
 }

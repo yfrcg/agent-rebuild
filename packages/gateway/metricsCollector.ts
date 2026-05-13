@@ -9,6 +9,10 @@ export interface GatewayMetricsRecord {
   hasError: boolean;
   rateLimited?: boolean;
   circuitOpen?: boolean;
+  tokens?: { prompt: number; completion: number; total: number };
+  costCents?: number;
+  toolCallCount?: number;
+  toolRetryCount?: number;
 }
 
 /**
@@ -26,6 +30,13 @@ export interface GatewayMetricsSnapshot {
   rateLimitedRequests: number;
   circuitOpenRequests: number;
   circuitState: CircuitState;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
+  totalCostCents: number;
+  totalToolCalls: number;
+  totalToolRetries: number;
+  avgToolCallsPerRequest: number;
   slo: {
     maxRtMs: number;
     maxErrorRate: number;
@@ -52,6 +63,12 @@ export class GatewayMetricsCollector {
   private errorRequests = 0;
   private rateLimitedRequests = 0;
   private circuitOpenRequests = 0;
+  private totalPromptTokens = 0;
+  private totalCompletionTokens = 0;
+  private totalTokens = 0;
+  private totalCostCents = 0;
+  private totalToolCalls = 0;
+  private totalToolRetries = 0;
 
   /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(private readonly options: GatewayMetricsCollectorOptions) {}
@@ -75,6 +92,21 @@ export class GatewayMetricsCollector {
 
     if (record.circuitOpen) {
       this.circuitOpenRequests += 1;
+    }
+
+    if (record.tokens) {
+      this.totalPromptTokens += record.tokens.prompt;
+      this.totalCompletionTokens += record.tokens.completion;
+      this.totalTokens += record.tokens.total;
+    }
+    if (record.costCents) {
+      this.totalCostCents += record.costCents;
+    }
+    if (record.toolCallCount) {
+      this.totalToolCalls += record.toolCallCount;
+    }
+    if (record.toolRetryCount) {
+      this.totalToolRetries += record.toolRetryCount;
     }
 
     this.durations.push(record.durationMs);
@@ -116,6 +148,13 @@ export class GatewayMetricsCollector {
       rateLimitedRequests: this.rateLimitedRequests,
       circuitOpenRequests: this.circuitOpenRequests,
       circuitState,
+      totalPromptTokens: this.totalPromptTokens,
+      totalCompletionTokens: this.totalCompletionTokens,
+      totalTokens: this.totalTokens,
+      totalCostCents: round(this.totalCostCents),
+      totalToolCalls: this.totalToolCalls,
+      totalToolRetries: this.totalToolRetries,
+      avgToolCallsPerRequest: this.totalRequests === 0 ? 0 : round(this.totalToolCalls / this.totalRequests),
       slo: {
         maxRtMs: this.options.maxRtMs,
         maxErrorRate: this.options.maxErrorRate,

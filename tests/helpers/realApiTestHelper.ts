@@ -2,14 +2,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { DeepSeekProvider } from "../../packages/model/deepseekProvider";
+import { TokenPlanProvider } from "../../packages/model/tokenPlanProvider";
 import { resolveProjectRoot } from "../../packages/core/src/config";
 import { loadEnvFile } from "../../packages/gateway/env";
 import { Gateway } from "../../packages/gateway/gateway";
 import { ToolCallExecutor } from "../../packages/gateway/toolCallExecutor";
 import { ToolRegistry } from "../../packages/gateway/toolRegistry";
 import { createBuiltinToolRegistry } from "../../packages/gateway/builtinTools";
-import { runLocalCommand } from "../../packages/gateway/localCommandRunner";
 import { createGatewayRequest } from "../../packages/gateway/requestHandler";
 import type { ChatMessage, ModelProvider, ModelResponse } from "../../packages/model/types";
 import type { GatewayRequest } from "../../packages/gateway/types";
@@ -18,6 +17,14 @@ loadEnvFile();
 
 const WORKSPACE = resolveProjectRoot();
 const LOG_DIR = path.join(WORKSPACE, "logs", "api-test");
+
+export function shouldRunRealApiTests(): boolean {
+  return process.env.RUN_LIVE_API_TESTS === "1" && Boolean(
+    process.env.TOKENPLAN_API_KEY?.trim() ||
+    process.env.MINIMAX_TOKENPLAN_API_KEY?.trim() ||
+    process.env.MINIMAX_API_KEY?.trim()
+  );
+}
 
 export interface ApiCallRecord {
   timestamp: string;
@@ -29,15 +36,15 @@ export interface ApiCallRecord {
   error?: string;
 }
 
-export class LoggingDeepSeekProvider implements ModelProvider {
-  readonly name = "deepseek";
-  private readonly inner: DeepSeekProvider;
+export class LoggingLiveProvider implements ModelProvider {
+  readonly name = "tokenplan";
+  private readonly inner: TokenPlanProvider;
   private callIndex = 0;
   private readonly records: ApiCallRecord[] = [];
 
   /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor() {
-    this.inner = new DeepSeekProvider();
+    this.inner = new TokenPlanProvider();
   }
 
   /**
@@ -120,8 +127,8 @@ export class LoggingDeepSeekProvider implements ModelProvider {
 export function createRealApiGateway(opts?: {
   maxSteps?: number;
   maxFixRounds?: number;
-}): { gateway: Gateway; provider: LoggingDeepSeekProvider; registry: ToolRegistry } {
-  const provider = new LoggingDeepSeekProvider();
+}): { gateway: Gateway; provider: LoggingLiveProvider; registry: ToolRegistry } {
+  const provider = new LoggingLiveProvider();
   const registry = createBuiltinToolRegistry({
     memorySearch: async () => [],
     memoryTopK: 5,

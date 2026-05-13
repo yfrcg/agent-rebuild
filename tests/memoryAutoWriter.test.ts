@@ -328,7 +328,7 @@ describe("MemoryAutoWriter", () => {
       assert.equal(config.memoryMaxChars, 50000);
       assert.equal(config.compressTriggerChars, 45000);
       assert.equal(config.compressTargetChars, 30000);
-      assert.equal(config.minImportanceScore, 0.6);
+      assert.equal(config.minImportanceScore, 0.45);
     });
 
     it("allows config override", () => {

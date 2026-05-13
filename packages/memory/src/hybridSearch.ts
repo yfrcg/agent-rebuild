@@ -10,8 +10,21 @@ import type { MemorySearchResult } from "./types";
  * 不同检索器只要都给出一个“排名”，就能用这个公式把排名融合成统一分数，
  * 既不用强依赖原始分数尺度，也能兼顾多路召回结果。
  */
+function sanitizeFtsQuery(query: string): string {
+  return query
+    .replace(/[\x00-\x1f]/g, " ")
+    .replace(/[{}[\]()*+\-:^~!?\\\/|"';@#%&=<>~`]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function rrfScore(rank: number, k = 60): number {
   return 1 / (rank + k);
+}
+
+// Text matches are deterministic evidence; keep them ahead of approximate vector neighbors.
+function textMatchScore(rank: number): number {
+  return 2 + rrfScore(rank);
 }
 
 /**
@@ -57,18 +70,35 @@ function computeRecencyBoost(filePath: string, date?: string): number {
   }
 
   if (diffDays <= 1) {
-    return 0.08;
+    return 0.15;
+  }
+
+  if (diffDays <= 3) {
+    return 0.12;
   }
 
   if (diffDays <= 7) {
-    return 0.05;
+    return 0.08;
+  }
+
+  if (diffDays <= 14) {
+    return 0.04;
   }
 
   if (diffDays <= 30) {
     return 0.02;
   }
 
-  return 0;
+  // Decay penalty for old memories: gently reduce score so newer context takes priority
+  if (diffDays <= 60) {
+    return -0.02;
+  }
+
+  if (diffDays <= 90) {
+    return -0.05;
+  }
+
+  return -0.08;
 }
 
 /**
@@ -84,6 +114,8 @@ export async function hybridSearch(
   query: string,
   limit = 5
 ): Promise<MemorySearchResult[]> {
+  // Learning note: memory search has two recall paths. FTS/LIKE gives exact text
+  // evidence, vectorSearch gives semantic neighbors, and the merge ranks both.
   const db = getDb();
 
   /**
@@ -121,7 +153,7 @@ export async function hybridSearch(
           LIMIT ?
         `
       )
-      .all(`"${query.replace(/"/g, '\\"')}"`, limit) as Array<{
+      .all(`"${sanitizeFtsQuery(query)}"`, limit) as Array<{
       chunkId: string;
       filePath: string;
       section: string;
@@ -132,7 +164,7 @@ export async function hybridSearch(
       ...row,
       file_id: "",
       date: extractDateFromFilePath(row.filePath),
-      score: rrfScore(index),
+      score: textMatchScore(index),
       source: "fts" as const,
     }));
   } catch {
@@ -161,7 +193,7 @@ export async function hybridSearch(
       ...row,
       file_id: "",
       date: extractDateFromFilePath(row.filePath),
-      score: rrfScore(index),
+      score: textMatchScore(index),
       source: "fts" as const,
     }));
   }

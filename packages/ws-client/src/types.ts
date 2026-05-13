@@ -38,13 +38,15 @@ export interface GatewayMethodParams {
   "runtime.updateConfig": {
     autoToolLoopEnabled?: boolean;
     autoReviewGraphEnabled?: boolean;
-    model?: "mock" | "deepseek" | "tokenplan" | "minimax";
+    model?: "mock" | "tokenplan" | "minimax";
   };
   "session.list": Record<string, never>;
   "session.get": { sessionId?: string };
   "session.create": { name?: string };
   "session.rename": { name: string; sessionId?: string };
   "session.delete": { sessionId: string };
+  "session.purge": { keepRecent?: number; olderThanDays?: number };
+  "session.usage": { sessionId: string };
   "session.bindProject": { sessionId: string; projectDir: string };
   "session.getTranscript": { sessionId: string };
   "chat.send": { sessionId: string; input: string };
@@ -114,6 +116,11 @@ export interface GatewayMethodResult {
   "session.create": Record<string, unknown> & { id?: string; sessionId?: string };
   "session.rename": Record<string, unknown>;
   "session.delete": { deleted: boolean; sessionId: string };
+  "session.purge": { deleted: number; kept: number };
+  "session.usage": {
+    summary: { totalPromptTokens: number; totalCompletionTokens: number; totalTokens: number; totalCostCents: number; requestCount: number };
+    records: Array<Record<string, unknown>>;
+  };
   "session.bindProject": {
     sessionId: string;
     projectDir: string;

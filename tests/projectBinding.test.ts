@@ -43,9 +43,10 @@ function createTestProjectDir(workspace: string, name = "test-project"): string 
  * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
  */
 function createSessionManager(workspace: string): SessionManager {
-  const snapshotPath = path.join(workspace, "sessions.json");
-  const store = new SessionStore(snapshotPath);
-  return new SessionManager(store);
+  const store = new SessionStore();
+  const manager = new SessionManager(store);
+  manager.createSession("Test Session");
+  return manager;
 }
 
 /**
@@ -479,8 +480,9 @@ test("devTaskState and projectDir binding coexist in session", () => {
 test("reload session restores projectDir, permission, projectBound, displayName, and devTaskState", () => {
   const workspace = createTempWorkspace();
   try {
-    const snapshotPath = path.join(workspace, "sessions.json");
-    const manager1 = new SessionManager(new SessionStore(snapshotPath));
+    const store = new SessionStore();
+    const manager1 = new SessionManager(store);
+    manager1.createSession("Reload Test");
     const projectDir = createTestProjectDir(workspace);
     const sessionId = manager1.getCurrentSessionId();
 
@@ -493,7 +495,7 @@ test("reload session restores projectDir, permission, projectBound, displayName,
 
     manager1.bindProjectDir(sessionId, projectDir, [workspace]);
 
-    const manager2 = new SessionManager(new SessionStore(snapshotPath));
+    const manager2 = new SessionManager(store);
     manager2.switchSession(sessionId);
     const reloaded = manager2.getCurrentSession();
 
@@ -983,7 +985,9 @@ test("shell cannot cd to another project via command", async () => {
 test("devTaskState and projectBound coexist and persist together", () => {
   const workspace = createTempWorkspace();
   try {
-    const manager = createSessionManager(workspace);
+    const store = new SessionStore();
+    const manager = new SessionManager(store);
+    manager.createSession("DevTask Test");
     const projectDir = createTestProjectDir(workspace);
     const sessionId = manager.getCurrentSessionId();
 
@@ -1003,8 +1007,7 @@ test("devTaskState and projectBound coexist and persist together", () => {
     assert.equal(session.devTaskState.status, "running");
     assert.equal(session.devTaskState.fixRounds, 2);
 
-    const snapshotPath = path.join(workspace, "sessions.json");
-    const manager2 = new SessionManager(new SessionStore(snapshotPath));
+    const manager2 = new SessionManager(store);
     manager2.switchSession(sessionId);
     const reloaded = manager2.getCurrentSession();
 

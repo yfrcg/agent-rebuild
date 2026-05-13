@@ -311,6 +311,40 @@ test("shell.run supports shell-style && chaining on Windows", async () => {
   }
 });
 
+test("shell.run supports cmd-style dir /b on Windows", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-shell-dir-b-"));
+
+  try {
+    fs.writeFileSync(path.join(tempDir, "alpha.txt"), "alpha\n", "utf8");
+    const registry = new ToolRegistry();
+    registry.register(createSandboxedBashTool(tempDir, "shell.run"));
+    const executor = new ToolCallExecutor({
+      registry,
+      projectRoot: tempDir,
+    });
+
+    const record = await executor.execute(
+      createGatewayToolCallRequest({
+        toolName: "shell.run",
+        input: {
+          command: "dir /b",
+        },
+        approved: true,
+      })
+    );
+
+    assert.equal(record.status, "success");
+    // Command is translated at execution time, not at normalization time
+    assert.equal(record.input.command, "dir /b");
+    assert.equal(record.toolCall?.args.command, "dir /b");
+    const output = record.result?.result as Record<string, unknown> | undefined;
+    const stdout = String(output?.stdoutPreview ?? output?.stdout ?? "");
+    assert.match(stdout, /alpha\.txt/i);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("npm_test executes locally when no sandbox is configured", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "agent-rebuild-npm-test-local-"));
 
@@ -449,7 +483,7 @@ test("large execution output is truncated into logs/tool-results", async () => {
       createGatewayToolCallRequest({
         toolName: "shell.run",
         input: {
-          command: "node -e \"console.log('x'.repeat(9000))\"",
+          command: "node -e \"console.log('x'.repeat(17000))\"",
         },
         approved: true,
       })

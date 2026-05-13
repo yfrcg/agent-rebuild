@@ -7,7 +7,7 @@ import { resolveProjectRoot } from "../../core/src/config";
 import type { GatewayTool, GatewayToolInput } from "../toolTypes";
 
 const DEFAULT_PROFILE = "safe-dev";
-const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
+const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
 
 interface ExecutionCommandSpec {
   command: string;
@@ -48,6 +48,8 @@ export function createSandboxedBashTool(
     properties: {
       command: {
         type: "string",
+        description:
+          "PowerShell command only. Do not use cmd.exe syntax such as dir, type, del, copy, or cmd /c.",
       },
       profileName: {
         type: "string",
@@ -74,7 +76,7 @@ export function createSandboxedBashTool(
   return createSandboxedExecutionTool({
     projectRoot,
     toolName,
-    description: "Run a shell command locally in the project workspace.",
+    description: "Run a PowerShell command locally in the project workspace.",
     schema,
     timeoutMs: DEFAULT_EXECUTION_TIMEOUT_MS,
     policyTags: ["execution", "shell"],
@@ -130,7 +132,7 @@ export function createSandboxedRunTestTool(
     toolName: "run_test",
     description: "Run a project test command locally.",
     schema,
-    timeoutMs: 180_000,
+    timeoutMs: 300_000,
     policyTags: ["execution", "test"],
     /** 方法 `resolveCommand`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     resolveCommand(input, root) {
@@ -141,7 +143,7 @@ export function createSandboxedRunTestTool(
             ? input.command.trim()
             : "npm test",
         cwd,
-        timeoutMs: normalizeTimeout(input.timeoutMs, 180_000),
+        timeoutMs: normalizeTimeout(input.timeoutMs, 300_000),
         envAllowlist: [],
         workspaceMount: root,
         networkPolicy: "none",
@@ -179,7 +181,7 @@ export function createSandboxedNpmTestTool(
     toolName: "npm_test",
     description: "Run npm test or a named npm script locally.",
     schema,
-    timeoutMs: 180_000,
+    timeoutMs: 300_000,
     policyTags: ["execution", "test", "npm"],
     /** 方法 `resolveCommand`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     resolveCommand(input, root) {
@@ -191,7 +193,7 @@ export function createSandboxedNpmTestTool(
       return {
         command: script ? `npm run ${script}` : "npm test",
         cwd,
-        timeoutMs: normalizeTimeout(input.timeoutMs, 180_000),
+        timeoutMs: normalizeTimeout(input.timeoutMs, 300_000),
         envAllowlist: [],
         workspaceMount: root,
         networkPolicy: "none",
@@ -229,7 +231,7 @@ export function createSandboxedBuildTool(
     toolName: "build",
     description: "Run the workspace build command locally.",
     schema,
-    timeoutMs: 240_000,
+    timeoutMs: 600_000,
     policyTags: ["execution", "build", "npm"],
     /** 方法 `resolveCommand`：封装当前类或接口的一步业务操作，调用方依赖它的输入输出契约和错误处理语义。 */
     resolveCommand(input, root) {
@@ -240,7 +242,7 @@ export function createSandboxedBuildTool(
             ? input.command.trim()
             : resolveDefaultBuildCommand(root, cwd),
         cwd,
-        timeoutMs: normalizeTimeout(input.timeoutMs, 240_000),
+        timeoutMs: normalizeTimeout(input.timeoutMs, 600_000),
         envAllowlist: [],
         workspaceMount: root,
         networkPolicy: "none",
@@ -410,6 +412,9 @@ function normalizeShellCwd(input: unknown, projectRoot: string): string {
 
   if (trimmed.startsWith("/workspace/")) {
     const relative = trimmed.slice("/workspace/".length).replace(/\//g, "\\");
+    if (relative.includes("..")) {
+      return projectRoot;
+    }
     return `${projectRoot}\\${relative}`;
   }
 

@@ -46,3 +46,20 @@ artifacts/
 
 # IDE
 .vscode/settings.json
+.idea/
+.claude/settings.local.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Agent rebuild internal state
+.agent-rebuild/
+
+# Workspace temp artifacts
+workspace/tmp-live-verify/
+
+# Database files
+*.db
+*.db-journal
+*.db-wal

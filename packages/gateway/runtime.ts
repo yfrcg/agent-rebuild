@@ -21,6 +21,7 @@ import { SessionManager } from "./sessionManager";
 import { SessionStore } from "./sessionStore";
 import { ToolCallExecutor } from "./toolCallExecutor";
 import { ToolRegistry } from "./toolRegistry";
+import { MemoryScheduler } from "./memoryScheduler";
 
 /**
  * Gateway 启动后组装好的运行时对象。
@@ -41,6 +42,7 @@ export interface GatewayRuntime {
   toolCallExecutor: ToolCallExecutor;
   mcpManager: GatewayMcpManager;
   metricsCollector: GatewayMetricsCollector;
+  memoryScheduler: MemoryScheduler;
   setModelProvider(model: GatewayRuntimeConfig["model"]): void;
   /** 方法 `close`：承载当前模块中的一段可复用流程，调用方依赖它完成明确的业务步骤。 */
   close(): Promise<void>;
@@ -54,6 +56,8 @@ export interface GatewayRuntime {
  * 如果 MCP 配置加载失败，会降级为无 MCP 服务继续启动，保证本地基础能力可用。
  */
 export async function createGatewayRuntime(): Promise<GatewayRuntime> {
+  // Learning note: this is the composition root. Start here to see how config,
+  // model providers, memory, tools, sessions, MCP, metrics, and Gateway are wired.
   loadEnvFile();
 
   const projectRoot = resolveProjectRoot(process.env);
@@ -115,6 +119,8 @@ export async function createGatewayRuntime(): Promise<GatewayRuntime> {
     sandbox,
   });
 
+  const memoryScheduler = new MemoryScheduler();
+
   const gateway = new Gateway({
     memorySearch,
     modelProvider,
@@ -131,9 +137,17 @@ export async function createGatewayRuntime(): Promise<GatewayRuntime> {
     autoReviewGraphEnabled: config.autoReviewGraphEnabled,
     devTaskMaxSteps: config.devTaskMaxSteps,
     devTaskMaxFixRounds: config.devTaskMaxFixRounds,
+    sessionTokenBudget: config.sessionTokenBudget,
+    sessionCostBudgetCents: config.sessionCostBudgetCents,
     sessionManager,
     mcpManager: mcpLazy ? mcpManager : undefined,
+    reviewGraphOptions: config.reviewGraphMaxToolCallsPerAgent > 0
+      ? { maxToolCallsPerAgent: config.reviewGraphMaxToolCallsPerAgent }
+      : undefined,
   });
+
+  // Start background memory scheduler
+  memoryScheduler.start();
 
   return {
     projectRoot,
@@ -148,12 +162,14 @@ export async function createGatewayRuntime(): Promise<GatewayRuntime> {
     toolCallExecutor,
     mcpManager,
     metricsCollector,
+    memoryScheduler,
     setModelProvider(model: GatewayRuntimeConfig["model"]): void {
       modelProvider.setModel(model);
       config.model = model;
     },
     /** 统一关闭运行时持有的外部连接，当前主要是 MCP 子进程/连接。 */
     async close(): Promise<void> {
+      memoryScheduler.stop();
       await mcpManager.close();
     },
   };

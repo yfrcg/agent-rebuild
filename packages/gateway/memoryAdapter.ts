@@ -13,7 +13,19 @@ export function createGatewayMemorySearch(topK = 5): MemorySearch {
   return async function gatewayMemorySearch(
     query: string
   ): Promise<MemorySearchResult[]> {
-    const hits = await hybridSearch(query, topK);
+    let hits: Awaited<ReturnType<typeof hybridSearch>>;
+    try {
+      hits = await hybridSearch(query, topK);
+    } catch (err) {
+      // Memory search must never crash the gateway
+      console.warn("[memoryAdapter] hybridSearch failed:", err instanceof Error ? err.message : err);
+      return [];
+    }
+
+    if (!Array.isArray(hits)) {
+      console.warn("[memoryAdapter] hybridSearch returned non-array:", typeof hits);
+      return [];
+    }
 
     return hits.map((hit, index) => {
       return {

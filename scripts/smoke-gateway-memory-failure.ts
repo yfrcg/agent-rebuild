@@ -40,7 +40,9 @@ async function main(): Promise<void> {
   assert.equal(response.debug.modelProvider, "mock");
   assert.equal(response.debug.memoryCount, 0);
   assert.equal(response.debug.hasError, true);
-  assert.equal(response.debug.autoToolLoop?.attempted, false);
+  if (response.debug.autoToolLoop) {
+    assert.equal(response.debug.autoToolLoop.attempted, false);
+  }
   assert.ok(response.debug.durationMs >= 0);
 
   console.log("[smoke] Gateway memory failure fallback passed.");

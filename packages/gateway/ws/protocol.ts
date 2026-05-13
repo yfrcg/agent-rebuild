@@ -17,6 +17,8 @@ export type GatewayWsMethod =
   | "session.create"
   | "session.rename"
   | "session.delete"
+  | "session.purge"
+  | "session.usage"
   | "session.bindProject"
   | "session.getTranscript"
   | "chat.send"
@@ -148,6 +150,7 @@ const GATEWAY_WS_METHODS = new Set<string>([
   "session.create",
   "session.rename",
   "session.delete",
+  "session.purge",
   "session.bindProject",
   "session.getTranscript",
   "chat.send",

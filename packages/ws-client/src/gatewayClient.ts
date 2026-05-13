@@ -221,6 +221,18 @@ export class GatewayClient {
     return this.request("session.delete", { sessionId });
   }
 
+  sessionPurge(
+    options: { keepRecent?: number; olderThanDays?: number } = {}
+  ): Promise<GatewayMethodResult["session.purge"]> {
+    return this.request("session.purge", options);
+  }
+
+  sessionUsage(
+    sessionId: string
+  ): Promise<GatewayMethodResult["session.usage"]> {
+    return this.request("session.usage", { sessionId });
+  }
+
   sessionBindProject(
     sessionId: string,
     projectDir: string
@@ -359,6 +371,11 @@ export class GatewayClient {
 
     this.connection.onClose(() => {
       this.requests.rejectAll(new ConnectionClosedError());
+    });
+
+    // Wire up resync: when server signals state.resync_required, trigger resync handlers
+    this.events.onResyncRequired(() => {
+      this.resume.triggerResync();
     });
   }
 

@@ -133,7 +133,7 @@ async function main(): Promise<void> {
 
   if (provider.name === "mock") {
     console.warn(
-      "[eval:auto-tool] current model provider is mock; use GATEWAY_MODEL=deepseek for meaningful planner evaluation."
+      "[eval:auto-tool] current model provider is mock; use GATEWAY_MODEL=tokenplan for meaningful planner evaluation."
     );
   }
 }

@@ -95,6 +95,16 @@ test("discoverSkills supports cross-platform SKILL.md roots and activates matchi
   }
 });
 
+test("bootstrap sanitizes stale cmd syntax from workspace memory", () => {
+  const bootstrap = loadBootstrapContext({
+    userInput: "检查本地记忆",
+  });
+
+  assert.doesNotMatch(bootstrap.bootstrapText, /\bdir\s*\/b\b/i);
+  assert.doesNotMatch(bootstrap.bootstrapText, /\bcmd\s*\/c\b/i);
+  assert.doesNotMatch(bootstrap.bootstrapText, /Windows 的 dir 命令/);
+});
+
 test("selectSkills respects priority and conflicts from SKILL frontmatter", () => {
   const high = makeSkill({
     name: "high-skill",

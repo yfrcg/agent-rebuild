@@ -1,7 +1,7 @@
+import { getDb } from "../../storage/src/db";
 
 export type IdempotencyStatus = "running" | "completed" | "failed";
 
-/** 单个幂等键对应的缓存记录。 */
 export interface IdempotencyRecord {
   key: string;
   method: string;
@@ -12,88 +12,101 @@ export interface IdempotencyRecord {
   error?: unknown;
 }
 
-/**
- * 进程内幂等记录存储。
- *
- * WS 网关的写操作和长任务可能因为网络抖动被客户端重发，
- * 这个存储用短 TTL 缓存请求结果，防止重复创建会话、重复写记忆或重复执行工具。
- */
+let ensuredDb: unknown = null;
+
+function ensureTable(): void {
+  const db = getDb();
+  if (ensuredDb === db) return;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS idempotency_records (
+      key TEXT PRIMARY KEY,
+      method TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      payload_json TEXT,
+      error_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_idem_updated ON idempotency_records(updated_at);
+  `);
+  ensuredDb = db;
+}
+
 export class IdempotencyStore {
   private readonly ttlMs: number;
-  private readonly records = new Map<string, IdempotencyRecord>();
 
-  /** 构造器说明：初始化当前类依赖和内部状态，保证实例创建后可以按既定生命周期工作。 */
   constructor(options?: { ttlMs?: number }) {
     this.ttlMs = options?.ttlMs ?? 10 * 60_000;
+    ensureTable();
   }
 
-  /** 读取幂等记录，读取前顺手清理过期数据。 */
   get(key: string): IdempotencyRecord | undefined {
     this.cleanup();
-    return this.records.get(key);
+    const db = getDb();
+    const row = db.prepare(
+      `SELECT key, method, status, created_at, updated_at, payload_json, error_json FROM idempotency_records WHERE key = ?`
+    ).get(key) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return mapRow(row);
   }
 
-  /** 返回当前仍有效的幂等记录，主要供运行任务完成后反查请求使用。 */
   list(): IdempotencyRecord[] {
     this.cleanup();
-    return Array.from(this.records.values());
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT key, method, status, created_at, updated_at, payload_json, error_json FROM idempotency_records ORDER BY updated_at DESC`
+    ).all() as Array<Record<string, unknown>>;
+    return rows.map(mapRow);
   }
 
-  /**
-   * 开始记录一个幂等请求。
-   *
-   * 如果 key 已存在，直接返回旧记录，让调用方按旧状态响应。
-   */
   begin(key: string, method: string, payload?: unknown): IdempotencyRecord {
     this.cleanup();
-    const existing = this.records.get(key);
+    const existing = this.get(key);
     if (existing) {
       return existing;
     }
 
     const now = Date.now();
-    const record: IdempotencyRecord = {
-      key,
-      method,
-      status: "running",
-      createdAt: now,
-      updatedAt: now,
-      payload,
-    };
-    this.records.set(key, record);
-    return record;
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO idempotency_records (key, method, status, created_at, updated_at, payload_json) VALUES (?, ?, 'running', ?, ?, ?)`
+    ).run(key, method, now, now, payload !== undefined ? JSON.stringify(payload) : null);
+
+    return { key, method, status: "running", createdAt: now, updatedAt: now, payload, error: undefined };
   }
 
-  /** 将幂等请求标记为完成，并保存最终 payload。 */
   complete(key: string, payload: unknown): void {
-    const record = this.records.get(key);
-    if (!record) {
-      return;
-    }
-    record.status = "completed";
-    record.payload = payload;
-    record.error = undefined;
-    record.updatedAt = Date.now();
+    const now = Date.now();
+    const db = getDb();
+    db.prepare(
+      `UPDATE idempotency_records SET status = 'completed', payload_json = ?, error_json = NULL, updated_at = ? WHERE key = ?`
+    ).run(JSON.stringify(payload), now, key);
   }
 
-  /** 将幂等请求标记为失败，后续同 key 请求会得到冲突响应。 */
   fail(key: string, error: unknown): void {
-    const record = this.records.get(key);
-    if (!record) {
-      return;
-    }
-    record.status = "failed";
-    record.error = error;
-    record.updatedAt = Date.now();
+    const now = Date.now();
+    const db = getDb();
+    db.prepare(
+      `UPDATE idempotency_records SET status = 'failed', error_json = ?, updated_at = ? WHERE key = ?`
+    ).run(JSON.stringify(error), now, key);
   }
 
-  /** 清理超过 TTL 的记录，避免长时间运行时 Map 无限增长。 */
   cleanup(): void {
     const now = Date.now();
-    for (const [key, record] of this.records.entries()) {
-      if (now - record.updatedAt > this.ttlMs) {
-        this.records.delete(key);
-      }
-    }
+    const cutoff = now - this.ttlMs;
+    const db = getDb();
+    db.prepare(`DELETE FROM idempotency_records WHERE updated_at < ?`).run(cutoff);
   }
+}
+
+function mapRow(row: Record<string, unknown>): IdempotencyRecord {
+  return {
+    key: row.key as string,
+    method: row.method as string,
+    status: row.status as IdempotencyStatus,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+    payload: row.payload_json ? JSON.parse(row.payload_json as string) : undefined,
+    error: row.error_json ? JSON.parse(row.error_json as string) : undefined,
+  };
 }

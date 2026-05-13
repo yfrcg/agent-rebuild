@@ -6,10 +6,9 @@ import {
   resolveWorkspaceRoot,
 } from "../core/src/config";
 
-export type GatewayModelName = "mock" | "deepseek" | "tokenplan";
+export type GatewayModelName = "mock" | "tokenplan";
 export const GATEWAY_MODEL_NAMES: readonly GatewayModelName[] = [
   "mock",
-  "deepseek",
   "tokenplan",
 ];
 export type GatewaySandboxMode = "off" | "workspace-write" | "read-only";
@@ -27,6 +26,8 @@ export interface GatewayRuntimeConfig {
   autoToolLoopMaxSteps: number;
   devTaskMaxSteps: number;
   devTaskMaxFixRounds: number;
+  sessionTokenBudget: number;
+  sessionCostBudgetCents: number;
   sessionAutoCompactEnabled: boolean;
   sessionAutoCompactMaxEntries: number;
   rateLimitMaxRequests: number;
@@ -36,6 +37,7 @@ export interface GatewayRuntimeConfig {
   sloMaxRtMs: number;
   sloMaxErrorRate: number;
   tavilyApiKey: string;
+  reviewGraphMaxToolCallsPerAgent: number;
 }
 
 /**
@@ -65,9 +67,11 @@ export function loadGatewayConfig(
     confirmTokenTtlMs: parsePositiveInteger(env.GATEWAY_CONFIRM_TOKEN_TTL_MS, 300_000),
     autoToolLoopEnabled: parseBoolean(env.GATEWAY_AUTO_TOOL_LOOP_ENABLED, true),
     autoReviewGraphEnabled: parseBoolean(env.GATEWAY_AUTO_REVIEW_GRAPH_ENABLED, false),
-    autoToolLoopMaxSteps: parsePositiveInteger(env.GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS, 5),
-    devTaskMaxSteps: parsePositiveInteger(env.GATEWAY_DEV_TASK_MAX_STEPS, 15),
-    devTaskMaxFixRounds: parsePositiveInteger(env.GATEWAY_DEV_TASK_MAX_FIX_ROUNDS, 3),
+    autoToolLoopMaxSteps: parsePositiveInteger(env.GATEWAY_AUTO_TOOL_LOOP_MAX_STEPS, 15),
+    devTaskMaxSteps: parsePositiveInteger(env.GATEWAY_DEV_TASK_MAX_STEPS, 30),
+    devTaskMaxFixRounds: parsePositiveInteger(env.GATEWAY_DEV_TASK_MAX_FIX_ROUNDS, 5),
+    sessionTokenBudget: parsePositiveInteger(env.GATEWAY_SESSION_TOKEN_BUDGET, 2_000_000),
+    sessionCostBudgetCents: parsePositiveInteger(env.GATEWAY_SESSION_COST_BUDGET_CENTS, 2000),
     sessionAutoCompactEnabled: parseBoolean(
       env.GATEWAY_SESSION_AUTO_COMPACT_ENABLED,
       true
@@ -86,6 +90,10 @@ export function loadGatewayConfig(
     sloMaxRtMs: parsePositiveInteger(env.GATEWAY_SLO_MAX_RT_MS, 200),
     sloMaxErrorRate: parseBoundedNumber(env.GATEWAY_SLO_MAX_ERROR_RATE, 0.1, 0, 1),
     tavilyApiKey: env.TAVILY_API_KEY?.trim() ?? "",
+    reviewGraphMaxToolCallsPerAgent: parsePositiveInteger(
+      env.GATEWAY_REVIEW_GRAPH_MAX_TOOL_CALLS_PER_AGENT,
+      0
+    ),
   };
 }
 
@@ -148,10 +156,10 @@ function parseModelName(value: string | undefined): GatewayModelName {
   }
 
   if (value === undefined || value.trim() === "") {
-    return "deepseek";
+    return "tokenplan";
   }
 
-  return "deepseek";
+  return "tokenplan";
 }
 
 export function normalizeGatewayModelName(

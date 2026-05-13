@@ -103,7 +103,7 @@ test("ContextCompressor Tier 3 microcompact clears old results after idle", () =
     { name: "file.read", path: "/e.txt", size: 500 },
   ]);
 
-  (compressor as any).lastApiCallTime = Date.now() - 6 * 60 * 1000;
+  (compressor as any).lastApiCallTime = Date.now() - 16 * 60 * 1000;
 
   const stats = compressor.runPipeline(messages);
 

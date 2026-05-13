@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   ModelGenerateOptions,
   ModelResponse,
+  ModelUsage,
   StreamingModelProvider,
 } from "./types";
 
@@ -36,10 +37,23 @@ interface ChatCompletionResponse {
     message?: {
       role?: string;
       content?: string | null;
+      tool_calls?: Array<{
+        id?: string;
+        type?: string;
+        function?: {
+          name?: string;
+          arguments?: string;
+        };
+      }>;
     };
     text?: string;
     finish_reason?: string;
   }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
   error?: {
     message?: string;
     type?: string;
@@ -70,6 +84,7 @@ export class OpenAiCompatibleProvider implements StreamingModelProvider {
   private readonly config: OpenAiCompatibleProviderConfig;
 
   private lastRawResponse: unknown;
+  private lastUsage: ModelUsage | undefined;
 
   constructor(
     config: OpenAiCompatibleProviderConfig,
@@ -111,16 +126,16 @@ export class OpenAiCompatibleProvider implements StreamingModelProvider {
   ): Promise<ModelResponse> {
     if (options?.onDelta) {
       let text = "";
-      for await (const delta of this.generateStream(messages, { signal: options.signal, responseFormat: options.responseFormat })) {
+      for await (const delta of this.generateStream(messages, { signal: options.signal, responseFormat: options.responseFormat, tools: options.tools })) {
         throwIfAborted(options.signal);
         text += delta;
         await options.onDelta(delta);
       }
-      return { text, raw: this.lastRawResponse };
+      return { text, raw: this.lastRawResponse, usage: this.lastUsage };
     }
 
-    const text = await this.chat(messages, { signal: options?.signal, responseFormat: options?.responseFormat });
-    return { text, raw: this.lastRawResponse };
+    const text = await this.chat(messages, { signal: options?.signal, responseFormat: options?.responseFormat, tools: options?.tools });
+    return { text, raw: this.lastRawResponse, usage: this.lastUsage };
   }
 
   async complete(messages: ChatMessage[]): Promise<string> {
@@ -133,7 +148,7 @@ export class OpenAiCompatibleProvider implements StreamingModelProvider {
 
   async *generateStream(
     messages: ChatMessage[],
-    options?: { signal?: AbortSignal; responseFormat?: { type: "json_object" | "text" } }
+    options?: { signal?: AbortSignal; responseFormat?: { type: "json_object" | "text" }; tools?: import("./types").ModelToolDefinition[] }
   ): AsyncIterable<string> {
     this.assertConfig();
 
@@ -154,6 +169,16 @@ export class OpenAiCompatibleProvider implements StreamingModelProvider {
       };
       if (options?.responseFormat) {
         body.response_format = options.responseFormat;
+      }
+      if (options?.tools && options.tools.length > 0) {
+        body.tools = options.tools.map((tool) => ({
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters ?? { type: "object", properties: {} },
+          },
+        }));
       }
 
       const response = await fetch(endpoint, {
@@ -225,7 +250,7 @@ export class OpenAiCompatibleProvider implements StreamingModelProvider {
 
   async chat(
     messages: ChatMessage[],
-    options?: { signal?: AbortSignal; responseFormat?: { type: "json_object" | "text" } }
+    options?: { signal?: AbortSignal; responseFormat?: { type: "json_object" | "text" }; tools?: import("./types").ModelToolDefinition[] }
   ): Promise<string> {
     this.assertConfig();
 
@@ -247,6 +272,16 @@ export class OpenAiCompatibleProvider implements StreamingModelProvider {
       if (options?.responseFormat) {
         body.response_format = options.responseFormat;
       }
+      if (options?.tools && options.tools.length > 0) {
+        body.tools = options.tools.map((tool) => ({
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters ?? { type: "object", properties: {} },
+          },
+        }));
+      }
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -261,11 +296,18 @@ export class OpenAiCompatibleProvider implements StreamingModelProvider {
       const rawText = await response.text();
       const parsed = this.safeParseJson(rawText);
       this.lastRawResponse = parsed ?? rawText;
+      this.lastUsage = this.extractUsage(parsed);
 
       if (!response.ok) {
         throw new Error(
           this.buildHttpErrorMessage(response.status, response.statusText, rawText)
         );
+      }
+
+      // Check for native tool_calls in the response
+      const toolCallContent = this.extractToolCalls(parsed);
+      if (toolCallContent) {
+        return toolCallContent;
       }
 
       const content = this.extractContent(parsed);
@@ -319,6 +361,10 @@ export class OpenAiCompatibleProvider implements StreamingModelProvider {
   }
 
   private normalizeMessages(messages: ChatMessage[]): ChatMessage[] {
+    if (!Array.isArray(messages)) {
+      console.warn("[OpenAiCompatibleProvider] normalizeMessages received non-array:", typeof messages);
+      return [];
+    }
     return messages.map((message) => ({
       role: message.role,
       content: String(message.content ?? ""),
@@ -354,6 +400,54 @@ export class OpenAiCompatibleProvider implements StreamingModelProvider {
       return choice.text.trim();
     }
     return "";
+  }
+
+  /**
+   * Extract native tool_calls from the API response and convert to JSON format
+   * that the agent runner can parse.
+   */
+  private extractToolCalls(raw: unknown): string | undefined {
+    const response = raw as ChatCompletionResponse | undefined;
+    const choice = response?.choices?.[0];
+    const toolCalls = choice?.message?.tool_calls;
+    if (!toolCalls || toolCalls.length === 0) {
+      return undefined;
+    }
+
+    // Convert the first tool call to the agent runner's expected format
+    const toolCall = toolCalls[0];
+    const functionName = toolCall.function?.name;
+    if (!functionName) {
+      return undefined;
+    }
+
+    let args: Record<string, unknown> = {};
+    if (toolCall.function?.arguments) {
+      try {
+        args = JSON.parse(toolCall.function.arguments);
+      } catch {
+        // If arguments aren't valid JSON, pass them as-is
+        args = { raw: toolCall.function.arguments };
+      }
+    }
+
+    // Return in the format the agent runner expects
+    return JSON.stringify({
+      type: "tool_call",
+      tool: functionName,
+      args,
+    });
+  }
+
+  private extractUsage(raw: unknown): ModelUsage | undefined {
+    const response = raw as ChatCompletionResponse | undefined;
+    const u = response?.usage;
+    if (!u) return undefined;
+    const prompt = u.prompt_tokens ?? 0;
+    const completion = u.completion_tokens ?? 0;
+    const total = u.total_tokens ?? (prompt + completion);
+    if (prompt === 0 && completion === 0 && total === 0) return undefined;
+    return { promptTokens: prompt, completionTokens: completion, totalTokens: total };
   }
 
   private safeParseJson(rawText: string): unknown {
