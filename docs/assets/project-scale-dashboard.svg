@@ -1,0 +1,95 @@
+<svg width="920" height="330" viewBox="0 0 920 330" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">agent-rebuild project scale dashboard</title>
+  <desc id="desc">A visual dashboard showing codebase scale: 55,208 total lines, 53,582 code lines, 203 code files, 410 passing tests, 8 packages, and 99 Gateway files.</desc>
+  <style>
+    .bg { fill: #07111f; }
+    .panel { fill: #101827; stroke: #28364b; stroke-width: 1; }
+    .title { fill: #f8fafc; font: 800 22px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .subtitle { fill: #a7b4c8; font: 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .card { fill: #162236; stroke: #334155; stroke-width: 1.2; }
+    .card-hot { fill: #122f2a; stroke: #22c55e; stroke-width: 1.5; }
+    .card-blue { fill: #12243a; stroke: #38bdf8; stroke-width: 1.5; }
+    .num { fill: #f8fafc; font: 800 30px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; letter-spacing: 0; }
+    .num-big { fill: #f8fafc; font: 900 42px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; letter-spacing: 0; }
+    .label { fill: #cbd5e1; font: 600 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .hint { fill: #94a3b8; font: 11px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    .bar-bg { fill: #1e293b; }
+    .bar-code { fill: url(#codeGradient); animation: growCode 1.8s ease-out both; transform-origin: left center; }
+    .bar-test { fill: url(#testGradient); animation: growTest 1.8s ease-out .25s both; transform-origin: left center; }
+    .bar-doc { fill: url(#docGradient); animation: growDoc 1.8s ease-out .5s both; transform-origin: left center; }
+    .pulse { animation: pulse 2.6s ease-in-out infinite; }
+    .scan { animation: scan 3.4s ease-in-out infinite; opacity: .5; }
+    @keyframes growCode { from { transform: scaleX(.05); } to { transform: scaleX(1); } }
+    @keyframes growTest { from { transform: scaleX(.05); } to { transform: scaleX(.162); } }
+    @keyframes growDoc { from { transform: scaleX(.05); } to { transform: scaleX(.031); } }
+    @keyframes pulse { 0%,100% { filter: none; } 50% { filter: url(#glow); } }
+    @keyframes scan { 0%,100% { transform: translateX(0); } 50% { transform: translateX(760px); } }
+  </style>
+  <defs>
+    <linearGradient id="codeGradient" x1="0" x2="1">
+      <stop stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#22c55e"/>
+    </linearGradient>
+    <linearGradient id="testGradient" x1="0" x2="1">
+      <stop stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#a3e635"/>
+    </linearGradient>
+    <linearGradient id="docGradient" x1="0" x2="1">
+      <stop stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#f97316"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect class="bg" width="920" height="330" rx="18"/>
+  <rect class="panel" x="24" y="24" width="872" height="282" rx="16"/>
+  <rect class="scan" x="54" y="45" width="88" height="2" rx="1" fill="#38bdf8"/>
+  <text class="title" x="54" y="66">Codebase Scale / 项目规模</text>
+  <text class="subtitle" x="54" y="90">A production-shaped local Agent Gateway, not a toy chat shell.</text>
+
+  <rect class="card-blue pulse" x="54" y="118" width="250" height="92" rx="14"/>
+  <text class="num-big" x="76" y="161">55,208</text>
+  <text class="label" x="78" y="184">total tracked lines</text>
+  <text class="hint" x="78" y="201">code + docs counted from repository files</text>
+
+  <rect class="card-hot pulse" x="330" y="118" width="250" height="92" rx="14"/>
+  <text class="num-big" x="352" y="161">53,582</text>
+  <text class="label" x="354" y="184">code lines</text>
+  <text class="hint" x="354" y="201">TypeScript / TSX / JavaScript</text>
+
+  <rect class="card" x="606" y="118" width="250" height="92" rx="14"/>
+  <text class="num-big" x="628" y="161">410</text>
+  <text class="label" x="630" y="184">passing tests</text>
+  <text class="hint" x="630" y="201">68 suites in gateway:check</text>
+
+  <rect class="card" x="54" y="228" width="178" height="52" rx="12"/>
+  <text class="num" x="74" y="261">203</text>
+  <text class="label" x="140" y="258">code files</text>
+  <text class="hint" x="140" y="273">TS/TSX/JS</text>
+
+  <rect class="card" x="248" y="228" width="178" height="52" rx="12"/>
+  <text class="num" x="268" y="261">99</text>
+  <text class="label" x="322" y="258">Gateway files</text>
+  <text class="hint" x="322" y="273">core runtime</text>
+
+  <rect class="card" x="442" y="228" width="178" height="52" rx="12"/>
+  <text class="num" x="462" y="261">25</text>
+  <text class="label" x="516" y="258">test files</text>
+  <text class="hint" x="516" y="273">behavior coverage</text>
+
+  <rect class="card" x="636" y="228" width="220" height="52" rx="12"/>
+  <text class="num" x="656" y="261">8</text>
+  <text class="label" x="690" y="258">packages</text>
+  <text class="hint" x="690" y="273">2 apps + Gateway ecosystem</text>
+
+  <rect class="bar-bg" x="54" y="103" width="802" height="5" rx="2.5"/>
+  <rect class="bar-code" x="54" y="103" width="802" height="5" rx="2.5"/>
+  <rect class="bar-test" x="54" y="103" width="802" height="5" rx="2.5"/>
+  <rect class="bar-doc" x="54" y="103" width="802" height="5" rx="2.5"/>
+</svg>

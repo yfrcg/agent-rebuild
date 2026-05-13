@@ -11,6 +11,21 @@ AI Agent Gateway for Windows-native local development. It turns model responses,
 [![Transport](https://img.shields.io/badge/transport-REPL%20%2B%20WebSocket-4B5563)](docs/ws-protocol.md)
 [![License](https://img.shields.io/badge/license-ISC-111827)](#license)
 
+## 项目规模
+
+<p align="center">
+  <img src="docs/assets/project-scale-dashboard.svg" alt="agent-rebuild project scale dashboard" width="920" />
+</p>
+
+| 指标 | 数量 | 说明 |
+| --- | ---: | --- |
+| 总行数 | **55,208** | 仓库内代码与文档统计，不含 `node_modules` / 构建产物。 |
+| 代码行数 | **53,582** | TypeScript / TSX / JavaScript。 |
+| 代码文件 | **203** | 覆盖 Gateway、Web UI、WS Client、Memory、Model、Storage、脚本和测试。 |
+| Gateway 核心文件 | **99** | `packages/gateway` 下的运行时、工具、安全、WS、ReviewGraph 等模块。 |
+| 测试规模 | **410 passing tests** | `npm run gateway:check` 中 68 个 suites 全部通过。 |
+| 包结构 | **8 packages + 2 apps** | 多包架构，包含本地 Gateway 和 React 控制台。 |
+
 ## 项目介绍
 
 `agent-rebuild` 是一个本地 AI Agent 控制层。它不是简单的聊天壳，而是把 Agent 的关键动作统一放进 Gateway：
