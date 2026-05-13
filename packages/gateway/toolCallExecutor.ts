@@ -1,3 +1,10 @@
+/**
+ * ?????CS336 ???
+ * ???packages/gateway/toolCallExecutor.ts
+ * ???Gateway ?????
+ * ??????? Agent ?????????????????????
+ * ???????????????????????????????????? README ????????????????
+ */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -41,9 +48,19 @@ export class ToolCallExecutor {
   }
 
   /**
-   * 方法 `execute` 的职责说明。
-   * `execute` 负责执行核心流程，通常会串联校验、状态更新、外部调用和错误处理。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   * 执行一个模型请求的工具调用，并记录完整安全轨迹。
+   *
+   * Args:
+   *   request: 工具名、输入参数、会话/请求 ID、权限模式、项目边界和取消信号。
+   *
+   * Returns:
+   *   Promise<GatewayToolCallRecord>：工具状态、输出、风险等级、耗时、拒绝原因和审计上下文。
+   *
+   * 实现步骤：
+   *   1. 在参数翻译前检查危险 shell 命令，避免绕过规则。
+   *   2. 规范化输入并确认工具已注册。
+   *   3. 通过 PermissionPolicy、sandbox/path guard 和工具安全画像。
+   *   4. 执行工具、截断大结果、写入审计并返回结构化记录。
    */
   async execute(request: GatewayToolCallRequest): Promise<GatewayToolCallRecord> {
     // Learning note: every tool call passes through this funnel. Follow the code

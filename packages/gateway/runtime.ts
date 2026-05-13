@@ -1,3 +1,10 @@
+/**
+ * ?????CS336 ???
+ * ???packages/gateway/runtime.ts
+ * ???Gateway ?????
+ * ??????? Agent ?????????????????????
+ * ???????????????????????????????????? README ????????????????
+ */
 
 import { FileAuditLogger } from "../audit/auditLogger";
 import { resolveProjectRoot } from "../core/src/config";
@@ -49,11 +56,17 @@ export interface GatewayRuntime {
 }
 
 /**
- * 创建完整 Gateway 运行时。
+ * 按 CS336 的“先定义接口，再实现计算图”思路创建完整 Gateway 运行时。
  *
- * 这里集中完成环境变量加载、项目根解析、配置读取、会话存储、沙箱、
- * MCP 管理器、模型供应商、限流器、熔断器、指标、审计、记忆检索和工具执行器的装配。
- * 如果 MCP 配置加载失败，会降级为无 MCP 服务继续启动，保证本地基础能力可用。
+ * Args:
+ *   无。运行时依赖从 `.env`、项目根目录和本地配置文件中读取。
+ *
+ * Returns:
+ *   Promise<GatewayRuntime>：已经装配好的 Gateway、模型、会话、工具、MCP、审计、指标和记忆服务。
+ *
+ * 学习提示：
+ *   这里是 Composition Root。初学者可以把它当成“模型前向传播前的网络搭建”：
+ *   先创建依赖，再把依赖注入到 Gateway，最后暴露统一的运行时对象给 CLI 和 WebSocket。
  */
 export async function createGatewayRuntime(): Promise<GatewayRuntime> {
   // Learning note: this is the composition root. Start here to see how config,

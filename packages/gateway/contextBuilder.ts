@@ -1,3 +1,10 @@
+/**
+ * ?????CS336 ???
+ * ???packages/gateway/contextBuilder.ts
+ * ???Gateway ?????
+ * ??????? Agent ?????????????????????
+ * ???????????????????????????????????? README ????????????????
+ */
 
 import { loadBootstrapContext } from "../core/src/bootstrap";
 import type { ChatMessage } from "../model/types";
@@ -170,9 +177,21 @@ export class ContextBuilder {
   }
 
   /**
-   * 方法 `buildContext` 的职责说明。
-   * `buildContext` 负责创建当前模块需要的对象或请求结构，并集中处理默认值与依赖装配。
-   * 维护时请重点关注调用边界、错误处理、状态变化和与相邻模块的契约一致性。
+   * 把用户任务、记忆、权限状态和项目边界组装成模型可消费的上下文。
+   *
+   * Args:
+   *   userInput: 当前轮用户输入。
+   *   memoryResults: 由 memory.search 或 hybridSearch 找到的相关记忆片段。
+   *   options: 当前激活 Skill、权限模式、计划状态、会话工作记忆和项目边界。
+   *
+   * Returns:
+   *   BuiltGatewayContext：messages、记忆选择摘要、Skill 选择摘要和上下文构建调试信息。
+   *
+   * 实现步骤：
+   *   1. 固定系统提示词，定义模型必须遵守的输出契约。
+   *   2. 注入 bootstrap、项目边界、权限模式和 Skill 说明。
+   *   3. 注入长期记忆、会话工作记忆和当前用户任务。
+   *   4. 返回可直接交给 ModelProvider 的 ChatMessage 数组。
    */
   buildContext(
     userInput: string,
